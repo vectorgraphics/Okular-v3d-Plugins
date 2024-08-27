@@ -12,4 +12,5 @@ zip release.zip                         \
     Release/fragment.spv                \
     Release/okularGenerator_poppler.so  \
     Release/okularGenerator_v3d.so      \
-    Release/install.sh
+    Release/install.sh                  \
+    Release/README.md
