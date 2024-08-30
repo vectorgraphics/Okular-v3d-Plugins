@@ -1,6 +1,3 @@
 [submodule "3rdParty/V3D-Common"]
 	path = 3rdParty/V3D-Common
 	url = git@github.com:Ben-Bingham/V3D-Common.git
-[submodule "3rdParty/gzip-hpp"]
-	path = 3rdParty/gzip-hpp
-	url = git@github.com:Ben-Bingham/gzip-hpp.git
