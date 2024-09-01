@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = git@github.com:vectorgraphics/v3d-Common.git
+	branch = main
+	commit = 67d810ee3f1ca7766824d61267e7db5bdf19267c
+	parent = b7e3e410214675a017248a5aa2aaf1057e1d71a2
+	method = merge
+	cmdver = 0.4.9
