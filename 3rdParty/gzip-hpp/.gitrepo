@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = git@github.com:vectorgraphics/gzip-hpp.git
+	branch = master
+	commit = 4457e0db16fa409d32c3f809b06c0ad769af24aa
+	parent = acac9055283f1f113b417eb34f92a98ddadc1907
+	method = merge
+	cmdver = 0.4.9
