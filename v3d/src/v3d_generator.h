@@ -12,8 +12,8 @@
 
 #include <core/textdocumentgenerator.h>
 
-#include "../3rdParty/V3D-Common/Rendering/renderheadless.h"
-#include "../3rdParty/V3D-Common/V3dFile/V3dFile.h"
+#include "../3rdParty/v3d-Common/Rendering/renderheadless.h"
+#include "../3rdParty/v3d-Common/V3dFile/V3dFile.h"
 
 #include <thread>
 #include "part/pageview.h"
@@ -22,7 +22,7 @@
 
 #include <chrono>
 
-#include "../3rdParty/V3D-Common/V3dModelManager.h"
+#include "../3rdParty/v3d-Common/V3dModelManager.h"
 
 class EventFilter;
 

@@ -2,8 +2,8 @@
 
 rm -f release.zip
 
-cp 3rdParty/V3D-Common/shaders/vertex.spv Release/
-cp 3rdParty/V3D-Common/shaders/fragment.spv Release/
+cp 3rdParty/v3d-Common/shaders/vertex.spv Release/
+cp 3rdParty/v3d-Common/shaders/fragment.spv Release/
 cp ../../../../build/okular/bin/plugins/okular/okularGenerator_poppler.so Release/
 cp ../../../../build/okular/bin/plugins/okular/okularGenerator_v3d.so Release/
 
