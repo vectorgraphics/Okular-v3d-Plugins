@@ -25,7 +25,7 @@ sudo ./install.sh
 folder
 * Finally add the lines:
 ```
-add_subdirectory(Okular-v3d-Plugins/Embedded)
-add_subdirectory(Okular-v3d-Plugins/Standard)
+add_subdirectory(Okular-v3d-Plugins/pdf)
+add_subdirectory(Okular-v3d-Plugins/v3d)
 ```
 to the CMakeLists.txt file located in the `generators` folder, and build okular again.
