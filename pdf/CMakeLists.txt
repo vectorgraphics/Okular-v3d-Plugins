@@ -9,7 +9,7 @@ include_directories(
    "../3rdParty/v3d-Common"
    "../3rdParty/gzip-hpp/include"
 
-   "../../../core/" # ~/kde/src/okular/core
+   "../../../core/"
 
    "/usr/include/poppler/qt5"
    "/usr/include/tirpc" 
