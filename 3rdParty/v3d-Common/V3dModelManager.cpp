@@ -15,9 +15,36 @@
 #include "Utility/EventFilter.h"
 #include "Utility/ProtectedFunctionCaller.h"
 
-V3dModelManager::V3dModelManager(const Okular::Document* document, const std::string& shaderPath) 
+bool fileExists(const std::string& path) {
+    std::ifstream f{ path.c_str() };
+    return f.good();
+}
+
+V3dModelManager::V3dModelManager(const Okular::Document* document) 
     : m_Document(document)
-    , m_HeadlessRenderer(std::make_unique<HeadlessRenderer>(shaderPath)) {
+    , m_HeadlessRenderer(nullptr) {
+    
+    const std::vector<std::string> shaderSearchPaths {
+        "./",
+        "/usr/lib64/qt5/plugins/okular/generators/",
+        "/usr/lib/x86_64-linux-gnu/qt5/plugins/okular/generators/"
+    };
+
+    std::string shaderPath = "";
+
+    for (const auto& path : shaderSearchPaths) {
+        if (fileExists(path + "vertex.spv") && fileExists(path + "fragment.spv")) {
+            shaderPath = path;
+            break;
+        }
+    }
+
+    if (shaderPath == "") {
+        std::cout << "Shaders could not be found, plugin cannot run without shaders." << std::endl;
+        std::exit(1);
+    }
+
+    m_HeadlessRenderer = std::make_unique<HeadlessRenderer>(shaderPath);
 
     m_PageView = GetPageViewWidget();
 

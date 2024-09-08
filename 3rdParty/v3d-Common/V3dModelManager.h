@@ -23,7 +23,7 @@ class V3dModelManager {
 public:
     friend class EventFilter;
 
-    V3dModelManager(const Okular::Document* document, const std::string& shaderPath);
+    V3dModelManager(const Okular::Document* document);
 
     void AddModel(V3dModel model, size_t pageNumber);
 
