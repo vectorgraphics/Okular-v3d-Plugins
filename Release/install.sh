@@ -18,3 +18,5 @@ echo "Could not find installation path for: fragment.spv"
 install vertex.spv $FEDORA_QT5 2> /dev/null || \
 install vertex.spv $UBUNTU_QT5 2> /dev/null || \
 echo "Could not find installation path for: vertex.spv"
+
+update-mime-database /usr/share/mime
