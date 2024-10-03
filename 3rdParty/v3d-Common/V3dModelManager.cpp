@@ -142,7 +142,6 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     if (m_Models.size() == 0) { // No models
         return false;
     }
-
     m_MousePosition.x = event->x();
     m_MousePosition.y = event->y();
 
@@ -740,6 +739,7 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
                 // this wont be very noticeable.
 
                 int pageMouseIsOver = -1;
+                int pageMouseIsOverOnScreen = -1; // The index of the page that the mouse is over, where the page at the top of the screen has an index of 0
                 if (pageReference == -1) {
                     // Find what page the mouse is over right now
 
@@ -755,7 +755,8 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
                         int bottomOfPage = topOfPage + m_CachedRequestSizes[page->pageNumber].size.y;
 
                         if (m_MousePosition.y > topOfPage && m_MousePosition.y < bottomOfPage) {
-                            pageMouseIsOver = j;
+                            pageMouseIsOver = page->pageNumber;
+                            pageMouseIsOverOnScreen = j;
                             break;
                         }
                         ++j;
@@ -768,15 +769,27 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
                 } else {
                     // Use the given pageReference as the page the mouse is over
                     pageMouseIsOver = pageReference;
+
+                    pageMouseIsOverOnScreen = -1;
+                    int j = 0;
+                    for (auto page : visiblePages) {
+                        if (page->pageNumber == pageMouseIsOver) {
+                            pageMouseIsOverOnScreen = j;
+                        }
+                        ++j;
+                    }
+                    
+                    if (pageMouseIsOverOnScreen == -1) {
+                        std::cout << "ERROR: The reference page is not visible." << std::endl;
+                    }
                 }
 
                 normalizedMousePosition.pageNumber = pageMouseIsOver;
-                
                 if (pageMouseIsOver != -1) {
                     int leftOfPage = horizontalMargin;
 
-                    int totalMarginSize = pageMouseIsOver * verticalPageMargin;
-                    int totalPreviousPageHeight = pageMouseIsOver * m_CachedRequestSizes[0].size.y; // TODO assumes all pages are the same size
+                    int totalMarginSize = pageMouseIsOverOnScreen * verticalPageMargin;
+                    int totalPreviousPageHeight = pageMouseIsOverOnScreen * m_CachedRequestSizes[pageMouseIsOver].size.y; // TODO assumes all pages are the same size
 
                     int topOfPage = verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
 
