@@ -277,6 +277,9 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
+    m_ActiveModel = nullptr;
+    m_ActiveModelInfo = glm::ivec2{ -1, -1 };
+
     if (!(event->button() & Qt::MouseButton::LeftButton)) {
         return false;
     }
