@@ -11,6 +11,7 @@
 #include <document.h>
 #include <generator.h>
 #include <part/pageview.h>
+#include <gui/priorities.h>
 
 #include "Utility/EventFilter.h"
 #include "Utility/ProtectedFunctionCaller.h"
@@ -22,7 +23,8 @@ bool fileExists(const std::string& path) {
 
 V3dModelManager::V3dModelManager(const Okular::Document* document) 
     : m_Document(document)
-    , m_HeadlessRenderer(nullptr) {
+    , m_HeadlessRenderer(nullptr) 
+    , m_StartTime(std::chrono::system_clock::now()) {
     
     const std::vector<std::string> shaderSearchPaths {
         "./",
@@ -139,9 +141,13 @@ void V3dModelManager::SetDocument(const Okular::Document* document) {
 }
 
 bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
-    if (m_Models.size() == 0) { // No models
+    auto visiblePages = m_Document->visiblePageRects();
+
+    if (m_Models.size() == 0) {
+        // If the document has no models, this is almost certainly just a plain PDF document
         return false;
     }
+
     m_MousePosition.x = event->x();
     m_MousePosition.y = event->y();
 
@@ -215,7 +221,8 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
-    if (m_Models.size() == 0) { // No models
+    if (m_Models.size() == 0) {
+        // If the document has no models, this is almost certainly just a plain PDF document
         return false;
     }
 
@@ -277,8 +284,10 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
-    m_ActiveModel = nullptr;
-    m_ActiveModelInfo = glm::ivec2{ -1, -1 };
+    if (m_Models.size() == 0) {
+        // If the document has no models, this is almost certainly just a plain PDF document
+        return false;
+    }
 
     if (!(event->button() & Qt::MouseButton::LeftButton)) {
         return false;
@@ -294,6 +303,11 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::wheelEvent(QWheelEvent* event) {
+    if (m_Models.size() == 0) {
+        // If the document has no models, this is almost certainly just a plain PDF document
+        return false;
+    }
+
     if (m_ActiveModel != nullptr && m_ActiveModelInfo.x != -1 && m_ActiveModelInfo.y != -1) {
         NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition(m_ActiveModelInfo.x);
         glm::vec2 normalizedPositionOnPage = normalizedMousePos.currentPosition;
@@ -371,6 +385,10 @@ void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
 }
 
 void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
+    if (request->priority() != PAGEVIEW_PRIO && request->priority() != PAGEVIEW_PRELOAD_PRIO) {
+        return;
+    }
+
     Okular::Page* page = request->page();
 
     CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
@@ -389,8 +407,14 @@ void V3dModelManager::CacheRequestSize(size_t pageNumber, int width, int height,
         m_CachedRequestSizes.resize(pageNumber + 1);
     }
 
-    if (priority <= m_CachedRequestSizes[pageNumber].priority) {
-        m_CachedRequestSizes[pageNumber] = RequestCache{ glm::ivec2{ width, height }, priority };
+    std::chrono::duration<double> requestTime = std::chrono::system_clock::now() - m_StartTime;
+
+    if (requestTime > m_CachedRequestSizes[pageNumber].requestTime) {
+        m_CachedRequestSizes[pageNumber] = RequestCache{ 
+            glm::ivec2{ width, height }, 
+            priority,
+            requestTime
+        };
     }
 }
 
@@ -408,6 +432,7 @@ void V3dModelManager::CachePage(size_t pageNumber, Okular::Page* page) {
 
 V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosition(int pageReference) {
     auto visiblePages = m_Document->visiblePageRects();
+
     NormalizedMousePosition normalizedMousePosition{ };
 
     normalizedMousePosition.currentPosition = glm::vec2{ };

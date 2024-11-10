@@ -1208,8 +1208,6 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     // compute dpi used to get an image with desired width and height
     Okular::Page *page = request->page();
 
-    modelManager.CacheRequest(request);
-
     double pageWidth = page->width(), pageHeight = page->height();
 
     if (page->rotation() % 2) {
@@ -1220,7 +1218,7 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     qreal fakeDpiY = request->height() / pageHeight * dpi().height();
 
     // generate links rects only the first time
-    bool genObjectRects = !rectsGenerated.at(page->number());
+    bool genObjectRects = !rectsGenerated.at(page->number());    
 
     // 0. LOCK [waits for the thread end]
     userMutex()->lock();
@@ -1286,6 +1284,8 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
             
             int imageWidth = xMax - xMin;
             int imageHeight = yMax - yMin;
+
+            modelManager.CacheRequest(request);
 
             QImage image = modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
 
