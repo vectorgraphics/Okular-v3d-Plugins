@@ -499,9 +499,10 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
             };
         }
 
-    } else {     
+    } else {
+        // The document has multiple pages
+
         // TODO these constexpr values can be found with the following:
-        // std::cout << "All pages are fully visible" << std::endl;
         // std::cout << "CONTENT AREA HEIGHT: " << m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height() << std::endl;
         // std::cout << "Total page height: " << m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
         // std::cout << "Difference: " << (m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height()) - m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
@@ -539,7 +540,7 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
             if (visiblePages.size() == 1) {
                 // Only one partially visible page, the page will either take up the entire viewport, or well be able to
-                // see of the edges on the left and right, in that case it will be centred horizontally.
+                // see off the edges on the left and right, in that case it will be centred horizontally.
 
                 int pageMouseIsOver = -1;
                 if (pageReference == -1) {
@@ -559,7 +560,7 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
                     // If there is only one visible page, but the full document has more than one page, than we must
                     // either be on the page vertically or on one of the pages above or below, which is not possible because
-                    // only one page is visible.
+                    // only one page is visible, thus the mouse needs to be vertically on the page.
                     bool verticallyOnPage = true;
 
                     if (horizontallyOnPage && verticallyOnPage) {
@@ -613,6 +614,12 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
                         if (rect.left == 0.0 && rect.right == 1.0) {
                             // The page is horizontally centred, and there exists a horizontal margin on either side.
 
+                            int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
+                            int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
+                            int xDifference = contentAreaWidth - totalPageWidth;
+
+                            int horizontalMargin = xDifference / 2;
+
                             horizontallyOnPage = m_MousePosition.x > horizontalMargin && 
                                 m_MousePosition.x < horizontalMargin + m_CachedRequestSizes[page->pageNumber].size.x;
 
@@ -657,6 +664,12 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
                         if (rect.left == 0.0 && rect.right == 1.0) {
                             // The page is horizontally centred, and there exists a horizontal margin on either side.
+                            int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
+                            int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
+                            int xDifference = contentAreaWidth - totalPageWidth;
+
+                            int horizontalMargin = xDifference / 2;
+
                             leftOfPage = horizontalMargin;
 
                         } else {
@@ -697,7 +710,6 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
         } else {
             // All pages are fully visible
-            // TODO assuming in the short term that all pages are the same size
 
             int pageCount = m_Document->pages();
             if (visiblePages.size() == pageCount) {
@@ -714,6 +726,18 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
                     int j = 0;
                     for (auto page : visiblePages) {
+                        int contentAreaHeight = m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height();
+                        int totalPageHeight = m_CachedRequestSizes[page->pageNumber].size.y * m_Document->pages();
+                        int yDifference = contentAreaHeight - totalPageHeight;
+
+                        int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
+                        int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
+                        int xDifference = contentAreaWidth - totalPageWidth;
+
+                        // One margin between each page, and a half margin on top of the top page, and another on the bottom of the last page
+                        int verticalMargin = (yDifference - (visiblePages.size() * verticalPageMargin)) / 2;
+                        int horizontalMargin = xDifference / 2;
+
                         int totalMarginSize = j * verticalPageMargin;
                         int totalPreviousPageHeight = j * m_CachedRequestSizes[page->pageNumber].size.y;
 
@@ -771,9 +795,6 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
                 if (pageReference == -1) {
                     // Find what page the mouse is over right now
 
-                    bool horizontallyOnPage = m_MousePosition.x > horizontalMargin &&
-                        m_MousePosition.x < contentAreaWidth - horizontalMargin;
-
                     int j = 0;
                     for (auto page : visiblePages) {
                         int totalMarginSize = j * verticalPageMargin;
@@ -782,16 +803,29 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
                         int topOfPage = verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
                         int bottomOfPage = topOfPage + m_CachedRequestSizes[page->pageNumber].size.y;
 
+                        // Check if we are on the page vertically
                         if (m_MousePosition.y > topOfPage && m_MousePosition.y < bottomOfPage) {
-                            pageMouseIsOver = page->pageNumber;
-                            pageMouseIsOverOnScreen = j;
-                            break;
+                            int contentAreaHeight = m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height();
+                            int totalPageHeight = m_CachedRequestSizes[page->pageNumber].size.y * m_Document->pages();
+                            int yDifference = contentAreaHeight - totalPageHeight;
+
+                            int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
+                            int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
+                            int xDifference = contentAreaWidth - totalPageWidth;
+
+                            // One margin between each page, and a half margin on top of the top page, and another on the bottom of the last page
+                            int verticalMargin = (yDifference - (visiblePages.size() * verticalPageMargin)) / 2;
+                            int horizontalMargin = xDifference / 2;
+
+                            // Then check if were on the page horizontally
+                            if (m_MousePosition.x > horizontalMargin && 
+                                m_MousePosition.x < horizontalMargin + m_CachedRequestSizes[page->pageNumber].size.x) {
+                                pageMouseIsOver = page->pageNumber;
+                                pageMouseIsOverOnScreen = j;
+                                break;
+                            }
                         }
                         ++j;
-                    }
-
-                    if (!horizontallyOnPage || pageMouseIsOver == -1) {
-                        pageMouseIsOver = -1;
                     }
 
                 } else {
@@ -814,10 +848,19 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
                 normalizedMousePosition.pageNumber = pageMouseIsOver;
                 if (pageMouseIsOver != -1) {
+                    int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
+                    int totalPageWidth = m_CachedRequestSizes[pageMouseIsOver].size.x;
+                    int xDifference = contentAreaWidth - totalPageWidth;
+
+                    int horizontalMargin = xDifference / 2;
+
                     int leftOfPage = horizontalMargin;
 
                     int totalMarginSize = pageMouseIsOverOnScreen * verticalPageMargin;
-                    int totalPreviousPageHeight = pageMouseIsOverOnScreen * m_CachedRequestSizes[pageMouseIsOver].size.y; // TODO assumes all pages are the same size
+                    int totalPreviousPageHeight = 0;
+                    for (int i = 0; i < pageMouseIsOverOnScreen; ++i) {
+                        totalPreviousPageHeight += m_CachedRequestSizes[i].size.y;
+                    }
 
                     int topOfPage = verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
 
