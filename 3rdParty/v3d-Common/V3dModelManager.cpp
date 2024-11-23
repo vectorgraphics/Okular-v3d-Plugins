@@ -474,7 +474,6 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
         } else {
             // Only a section of the page is visible
-
             float leftPixel = 0.0;
             if (rect.left == 0.0 && rect.right == 1.0) {
                 // Page is fully visible horizontally
@@ -537,7 +536,6 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
 
         if (oneNotFullyVisible) {
             // One page minimum is not fully visible
-
             if (visiblePages.size() == 1) {
                 // Only one partially visible page, the page will either take up the entire viewport, or well be able to
                 // see off the edges on the left and right, in that case it will be centred horizontally.
