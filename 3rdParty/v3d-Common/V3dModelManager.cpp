@@ -29,7 +29,9 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     const std::vector<std::string> shaderSearchPaths {
         "./",
         "/usr/lib64/qt5/plugins/okular/generators/",
-        "/usr/lib/x86_64-linux-gnu/qt5/plugins/okular/generators/"
+        "/usr/lib64/qt6/plugins/okular_generators/",
+        "/usr/lib/x86_64-linux-gnu/qt5/plugins/okular/generators/",
+        "/usr/lib/x86_64-linux-gnu/qt6/plugins/okular/generators/"
     };
 
     std::string shaderPath = "";
