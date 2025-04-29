@@ -740,6 +740,7 @@ unsigned char* HeadlessRenderer::render(int targetWidth, int targetHeight, VkSub
 	createAttachments(colorFormat, depthFormat, targetWidth, targetHeight);
 	createRenderPipeline(colorFormat, depthFormat, targetWidth, targetHeight);
 	createGraphicsPipeline();
+
 	recordCommandBuffer(targetWidth, targetHeight, indices.size(), mvp);
 
 	unsigned char* returnData = copyToHost(targetWidth, targetHeight, imageSubresourceLayout);
