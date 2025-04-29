@@ -6,6 +6,8 @@
 
 #include "Utility/Arcball.h"
 
+#include <iostream>
+
 V3dModel::V3dModel(const std::string& filePath, const glm::vec2& minBound, const glm::vec2& maxBound) 
     : minBound(minBound), maxBound(maxBound) {
         
@@ -44,7 +46,12 @@ void V3dModel::initProjection() {
 void V3dModel::setProjection(const glm::vec2& displayDimensions) {
     setDimensions(displayDimensions.x, displayDimensions.y, shift.x, shift.y);
 
-    projectionMatrix = glm::frustumRH_ZO(viewParam.minValues.x, viewParam.maxValues.x, viewParam.minValues.y, viewParam.maxValues.y, -viewParam.maxValues.z, -viewParam.minValues.z);
+    if (file->headerInfo.orthographic) {
+        projectionMatrix = glm::orthoRH_ZO(viewParam.minValues.x, viewParam.maxValues.x, viewParam.minValues.y, viewParam.maxValues.y, -viewParam.maxValues.z, -viewParam.minValues.z);
+
+    } else {
+        projectionMatrix = glm::frustumRH_ZO(viewParam.minValues.x, viewParam.maxValues.x, viewParam.minValues.y, viewParam.maxValues.y, -viewParam.maxValues.z, -viewParam.minValues.z);
+    }
 
     updateViewMatrix();
 }
@@ -57,16 +64,43 @@ void V3dModel::setDimensions(float width, float height, float X, float Y) {
 
     float zoomInv = 1.0f / zoom;
 
-    float r = h * zoomInv;
-    float rAspect = r * Aspect;
+    if (file->headerInfo.orthographic) {
+        float xsize = file->headerInfo.maxBound.x - file->headerInfo.minBound.x;
+        float ysize = file->headerInfo.maxBound.y - file->headerInfo.minBound.y;
 
-    float X0 = 2.0f * rAspect * xShift;
-    float Y0 = 2 * r * yShift;
+        if (xsize < ysize * Aspect) {
+            float r = 0.5f * ysize * Aspect * zoomInv;
 
-    viewParam.minValues.x = -rAspect-X0;
-    viewParam.maxValues.x = rAspect-X0;
-    viewParam.minValues.y = -r - Y0;
-    viewParam.maxValues.y = r - Y0;
+            float X0 = 2.0f * r * xShift;
+            float Y0 = ysize * zoomInv * yShift;
+
+            viewParam.minValues.x = -r - X0;
+            viewParam.maxValues.x = r - X0;
+            viewParam.minValues.y = file->headerInfo.minBound.y * zoomInv - Y0;
+            viewParam.maxValues.y = file->headerInfo.maxBound.y * zoomInv - Y0;
+        } else {
+            float r = 0.5f * xsize * zoomInv / Aspect;
+
+            float X0 = xsize * zoomInv * xShift;
+            float Y0 = 2 * r * yShift;
+
+            viewParam.minValues.x = file->headerInfo.minBound.x * zoomInv - X0;
+            viewParam.maxValues.x = file->headerInfo.maxBound.x * zoomInv - X0;
+            viewParam.minValues.y = -r -Y0;
+            viewParam.maxValues.y = r - Y0;
+        }
+    } else {
+        float r = h * zoomInv;
+        float rAspect = r * Aspect;
+
+        float X0 = 2.0f * rAspect * xShift;
+        float Y0 = 2 * r * yShift;
+
+        viewParam.minValues.x = -rAspect-X0;
+        viewParam.maxValues.x = rAspect-X0;
+        viewParam.minValues.y = -r - Y0;
+        viewParam.maxValues.y = r - Y0;
+    }
 }
 
 void V3dModel::updateViewMatrix() {
