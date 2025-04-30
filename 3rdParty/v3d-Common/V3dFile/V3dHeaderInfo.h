@@ -51,4 +51,6 @@ public:
     REAL shiftHoldDistance = 1.0f;
     REAL shiftWaitTime = 1.0f;
     REAL vibrateTime = 1.0f;
+
+    void print();
 };

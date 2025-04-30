@@ -35,7 +35,6 @@
 * Customizable Controls
 
 ## BUGS
-* gamma3 still doesn’t work
 * zooming in and out a lot can still cause a DEVICE OUT OF MEMORY vulkan error
 * Opening multiple documents causes a crash
 * Flickering on model movement on some systems
