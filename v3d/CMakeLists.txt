@@ -20,6 +20,7 @@ set(
     ../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
     ../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
     ../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
+    ../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
     ../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
     ../3rdParty/v3d-Common/Utility/EventFilter.cpp
     ../3rdParty/v3d-Common/Utility/Arcball.cpp
