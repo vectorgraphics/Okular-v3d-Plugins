@@ -38,5 +38,5 @@ target_link_libraries(okularGenerator_v3d okularcore Qt6::Core KF6::I18n GLEW GL
 install( PROGRAMS okularApplication_v3d.desktop org.kde.mobile.okular_v3d.desktop  DESTINATION  ${KDE_INSTALL_APPDIR} )
 install( FILES org.kde.okular-v3d.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR} )
 
-install( FILES v3d-mime.xml PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ DESTINATION "/usr/share/mime/packages" )
+# install( FILES v3d-mime.xml PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ DESTINATION "/usr/share/mime/packages" )
 # IMPORTANT - need to update mime database
