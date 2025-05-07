@@ -6,7 +6,7 @@
 [subrepo]
 	remote = git@github.com:Ben-Bingham/v3d-Common.git
 	branch = main
-	commit = 757d2dd74105f46f20608c54427d2b05a6d0e3a2
-	parent = 854ec3ad57298a206e66f7b12318216e3c53076e
+	commit = b636bc4cdd18a8b3fe1a69bf38260fe6ac629361
+	parent = 3f80ea2e2903e76e7a157d26d6c2fce8fb3789f5
 	method = merge
 	cmdver = 0.4.9
