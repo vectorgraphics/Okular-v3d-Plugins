@@ -11,7 +11,7 @@
 
 #include "v3d_generator.h"
 #include <QPainter>
-#include <QAbstractTextDocumentLayout>
+// #include <QAbstractTextDocumentLayout>
 #include <KAboutData>
 #include <KConfigDialog>
 #include <KLocalizedString>
