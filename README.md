@@ -153,6 +153,15 @@ if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
 // ========== end v3d ==========
 ```
 
+* In the function `Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QVector<Okular::Page *> &pagesVector, const QString &password)` insert the following at the top of the function:
+```
+// ========== begin v3d ==========
+if (document() != nullptr) {
+    modelManager.SetDocument(document());
+}
+// ========== end v3d ==========
+```
+
 ##### CMakeLists.txt
 Located in `releases/version/okular/generators/pdf/`
 
@@ -209,3 +218,24 @@ In order to test the plugin for one specific distribution, navigate to `testing/
 If you want to instead test all supported operating systems then navigate to `testing/` and execute `./test-all.sh` again including the optional `--clean` argument.
 
 You will need to give root permissions to the script as it executes to allow it to install the plugin into the distrobox, and to copy the built plugin into the home folder of the distrobox.
+
+## TODO
+* multi page documents - Basics are done, still need to do:
+    * in the short term im assuming all pages in a document are the same size, fix this
+    * the 12 pixel margin may change depending on resolution, 2k vs 4k vs 1080p
+* Okular zoom optimization
+* shader paths change when an external user uses the plugin
+    * Currently the plugin looks for the shaders in the path that Okular is run in
+* New renderer
+* Clean up includes
+* Clean up CMAKE files
+* Look into adding a tile manager to the generator
+* panning and shifting
+* make the index and vertex buffers once, than cache them, currently they are recreated every time we rerender
+* documentation
+* Presentation Mode dosent work at all
+* Customizable Controls
+
+## BUGS
+* Opening multiple documents causes a crash
+* Flickering on model movement on some systems
