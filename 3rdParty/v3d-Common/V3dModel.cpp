@@ -1,12 +1,10 @@
 #include "V3dModel.h"
 
 #include <glm/glm.hpp>
-#include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Utility/Arcball.h"
 
-#include <iostream>
 
 V3dModel::V3dModel(const std::string& filePath, const glm::vec2& minBound, const glm::vec2& maxBound) 
     : minBound(minBound), maxBound(maxBound) {
