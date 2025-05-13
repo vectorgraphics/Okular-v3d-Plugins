@@ -10,13 +10,11 @@ include_directories(
 )
 
 include_directories(
-   "../3rdParty/v3d-Common"
-   "../3rdParty/gzip-hpp/include"
-
-   "../../../core/"
-
-   "/usr/include/poppler/qt6"
-   "/usr/include/tirpc" 
+    "../../../../../3rdParty/v3d-Common/"
+    "../../core/"
+    "/usr/include/tirpc"
+    "../../../../../3rdParty/gzip-hpp/include"
+    "/usr/include/poppler/qt6"
 )
 
 ########### next target ###############
@@ -29,18 +27,18 @@ set(okularGenerator_poppler_PART_SRCS
    pdfsettingswidget.cpp
    imagescaling.cpp
 
-   ../3rdParty/v3d-Common/Rendering/renderheadless.cpp
-   ../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
-   ../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
-   ../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
-   ../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
-   ../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
-   ../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
-   ../3rdParty/v3d-Common/Utility/Arcball.cpp
-   ../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
-   ../3rdParty/v3d-Common/Utility/EventFilter.cpp
-   ../3rdParty/v3d-Common/V3dModel.cpp
-   ../3rdParty/v3d-Common/V3dModelManager.cpp
+   ../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
+   ../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
+   ../../../../../3rdParty/v3d-Common/V3dModel.cpp
+   ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
 )
 
 ki18n_wrap_ui(okularGenerator_poppler_PART_SRCS
