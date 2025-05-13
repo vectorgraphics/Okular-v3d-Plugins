@@ -8,23 +8,9 @@
 */
 #pragma once
 
-#include <memory>
-
-#include <core/textdocumentgenerator.h>
-
-#include "../../../../../3rdParty/v3d-Common/Rendering/renderheadless.h"
-#include "../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.h"
-
-#include <thread>
-#include "part/pageview.h"
-
 #include <core/generator.h>
 
-#include <chrono>
-
 #include "../../../../../3rdParty/v3d-Common/V3dModelManager.h"
-
-class EventFilter;
 
 class V3dGenerator : public Okular::Generator {
     Q_OBJECT
