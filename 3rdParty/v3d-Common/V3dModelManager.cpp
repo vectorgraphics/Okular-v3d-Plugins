@@ -25,7 +25,7 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     : m_Document(document)
     , m_HeadlessRenderer(nullptr) 
     , m_StartTime(std::chrono::system_clock::now()) {
-    
+
     const std::vector<std::string> shaderSearchPaths {
         "./",
         "/usr/lib64/qt5/plugins/okular/generators/",
@@ -54,6 +54,7 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
 
     m_EventFilter = new EventFilter(m_PageView, this);
     m_PageView->viewport()->installEventFilter(m_EventFilter);
+
 }
 
 void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
@@ -162,7 +163,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     }
 
     NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition(m_ActiveModelInfo.x);
-    
+
     m_LastMousePosition.x = m_MousePosition.x;
     m_LastMousePosition.y = m_MousePosition.y;
 
@@ -216,7 +217,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
             break;
         }
     }
-    
+
     requestPixmapRefresh(m_ActiveModelInfo.x);
 
     return true;
@@ -918,7 +919,6 @@ QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
         }
 
         if (QBoxLayoutCount == 0) {
-            // if (QBoxLayoutCount != 1) {
             continue;
         }
 
