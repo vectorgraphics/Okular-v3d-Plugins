@@ -1,19 +1,15 @@
 #pragma once
 
-#include <vector>
-#include <string>
 #include <memory>
 
-#include <QImage>
 #include <QtGui/QMouseEvent>
 #include <QAbstractScrollArea>
-#include <page.h>
-#include <QPainter>
 
 #include <document.h>
+#include <page.h>
 
-#include "V3dModel.h"
 #include "Rendering/renderheadless.h"
+#include "V3dModel.h"
 
 // #define MOUSE_BOUNDARIES
 
