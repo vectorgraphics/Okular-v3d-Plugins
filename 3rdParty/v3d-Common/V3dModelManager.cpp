@@ -1,16 +1,10 @@
 #include "V3dModelManager.h"
 
-#include <iostream>
-
 #include <QApplication>
 #include <QBoxLayout>
 #include <QScrollBar>
-#include <QPainter>
 
-#include <area.h>
-#include <document.h>
 #include <generator.h>
-#include <part/pageview.h>
 #include <gui/priorities.h>
 
 #include "Utility/EventFilter.h"
@@ -28,9 +22,7 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
 
     const std::vector<std::string> shaderSearchPaths {
         "./",
-        "/usr/lib64/qt5/plugins/okular/generators/",
         "/usr/lib64/qt6/plugins/okular_generators/",
-        "/usr/lib/x86_64-linux-gnu/qt5/plugins/okular/generators/",
         "/usr/lib/x86_64-linux-gnu/qt6/plugins/okular/generators/"
     };
 
