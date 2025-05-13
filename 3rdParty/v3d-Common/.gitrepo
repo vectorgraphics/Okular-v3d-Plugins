@@ -6,7 +6,7 @@
 [subrepo]
 	remote = git@github.com:vectorgraphics/v3d-Common.git
 	branch = main
-	commit = ea151aa9537d8d4a7f5b2114b95502122dbac259
-	parent = d18a8021054f7439f1a0c7dc1bd531f270709a25
+	commit = 872a2fb467aac3ef055cc24b6c4a500c74fd15cf
+	parent = 13791017e0c738b205dae71d1b18029db1a9abef
 	method = merge
 	cmdver = 0.4.9
