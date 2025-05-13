@@ -27,13 +27,7 @@ set(
 
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})
 
-target_link_libraries(okularGenerator_v3d
-    okularcore
-    KF6::I18n
-    vulkan
-    tirpc
-)
+target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan tirpc)
 
 ########### install files ###############
-install( PROGRAMS okularApplication_v3d.desktop org.kde.mobile.okular_v3d.desktop  DESTINATION  ${KDE_INSTALL_APPDIR} )
-install( FILES org.kde.okular-v3d.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR} )
+install(PROGRAMS okularApplication_v3d.desktop DESTINATION ${KDE_INSTALL_APPDIR})

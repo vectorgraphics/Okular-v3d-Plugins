@@ -2,12 +2,12 @@
     "KPlugin": {
         "Authors": [
             {
-                "Email": "a3at.mail@gmail.com",
-                "Name": "Azat Khuzhin"
+                "Email": "ben@benbingham.ca",
+                "Name": "Ben Bingham"
             }
         ],
-        "Copyright": "© 2013 Azat Khuzhin",
-        "Description": "Vertex Data backend",
+        "Copyright": "© 2025 Ben Bingham",
+        "Description": "v3d file backend",
         "License": "GPL",
         "MimeTypes": [
             "text/x-v3d"
