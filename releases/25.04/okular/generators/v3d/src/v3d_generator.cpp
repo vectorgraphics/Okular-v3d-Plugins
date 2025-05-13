@@ -7,40 +7,7 @@
     Code has been modified by Benjamin Bingham to become: v3d_generator
 */
 
-#include <iostream>
-
 #include "v3d_generator.h"
-#include <QPainter>
-// #include <QAbstractTextDocumentLayout>
-#include <KAboutData>
-#include <KConfigDialog>
-#include <KLocalizedString>
-#include <core/page.h>
-#include <core/utils.h>
-#include <vector>
-#include <fstream>
-#include <cstring>
-
-// #include <core/textdocumentgenerator.h>
-// #include <core/textdocumentgenerator_p.h>
-#include <QApplication>
-#include <QtWidgets>
-#include <QPushButton>
-
-#include <thread>
-#include <chrono>
-
-#include "part/pageview.h"
-
-#include <cmath>
-
-#include "Utility/EventFilter.h"
-
-#include "Utility/ProtectedFunctionCaller.h"
-
-#include "Utility/Arcball.h"
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/string_cast.hpp>
 
 OKULAR_EXPORT_PLUGIN(V3dGenerator, "libokularGenerator_v3d.json")
 
