@@ -7,9 +7,6 @@ include_directories(
     "/usr/include/tirpc" 
 )
 
-add_compile_options(-fexceptions)
-
-########### next target ###############
 set(
     okularGenerator_v3d_SRCS 
     src/v3d_generator.cpp 
