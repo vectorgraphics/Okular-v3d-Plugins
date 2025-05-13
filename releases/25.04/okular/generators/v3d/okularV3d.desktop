@@ -1,0 +1,12 @@
+[Desktop Entry]
+MimeType=text/x-v3d;
+Terminal=false
+Name=okular
+GenericName=Document Viewer
+Exec=okular %U
+Icon=okular
+Type=Application
+InitialPreference=7
+Categories=Qt;KDE;Graphics;Viewer;
+NoDisplay=true
+X-KDE-Keywords=v3d

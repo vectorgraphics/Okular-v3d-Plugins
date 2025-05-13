@@ -1,3 +1,2 @@
-release.zip
-
-.vscode
+releases/*/build/
+testing/*/home/

@@ -895,17 +895,18 @@ QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
 
         if (scrollArea == nullptr) {
             continue;
-        } 
+        }
 
         QWidget* parent = dynamic_cast<QWidget*>(widget->parent());
 
         if (parent == nullptr) {
             continue;
-        } 
+        }
 
-        if (parent->children().size() != 9) {
+        // if (parent->children().size() != 9) {
+        if (parent->children().size() < 8) {
             continue;
-        } 
+        }
 
         int QBoxLayoutCount = 0;
         for (auto child : parent->children()) {
@@ -916,9 +917,10 @@ QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
             }
         }
 
-        if (QBoxLayoutCount != 1) {
+        if (QBoxLayoutCount == 0) {
+            // if (QBoxLayoutCount != 1) {
             continue;
-        } 
+        }
 
         int QFrameCount = 0;
         for (auto child : parent->children()) {
@@ -929,15 +931,20 @@ QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
             }
         }
 
-        if (QFrameCount != 6) {
+        // if (QFrameCount != 6) {
+        if (QFrameCount < 5) {
             continue;
-        } 
+        }
 
         if (pageView != nullptr) {
             std::cout << "ERROR, multiple pageViews found" << std::endl;
         }
 
         pageView = dynamic_cast<QAbstractScrollArea*>(widget);
+    }
+
+    if (pageView == nullptr) {
+        std::cout << "ERROR, pageview was not found" << std::endl;
     }
 
     return pageView;
