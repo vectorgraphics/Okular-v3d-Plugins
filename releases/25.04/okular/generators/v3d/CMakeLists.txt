@@ -3,10 +3,8 @@ add_definitions(-DTRANSLATION_DOMAIN="okular_v3d" -DGLFW_INCLUDE_VULKAN -DVULKAN
 
 include_directories(
     "../../../../../3rdParty/v3d-Common/"
- 
-    "../../../core/"
+    "../../core/"
     "../../releases/25.04/okular/core"
-    "/home/benjaminb/Okular-v3d-plugins/releases/25.04/okular/core"
     "/usr/include/tirpc" 
 )
 
