@@ -10,11 +10,13 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 
+// ========== begin v3d ==========
 #include <gzip/compress.hpp>
 #include <gzip/config.hpp>
 #include <gzip/decompress.hpp>
 #include <gzip/utils.hpp>
 #include <gzip/version.hpp>
+// ========== end v3d ==========
 
 #include <memory>
 
@@ -1359,7 +1361,7 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
         resolveMediaLinkReferences(page);
     }
 
-    // Custom
+    // ========== begin v3d ==========
     if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
         size_t pageNumber = (size_t)request->page()->number();
 
@@ -1390,6 +1392,7 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     }
 
     modelManager.DrawMouseBoundaries(&img, request->pageNumber());
+    // ========== end v3d ==========
 
     // 3. UNLOCK [re-enables shared access]
     userMutex()->unlock();
@@ -1960,7 +1963,7 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
     std::vector<std::unique_ptr<Poppler::Annotation>> popplerAnnotations = popplerPage->annotations(subtypes);
 
     for (auto &a : popplerAnnotations) {
-        // ============== Custom ==============
+        // ========== begin v3d ==========
         if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
             QRectF bound = a->boundary();
             bound = bound.normalized();
@@ -2002,7 +2005,7 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
                 modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());         
             }    
         }
-        // ============== End Custom ==============
+        // ========== end v3d ==========
 
         bool doDelete = true;
         Okular::Annotation *newann = createAnnotationFromPopplerAnnotation(a.get(), *popplerPage, &doDelete);
