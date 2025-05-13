@@ -22,9 +22,16 @@ fi
 rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_v3d.so
 rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_poppler.so
 
+rm -f ~/Okular-v3d-plugins/testing/${distro}/home/vertex.spv
+rm -f ~/Okular-v3d-plugins/testing/${distro}/home/fragment.spv
+
 sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/bin/okular_generators/okularGenerator_v3d.so ~/Okular-v3d-plugins/testing/${distro}/home/
 
 sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/bin/okular_generators/okularGenerator_poppler.so ~/Okular-v3d-plugins/testing/${distro}/home/
+
+cp ~/Okular-v3d-plugins/3rdParty/v3d-Common/shaders/vertex.spv ~/Okular-v3d-plugins/testing/${distro}/home/
+
+cp ~/Okular-v3d-plugins/3rdParty/v3d-Common/shaders/fragment.spv ~/Okular-v3d-plugins/testing/${distro}/home/
 
 cp ~/Okular-v3d-plugins/testing/default-home/* ~/Okular-v3d-plugins/testing/${distro}/home/
 
