@@ -723,9 +723,12 @@ PDFGenerator::~PDFGenerator()
 // BEGIN Generator inherited functions
 Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QVector<Okular::Page *> &pagesVector, const QString &password)
 {
+    // ========== begin v3d ==========
     if (document() != nullptr) {
         modelManager.SetDocument(document());
     }
+    // ========== end v3d ==========
+
 #ifndef NDEBUG
     if (pdfdoc) {
         qCDebug(OkularPdfDebug) << "PDFGenerator: multiple calls to loadDocument. Check it.";
