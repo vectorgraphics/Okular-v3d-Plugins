@@ -15,19 +15,22 @@ fi
 if [ ! -d "home" ]; then
     mkdir home
     distrobox create -n -Y ${distroboxName} -i ${distroboxImage} --home ${distroboxHomeDir}
+
+    distrobox enter ${distroboxName} -nw -T -e sudo dnf install -y okular
 fi
 
-distrobox enter ${distroboxName} -nw -T -e sudo dnf install -y okular
-
 rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_v3d.so
+rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_poppler.so
 
 sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/bin/okular_generators/okularGenerator_v3d.so ~/Okular-v3d-plugins/testing/${distro}/home/
 
+sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/bin/okular_generators/okularGenerator_poppler.so ~/Okular-v3d-plugins/testing/${distro}/home/
+
 cp ~/Okular-v3d-plugins/testing/default-home/* ~/Okular-v3d-plugins/testing/${distro}/home/
 
-distrobox enter ${distroboxName} --no-workdir -T -e pwd
 distrobox enter ${distroboxName} --no-workdir -T -e sudo ./install.sh
-distrobox enter ${distroboxName} --no-workdir -T -e pwd
 
-echo "Testing okular version "${okularVersion}" on "${distro}" using teapot.v3d"
+echo "Testing the v3d plugin on Okular version "${okularVersion}" on "${distro}" using teapot.v3d"
 distrobox enter ${distroboxName} --no-workdir -T -e okular teapot.v3d
+echo "Testing the pdf plugin on Okular version "${okularVersion}" on "${distro}" using modelGrid.pdf"
+distrobox enter ${distroboxName} --no-workdir -T -e okular modelGrid.pdf
