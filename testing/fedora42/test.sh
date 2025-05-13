@@ -17,7 +17,9 @@ if [ ! -d "home" ]; then
     distrobox create -n -Y ${distroboxName} -i ${distroboxImage} --home ${distroboxHomeDir}
 fi
 
-distrobox enter ${distroboxName} -nw -T -e sudo dnf install -y okular glew
+distrobox enter ${distroboxName} -nw -T -e sudo dnf install -y okular
+
+rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_v3d.so
 
 sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/bin/okular_generators/okularGenerator_v3d.so ~/Okular-v3d-plugins/testing/${distro}/home/
 
