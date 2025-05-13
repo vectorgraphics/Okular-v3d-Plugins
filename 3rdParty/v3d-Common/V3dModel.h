@@ -1,13 +1,6 @@
 #pragma once
 
-#include <string>
-#include <memory>
-
-#include <glm/glm.hpp>
-
 #include "V3dFile/V3dFile.h"
-
-class V3dModelManager;
 
 struct V3dModel {
     friend class V3dModelManager;
