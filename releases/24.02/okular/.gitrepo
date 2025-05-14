@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = git@github.com:KDE/okular.git
+	branch = release/24.02
+	commit = d7ceca3cb1194ac63966fa593142fe0ff460fad2
+	parent = ade0c7eb3f0e8fd594e93d31c383070e27ca3c6e
+	method = merge
+	cmdver = 0.4.9
