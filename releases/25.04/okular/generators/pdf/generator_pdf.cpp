@@ -1325,8 +1325,6 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     // note: thread safety is set on 'false' for the GUI (this) thread
     std::unique_ptr<Poppler::Page> p = pdfdoc->page(page->number());
 
-    bool isTile = false;
-
     // 2. Take data from outputdev and attach it to the Page
     QImage img;
     if (p) {
@@ -1384,7 +1382,7 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
 
             QPainter painter{ &img };
 
-            if (isTile) {
+            if (request->isTile()) {
                 painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
             } else {
                 painter.drawImage(xMin, yMin, image);
