@@ -205,6 +205,13 @@ vulkan tirpc z
 
 Finally, navigate back to the build script you cloned earlier (located in `releases/version/`) and run it to build the plugin.
 
+### Adding testing for a new linux distrobution
+First, create a new folder for the distro in the testing folder ie: `testing/distro/`
+
+Copy in the `test.sh` script from another testing environment into the new one, and at minimum Update the variables located at the top of the file: `okularVersion`, `distro`, and `distroboxImage`.
+
+Finally run the test script.
+
 ### Building
 In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
 
