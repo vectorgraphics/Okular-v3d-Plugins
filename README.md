@@ -7,6 +7,8 @@ Be sure to check out the correct branch of the Okular source code for the desire
 
 Then copy the build script from another version of the plugin into the folder you created with the Okular version as its name. ie. into the folder: `releases/25.04/`.
 
+Also add a line to the `build-all.sh` script located in `releases/` to call the new version specific script you just created.
+
 Assuming you only want to build either the v3d or pdf plugin or both, and none of the default plugins that Okular ships with, you can force a bunch of dependencies to become optional instead of required. Do this by replacing the line mentioning the `FORCE_NOT_REQUIRED_DEPENDENCIES` variable with the following line:
 
 `set(FORCE_NOT_REQUIRED_DEPENDENCIES "KF6Wallet;KF6DocTools;KF6Purpose;Qt6TextToSpeech;Phonon4Qt6;Freetype;TIFF;LibSpectre;KExiv2Qt6;DjVuLibre;EPub;Discount")`
@@ -24,7 +26,7 @@ The v3d plugin is quite simple, and dosent rely on many features of Okular, ther
 
 Firstly, copy the source code from an older version of the plugin into the generator folder of your freshly cloned Okular source code. ie. copy the folder `releases/24.12/okular/generators/v3d/` into `releases/25.04/okular/generators/`.
 
-Then in the CMakeLists.txt file located in `releases/version/okular/generators/` add the line: `add_subdirectory(v3d)`.
+Then in the CMakeLists.txt file located in `releases/version/okular/generators/` add the line: `add_subdirectory(v3d)` amongst the other `add_subdirectory` function calls.
 
 Finally, navigate back to the build script you cloned earlier (located in `releases/version/`) and run it to build the plugin.
 
@@ -33,7 +35,7 @@ Instead of being an entire standalone plugin, the pdf plugin is a modification t
 
 Start by copying the existing poppler plugin source code folder (located in `releases/version/okular/generators/`) into a new folder named `pdf`.
 
-Then a few files need to be modified, Here they will all be surounded by comments indicating that they are not custom code in order to make them easier to find.
+Then a few files need to be modified, Here they will all be surounded by comments indicating that they are custom code in order to make them easier to find.
 
 Look at existing versions of the plugin and Ctrl-F for `begin v3d` to help with placement.
 ##### generator_pdf.h
@@ -194,7 +196,7 @@ Located in `releases/version/okular/generators/pdf/`
 ```
 
 
-* Insert the following inside of the `starget_link_libraries` function below what is already there:
+* Insert the following inside of the `target_link_libraries` function below what is already there:
 ```
 # ========== begin v3d ==========
 vulkan tirpc z
