@@ -233,6 +233,7 @@ If you want to instead test all supported operating systems then navigate to `te
 You will need to give root permissions to the script as it executes to allow it to install the plugin into the distrobox, and to copy the built plugin into the home folder of the distrobox.
 
 ## TODO
+* Add in --clean to build scripts
 * Make the mostly minimal list of packages truely minimal, and add minimal lists for other distros
 * Add an option to select between release and debug builds of the plugin
 * Look into making the pageview location function more consistent, possibly with some kind of check, and or dynamicly writing to file info about the correct one once found
