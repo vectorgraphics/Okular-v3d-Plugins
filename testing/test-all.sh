@@ -3,4 +3,7 @@
 arguments=$1
 
 echo "========== Starting fedora42 test =========="
-cd fedora42 && sh test.sh ${arguments}
+cd fedora42 && sh test.sh ${arguments} && cd ../
+
+echo "========== Starting fedora42-downgrade-okular test =========="
+cd fedora42-downgrade-okular && sh test.sh ${arguments} && cd ../
