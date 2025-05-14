@@ -1,0 +1,21 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "ben@benbingham.ca",
+                "Name": "Ben Bingham"
+            }
+        ],
+        "Copyright": "© 2025 Ben Bingham",
+        "Description": "v3d file backend",
+        "License": "GPL",
+        "MimeTypes": [
+            "text/x-v3d"
+        ],
+        "Name": "v3d Backend",
+        "Version": "0.1"
+    },
+    "X-KDE-Priority": 1,
+    "X-KDE-okularAPIVersion": 1,
+    "X-KDE-okularHasInternalSettings": true
+}

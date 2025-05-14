@@ -11,44 +11,47 @@ endfunction()
 
 # let's enable the generators properly configured
 
-if(Poppler_Qt6_FOUND)
-  add_subdirectory(poppler)
-endif(Poppler_Qt6_FOUND)
+add_subdirectory(v3d)
+add_subdirectory(pdf)
 
-if(LIBSPECTRE_FOUND)
-  add_subdirectory(spectre)
-endif(LIBSPECTRE_FOUND)
-
-add_subdirectory( kimgio )
-
-if(DJVULIBRE_FOUND)
-  add_subdirectory(djvu)
-endif(DJVULIBRE_FOUND)
-
-add_subdirectory(dvi)
-
-if(TIFF_FOUND)
-  add_subdirectory(tiff)
-endif(TIFF_FOUND)
-
-add_subdirectory(xps)
-
-add_subdirectory(fictionbook)
-
-add_subdirectory(comicbook)
-
-add_subdirectory(fax)
-
-if(EPUB_FOUND)
-  add_subdirectory(epub)
-endif(EPUB_FOUND)
-
-add_subdirectory(txt)
-
-if(QMobipocket6_FOUND)
-  add_subdirectory(mobipocket)
-endif()
-
-if(Discount_FOUND)
-  add_subdirectory(markdown)
-endif()
+# if(Poppler_Qt6_FOUND)
+#   add_subdirectory(poppler)
+# endif(Poppler_Qt6_FOUND)
+#
+# if(LIBSPECTRE_FOUND)
+#   add_subdirectory(spectre)
+# endif(LIBSPECTRE_FOUND)
+#
+# add_subdirectory( kimgio )
+#
+# if(DJVULIBRE_FOUND)
+#   add_subdirectory(djvu)
+# endif(DJVULIBRE_FOUND)
+#
+# add_subdirectory(dvi)
+#
+# if(TIFF_FOUND)
+#   add_subdirectory(tiff)
+# endif(TIFF_FOUND)
+#
+# add_subdirectory(xps)
+#
+# add_subdirectory(fictionbook)
+#
+# add_subdirectory(comicbook)
+#
+# add_subdirectory(fax)
+#
+# if(EPUB_FOUND)
+#   add_subdirectory(epub)
+# endif(EPUB_FOUND)
+#
+# add_subdirectory(txt)
+#
+# if(QMobipocket6_FOUND)
+#   add_subdirectory(mobipocket)
+# endif()
+#
+# if(Discount_FOUND)
+#   add_subdirectory(markdown)
+# endif()
