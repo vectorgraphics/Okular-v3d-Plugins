@@ -17,7 +17,7 @@ in the CMakeLists.txt file in the root of the Okular source code. ie `releases/2
 
 You will also need to install many packages in order to build the plugins, you can just repeatadly run the build script and install whatever packages cmake cannot find, but if you use dnf as a package manager you can simply execute:
 
-`sudo dnf install kate cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-threadweaver-devel kf6-kwindowsystem-devel kf6-kxmlgui-devel kf6-kio-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel kf6-ktextwidgets-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel glew-devel libXxf86vm-devel libXrandr-devel libXi-devel kf6-karchive-devel`
+`sudo dnf install kate cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-threadweaver-devel kf6-kwindowsystem-devel kf6-kxmlgui-devel kf6-kio-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel kf6-ktextwidgets-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel glew-devel libXxf86vm-devel libXrandr-devel libXi-devel kf6-karchive-devel libzip-devel`
 
 which is a mostly minimal list of packages required.
 
@@ -34,6 +34,10 @@ Finally, navigate back to the build script you cloned earlier (located in `relea
 Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be insterted in specific locations.
 
 Start by copying the existing poppler plugin source code folder (located in `releases/version/okular/generators/`) into a new folder named `pdf`.
+
+Then in the CMakeLists.txt file located in `releases/version/okular/generators/` add the line: `add_subdirectory(odf)` amongst the other `add_subdirectory` function calls.
+
+Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise cmake will complain about building two libraries with the same name.
 
 Then a few files need to be modified, Here they will all be surounded by comments indicating that they are custom code in order to make them easier to find.
 
@@ -93,7 +97,7 @@ if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty(
 
         QPainter painter{ &img };
 
-        if (isTile) {
+        if (request->isTile()) {
             painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
         } else {
             painter.drawImage(xMin, yMin, image);
