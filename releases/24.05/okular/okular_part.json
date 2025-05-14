@@ -1,0 +1,21 @@
+{
+    "KParts": {
+        "PluginNamespace": "okular_generators"
+    },
+    "KPlugin": {
+        "Icon": "okular",
+        "MimeTypes": [
+            "application/vnd.kde.okular-archive"
+        ],
+        "Name": "Okular",
+        "Name[ar]": "اوكلار",
+        "Name[pa]": "ਓਕੁਲਾਰ",
+        "Name[ta]": "ஆக்குலர்",
+        "Name[x-test]": "xxOkularxx",
+        "Name[zh_CN]": "Okular 文档查看器",
+        "ServiceTypes": [
+            "KParts/ReadOnlyPart",
+            "KParts/ReadWritePart"
+        ]
+    }
+}
