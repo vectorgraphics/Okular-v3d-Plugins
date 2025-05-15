@@ -236,6 +236,7 @@ Copy in the `test.sh` script from another testing environment into the new one, 
 Finally run the test script.
 
 ## TODO
+* All testing scripts assume that the source code was cloned into the home directory
 * Add passing files to test scripts
 * Make the mostly minimal list of packages truely minimal, and add minimal lists for other distros
 * Add an option to select between release and debug builds of the plugin
