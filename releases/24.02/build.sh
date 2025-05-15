@@ -1,7 +1,11 @@
 #!/bin/bash
 
-if [[ $1 = "--clean" ]]; then
+if [[ $1 = "--clean" ]] || [[ $1 = "--clean-only" ]]; then
     rm -r build/
+fi
+
+if [[ $1 = "--clean-only" ]]; then
+    exit 0
 fi
 
 cmake -S okular/ -B build/ --install-prefix $PWD/usr
