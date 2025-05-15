@@ -1,2 +1,3 @@
-releases/*/build/
+build/*/build/
 testing/*/home/
+releases/

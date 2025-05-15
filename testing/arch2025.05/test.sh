@@ -53,51 +53,51 @@ if [ ! -d "home" ]; then
 fi
 
 if [[ $debug -eq 1 ]]; then
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_v3d.so
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_poppler.so
+    rm -f ./home/okularGenerator_v3d.so
+    rm -f ./home/okularGenerator_poppler.so
 
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/vertex.spv
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/fragment.spv
+    rm -f ./home/vertex.spv
+    rm -f ./home/fragment.spv
 
-    sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_v3d.so ~/Okular-v3d-plugins/testing/${distro}/home/
+    sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_v3d.so ./home/
 
-    sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ~/Okular-v3d-plugins/testing/${distro}/home/
+    sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-    cp ~/Okular-v3d-plugins/3rdParty/v3d-Common/shaders/vertex.spv ~/Okular-v3d-plugins/testing/${distro}/home/
+    cp ../../3rdParty/v3d-Common/shaders/vertex.spv ./home/
 
-    cp ~/Okular-v3d-plugins/3rdParty/v3d-Common/shaders/fragment.spv ~/Okular-v3d-plugins/testing/${distro}/home/
+    cp ../../3rdParty/v3d-Common/shaders/fragment.spv ./home/
 
-    cp ~/Okular-v3d-plugins/testing/default-home/* ~/Okular-v3d-plugins/testing/${distro}/home/
+    cp -r ../../base-release/* ./home/
 
     distrobox enter ${distroboxName} --no-workdir -T -e sudo ./install.sh
 
     echo "Testing the v3d plugin on Okular version "${okularVersion}" on "${distro}" using teapot.v3d and debug plugins"
-    distrobox enter ${distroboxName} --no-workdir -T -e okular teapot.v3d
+    distrobox enter ${distroboxName} --no-workdir -T -e okular examples/teapot.v3d
     echo "Testing the pdf plugin on Okular version "${okularVersion}" on "${distro}" using modelGrid.pdf and debug plugins"
-    distrobox enter ${distroboxName} --no-workdir -T -e okular modelGrid.pdf
+    distrobox enter ${distroboxName} --no-workdir -T -e okular examples/modelGrid.pdf
 fi
 
 if [[ $release -eq 1 ]]; then
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_v3d.so
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/okularGenerator_poppler.so
+    rm -f ./home/okularGenerator_v3d.so
+    rm -f ./home/okularGenerator_poppler.so
 
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/vertex.spv
-    rm -f ~/Okular-v3d-plugins/testing/${distro}/home/fragment.spv
+    rm -f ./home/vertex.spv
+    rm -f ./home/fragment.spv
 
-    sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/release/bin/okular_generators/okularGenerator_v3d.so ~/Okular-v3d-plugins/testing/${distro}/home/
+    sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_v3d.so ./home/
 
-    sudo cp ~/Okular-v3d-plugins/releases/${okularVersion}/build/release/bin/okular_generators/okularGenerator_poppler.so ~/Okular-v3d-plugins/testing/${distro}/home/
+    sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-    cp ~/Okular-v3d-plugins/3rdParty/v3d-Common/shaders/vertex.spv ~/Okular-v3d-plugins/testing/${distro}/home/
+    cp ../../3rdParty/v3d-Common/shaders/vertex.spv ./home/
 
-    cp ~/Okular-v3d-plugins/3rdParty/v3d-Common/shaders/fragment.spv ~/Okular-v3d-plugins/testing/${distro}/home/
+    cp ../../3rdParty/v3d-Common/shaders/fragment.spv ./home/
 
-    cp ~/Okular-v3d-plugins/testing/default-home/* ~/Okular-v3d-plugins/testing/${distro}/home/
+    cp -r ../../base-release/* ./home/
 
     distrobox enter ${distroboxName} --no-workdir -T -e sudo ./install.sh
 
     echo "Testing the v3d plugin on Okular version "${okularVersion}" on "${distro}" using teapot.v3d and release plugins"
-    distrobox enter ${distroboxName} --no-workdir -T -e okular teapot.v3d
+    distrobox enter ${distroboxName} --no-workdir -T -e okular examples/teapot.v3d
     echo "Testing the pdf plugin on Okular version "${okularVersion}" on "${distro}" using modelGrid.pdf and release plugins"
-    distrobox enter ${distroboxName} --no-workdir -T -e okular modelGrid.pdf
+    distrobox enter ${distroboxName} --no-workdir -T -e okular examples/modelGrid.pdf
 fi

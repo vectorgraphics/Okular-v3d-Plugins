@@ -1,9 +1,24 @@
+## Installing
+1. Install Okular through your favourite package manager
+2. Find out what version of Okular you have installed either by running `okular --version` or launch okular, click on `help` in the top bar and then `About Okular` in the drop down. The version will have the format: `YY.MM.0X` where YY is the year, MM is the month, and 0X is the sub version.
+3. Navigate to the releases page on github, and download the `release.zip` file for the plugin whos version matches the version of Okular you have installed on your system. If you cant find a plugin version that matches your version of Okular try downgrading the version of Okular you have installed and go back to step 2. If you still cannot find a matching version, consider following the build instructions below and building your own version of the plugin.
+4. Unzip `release.zip`
+5. `cd release`
+6. Finally, run `./install.sh` with root permissions
+
 ## Building
 In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
 
 In order to build the plugins for all supported versions of Okular, navigate to `/releases/` and execute `./build-all.sh`.
 
 If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
+
+## Creating Releases
+First, install the github cli (`gh`) on your system and authorise with `gh auth login`.
+
+Then build all the plugins in release mode.
+
+And finally run `create-releases.sh` to automatically create, and upload releases for all currently supported versions of Okular.
 
 ## Testing
 After you've built the plugin, you can begin testing. Testing is mostly automated, except for the final step of testing interaction, which should be very brief if everything works as expected.
