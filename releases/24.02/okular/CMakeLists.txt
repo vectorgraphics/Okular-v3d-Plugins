@@ -13,7 +13,7 @@ set(KF_REQUIRED_VERSION "5.240.0") # Remember to update the KF_DEPRECATED_WARNIN
 
 set(OKULAR_UI "" CACHE STRING "Which Okular user interface to build. Possible values: desktop, mobile, both. Default: desktop (except on Android, where it is 'mobile')")
 
-set(FORCE_NOT_REQUIRED_DEPENDENCIES "" CACHE STRING "List (semicolon-separated) of dependencies that will be downgraded from REQUIRED to RECOMMENDED")
+set(FORCE_NOT_REQUIRED_DEPENDENCIES "KF6Wallet;KF6DocTools;KF6Purpose;Qt6TextToSpeech;Phonon4Qt6;Freetype;TIFF;LibSpectre;KExiv2Qt6;DjVuLibre;EPub;Discount;JPEG")
 
 find_package(ECM ${KF_REQUIRED_VERSION} CONFIG REQUIRED)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${ECM_MODULE_PATH})

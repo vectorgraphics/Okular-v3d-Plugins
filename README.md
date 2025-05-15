@@ -11,7 +11,7 @@ Also add a line to the `build-all.sh` script located in `releases/` to call the 
 
 Assuming you only want to build either the v3d or pdf plugin or both, and none of the default plugins that Okular ships with, you can force a bunch of dependencies to become optional instead of required. Do this by replacing the line mentioning the `FORCE_NOT_REQUIRED_DEPENDENCIES` variable with the following line:
 
-`set(FORCE_NOT_REQUIRED_DEPENDENCIES "KF6Wallet;KF6DocTools;KF6Purpose;Qt6TextToSpeech;Phonon4Qt6;Freetype;TIFF;LibSpectre;KExiv2Qt6;DjVuLibre;EPub;Discount")`
+`set(FORCE_NOT_REQUIRED_DEPENDENCIES "KF6Wallet;KF6DocTools;KF6Purpose;Qt6TextToSpeech;Phonon4Qt6;Freetype;TIFF;LibSpectre;KExiv2Qt6;DjVuLibre;EPub;Discount;JPEG")`
 
 in the CMakeLists.txt file in the root of the Okular source code. ie `releases/25.04/okular/CMakeLists.txt`. The line you need to replace will be near the top of the file.
 
@@ -220,6 +220,8 @@ Finally run the test script.
 In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
 
 In order to build the plugins for all supported versions of Okular, navigate to `/releases/` and execute `./build-all.sh`.
+
+If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
 
 ### Testing
 After you've built the plugin, you can begin testing. Testing is mostly automated, except for the final step of testing interaction, which should be very brief if everything works as expected.
