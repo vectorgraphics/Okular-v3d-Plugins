@@ -1,4 +1,23 @@
-### Building plugins for a new version of Okular
+## Building
+In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
+
+In order to build the plugins for all supported versions of Okular, navigate to `/releases/` and execute `./build-all.sh`.
+
+If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
+
+## Testing
+After you've built the plugin, you can begin testing. Testing is mostly automated, except for the final step of testing interaction, which should be very brief if everything works as expected.
+
+Testing is done inside of distroboxes which allow for testing on many different linux distributions.
+
+In order to test the plugin for one specific distribution, navigate to `testing/<desired linux distro>/` and run `./test.sh`. If you want to run a clean test on a brand new distrobox then add then use the option `--clean` to first delete the old distrobox and then make a new one.
+
+If you want to instead test all supported operating systems then navigate to `testing/` and execute `./test-all.sh` again including the optional `--clean` argument.
+
+You will need to give root permissions to the script as it executes to allow it to install the plugin into the distrobox, and to copy the built plugin into the home folder of the distrobox.
+
+
+## Building plugins for a new version of Okular
 For this example we will be building plugins for Okular version 25.04
 
 Firstly, create a new folder for the version of Okular you want to build under  `releases/`, and clone the okular source code into that folder. ie `releases/25.04/okular`.
@@ -21,7 +40,7 @@ You will also need to install many packages in order to build the plugins, you c
 
 which is a mostly minimal list of packages required.
 
-#### v3d
+### v3d
 The v3d plugin is quite simple, and dosent rely on many features of Okular, therefore it most likely dosent require any changes to work with a new version of okular, however it does need to be re-built specificly for the new version of Okular.
 
 Firstly, copy the source code from an older version of the plugin into the generator folder of your freshly cloned Okular source code. ie. copy the folder `releases/24.12/okular/generators/v3d/` into `releases/25.04/okular/generators/`.
@@ -30,7 +49,7 @@ Then in the CMakeLists.txt file located in `releases/version/okular/generators/`
 
 Finally, navigate back to the build script you cloned earlier (located in `releases/version/`) and run it to build the plugin.
 
-#### pdf
+### pdf
 Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be insterted in specific locations.
 
 Start by copying the existing poppler plugin source code folder (located in `releases/version/okular/generators/`) into a new folder named `pdf`.
@@ -42,7 +61,7 @@ Also be sure to comment out the existing `add_subdirectory(poppler)` call, other
 Then a few files need to be modified, Here they will all be surounded by comments indicating that they are custom code in order to make them easier to find.
 
 Look at existing versions of the plugin and Ctrl-F for `begin v3d` to help with placement.
-##### generator_pdf.h
+#### generator_pdf.h
 Located in `releases/version/okular/generators/pdf/`
 
 * Insert the following amongst the other includes:
@@ -60,7 +79,7 @@ public:
     V3dModelManager modelManager{ document() };
 // ========== end v3d ==========
 ```
-##### generator_pdf.cpp
+#### generator_pdf.cpp
 Located in `releases/version/okular/generators/pdf/`
 
 * Insert the following amongst the other includes:
@@ -168,7 +187,7 @@ if (document() != nullptr) {
 // ========== end v3d ==========
 ```
 
-##### CMakeLists.txt
+#### CMakeLists.txt
 Located in `releases/version/okular/generators/pdf/`
 
 * Insert the following inside of the `include_directories` function below what is already there:
@@ -209,37 +228,18 @@ vulkan tirpc z
 
 Finally, navigate back to the build script you cloned earlier (located in `releases/version/`) and run it to build the plugin.
 
-### Adding testing for a new linux distrobution
+## Adding testing for a new linux distrobution
 First, create a new folder for the distro in the testing folder ie: `testing/distro/`
 
 Copy in the `test.sh` script from another testing environment into the new one, and at minimum Update the variables located at the top of the file: `okularVersion`, `distro`, and `distroboxImage`.
 
 Finally run the test script.
 
-### Building
-In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
-
-In order to build the plugins for all supported versions of Okular, navigate to `/releases/` and execute `./build-all.sh`.
-
-If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
-
-### Testing
-After you've built the plugin, you can begin testing. Testing is mostly automated, except for the final step of testing interaction, which should be very brief if everything works as expected.
-
-Testing is done inside of distroboxes which allow for testing on many different linux distributions.
-
-In order to test the plugin for one specific distribution, navigate to `testing/<desired linux distro>/` and run `./test.sh`. If you want to run a clean test on a brand new distrobox then add then use the option `--clean` to first delete the old distrobox and then make a new one.
-
-If you want to instead test all supported operating systems then navigate to `testing/` and execute `./test-all.sh` again including the optional `--clean` argument.
-
-You will need to give root permissions to the script as it executes to allow it to install the plugin into the distrobox, and to copy the built plugin into the home folder of the distrobox.
-
 ## TODO
-* Add in --clean to build scripts
+* Add passing files to test scripts
 * Make the mostly minimal list of packages truely minimal, and add minimal lists for other distros
 * Add an option to select between release and debug builds of the plugin
 * Look into making the pageview location function more consistent, possibly with some kind of check, and or dynamicly writing to file info about the correct one once found
-* Add plugins for all current qt6 Okular versions
 * Optimise rendering code to be more performant
 * Make an install script that detects what version of Okular the user has installed and installs the correct version.
 * True vector based renderer
