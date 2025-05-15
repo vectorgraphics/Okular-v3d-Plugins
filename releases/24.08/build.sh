@@ -25,8 +25,8 @@ do
 done
 
 if [[ $clean -eq 1 ]] || [[ $cleanOnly -eq 1 ]]; then
-    rm -r build/
-    rm -r usr/
+    rm -rf build/
+    rm -rf usr/
 fi
 
 if [[ $cleanOnly -eq 1 ]]; then
