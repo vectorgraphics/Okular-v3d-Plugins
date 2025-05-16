@@ -9,7 +9,7 @@
 ## Building
 In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
 
-In order to build the plugins for all supported versions of Okular, navigate to `/releases/` and execute `./build-all.sh`.
+In order to build the plugins for all supported versions of Okular, navigate to `/build/` and execute `./build-all.sh`.
 
 If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
 
@@ -35,19 +35,17 @@ You will need to give root permissions to the script as it executes to allow it 
 ## Building plugins for a new version of Okular
 For this example we will be building plugins for Okular version 25.04
 
-Firstly, create a new folder for the version of Okular you want to build under  `releases/`, and clone the okular source code into that folder. ie `releases/25.04/okular`.
+Firstly, create a new folder for the version of Okular you want to build under  `build/`, and clone the okular source code into that folder. ie `build/25.04/okular`.
 
 Be sure to check out the correct branch of the Okular source code for the desired version. ie the branch named: `release/25.04`.
 
-Then copy the build script from another version of the plugin into the folder you created with the Okular version as its name. ie. into the folder: `releases/25.04/`.
-
-Also add a line to the `build-all.sh` script located in `releases/` to call the new version specific script you just created.
+Then copy the build script from another version of the plugin into the folder you created with the Okular version as its name. ie. into the folder: `build/25.04/`.
 
 Assuming you only want to build either the v3d or pdf plugin or both, and none of the default plugins that Okular ships with, you can force a bunch of dependencies to become optional instead of required. Do this by replacing the line mentioning the `FORCE_NOT_REQUIRED_DEPENDENCIES` variable with the following line:
 
 `set(FORCE_NOT_REQUIRED_DEPENDENCIES "KF6Wallet;KF6DocTools;KF6Purpose;Qt6TextToSpeech;Phonon4Qt6;Freetype;TIFF;LibSpectre;KExiv2Qt6;DjVuLibre;EPub;Discount;JPEG")`
 
-in the CMakeLists.txt file in the root of the Okular source code. ie `releases/25.04/okular/CMakeLists.txt`. The line you need to replace will be near the top of the file.
+in the CMakeLists.txt file in the root of the Okular source code. ie `build/25.04/okular/CMakeLists.txt`. The line you need to replace will be near the top of the file.
 
 You will also need to install many packages in order to build the plugins, you can just repeatadly run the build script and install whatever packages cmake cannot find, but if you use dnf as a package manager you can simply execute:
 
@@ -58,18 +56,18 @@ which is a mostly minimal list of packages required.
 ### v3d
 The v3d plugin is quite simple, and dosent rely on many features of Okular, therefore it most likely dosent require any changes to work with a new version of okular, however it does need to be re-built specificly for the new version of Okular.
 
-Firstly, copy the source code from an older version of the plugin into the generator folder of your freshly cloned Okular source code. ie. copy the folder `releases/24.12/okular/generators/v3d/` into `releases/25.04/okular/generators/`.
+Firstly, copy the source code from an older version of the plugin into the generator folder of your freshly cloned Okular source code. ie. copy the folder `build/24.12/okular/generators/v3d/` into `build/25.04/okular/generators/`.
 
-Then in the CMakeLists.txt file located in `releases/version/okular/generators/` add the line: `add_subdirectory(v3d)` amongst the other `add_subdirectory` function calls.
+Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(v3d)` amongst the other `add_subdirectory` function calls.
 
-Finally, navigate back to the build script you cloned earlier (located in `releases/version/`) and run it to build the plugin.
+Finally, navigate back to the build script you cloned earlier (located in `build/version/`) and run it to build the plugin.
 
 ### pdf
 Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be insterted in specific locations.
 
-Start by copying the existing poppler plugin source code folder (located in `releases/version/okular/generators/`) into a new folder named `pdf`.
+Start by copying the existing poppler plugin source code folder (located in `build/version/okular/generators/`) into a new folder named `pdf`.
 
-Then in the CMakeLists.txt file located in `releases/version/okular/generators/` add the line: `add_subdirectory(odf)` amongst the other `add_subdirectory` function calls.
+Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(odf)` amongst the other `add_subdirectory` function calls.
 
 Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise cmake will complain about building two libraries with the same name.
 
@@ -77,7 +75,7 @@ Then a few files need to be modified, Here they will all be surounded by comment
 
 Look at existing versions of the plugin and Ctrl-F for `begin v3d` to help with placement.
 #### generator_pdf.h
-Located in `releases/version/okular/generators/pdf/`
+Located in `build/version/okular/generators/pdf/`
 
 * Insert the following amongst the other includes:
 ```
@@ -95,7 +93,7 @@ public:
 // ========== end v3d ==========
 ```
 #### generator_pdf.cpp
-Located in `releases/version/okular/generators/pdf/`
+Located in `build/version/okular/generators/pdf/`
 
 * Insert the following amongst the other includes:
 ```
@@ -203,7 +201,7 @@ if (document() != nullptr) {
 ```
 
 #### CMakeLists.txt
-Located in `releases/version/okular/generators/pdf/`
+Located in `build/version/okular/generators/pdf/`
 
 * Insert the following inside of the `include_directories` function below what is already there:
 ```
@@ -241,7 +239,7 @@ vulkan tirpc z
 # ========== end v3d ==========
 ```
 
-Finally, navigate back to the build script you cloned earlier (located in `releases/version/`) and run it to build the plugin.
+Finally, navigate back to the build script you cloned earlier (located in `build/version/`) and run it to build the plugin.
 
 ## Adding testing for a new linux distrobution
 First, create a new folder for the distro in the testing folder ie: `testing/distro/`
