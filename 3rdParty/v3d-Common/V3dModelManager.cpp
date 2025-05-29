@@ -3,9 +3,11 @@
 #include <QApplication>
 #include <QBoxLayout>
 #include <QScrollBar>
+#include <QPainter>
 
 #include <generator.h>
 #include <gui/priorities.h>
+#include <utils.h>
 
 #include "Utility/EventFilter.h"
 #include "Utility/ProtectedFunctionCaller.h"
@@ -63,6 +65,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int wi
     if (!m_Models[pageNumber][modelIndex].m_HasChanged && 
         m_ModelImages[pageNumber][modelIndex].width() == width && 
         m_ModelImages[pageNumber][modelIndex].height() == height) {
+
         return m_ModelImages[pageNumber][modelIndex];
     }
 
@@ -136,23 +139,83 @@ void V3dModelManager::SetDocument(const Okular::Document* document) {
 }
 
 bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
-    auto visiblePages = m_Document->visiblePageRects();
-
     if (m_Models.size() == 0) {
-        // If the document has no models, this is almost certainly just a plain PDF document
+        // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
 
+    // Always keep an updated record of the mouse position even if the mouse is not down
     m_MousePosition.x = event->x();
     m_MousePosition.y = event->y();
 
+    int pg = GetPageMouseIsOver();
+    std::cout << "=====================================" << std::endl;
+    std::cout << "The mouse is over page " << pg << std::endl;
+
+    if (pg != -1) {
+        glm::vec2 normMousePos = GetNormalizedPositionRelativeToPage(m_MousePosition, pg);
+        std::cout << "Normalized position relative to hovered page: (" << normMousePos.x << ", " << normMousePos.y << std::endl;
+    }
+
     if (m_MouseDown == false) {
-        return true;
+        return false;
     }
 
     if (m_ActiveModel == nullptr) {
-        return true;
+        return false;
     }
+
+    auto visiblePages = m_Document->visiblePageRects();
+
+
+
+
+
+
+
+
+
+
+
+    /*
+    glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelInfo.x);
+    glm::vec2 lastNormalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_LastMousePosition, m_ActiveModelInfo.x);
+
+    glm::vec2 normalizedPositionOnModel = {
+        (normalizedPositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
+        (normalizedPositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
+    };
+
+    glm::vec2 lastNormalizedPositionOnModel = {
+        (lastNormalizedPositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
+        (lastNormalizedPositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
+    };
+
+    glm::vec2 pageViewSize = { m_PageView->width(), m_PageView->height() };
+
+    switch (m_DragMode) {
+        case DragMode::SHIFT: {
+            model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
+            break;
+        }
+        case DragMode::ZOOM: {
+            model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
+            break;
+        }
+        case DragMode::PAN: {
+            model.dragModePan(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
+            break;
+        }
+        case DragMode::ROTATE: {
+            model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
+            break;
+        }
+    }
+
+    requestPixmapRefresh(m_ActiveModelInfo.x);
+
+    m_LastMousePosition = m_MousePosition;
+    */
 
     NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition(m_ActiveModelInfo.x);
 
@@ -217,7 +280,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 
 bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
     if (m_Models.size() == 0) {
-        // If the document has no models, this is almost certainly just a plain PDF document
+        // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
 
@@ -225,9 +288,60 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
         return false;
     }
 
-    if (m_MouseDown != false) {
-       return true;
+    if (m_MouseDown) {
+        std::cout << "ERROR: Mouse already down" << std::endl;
+        // The mouse was pressed twice without being released in between, this should be theoretically impossible
+        // but incase it does happen ignore it.
+        return false;
     }
+
+    /*
+    m_MouseDown = true;
+
+    int pageMouseIsOver = GetPageMouseIsOver();
+
+    if (pageMouseIsOver == -1) {
+        // Not over a page
+        return true;
+    }
+
+    m_MousePosition.x = event->x();
+    m_MousePosition.y = event->y();
+
+    glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
+
+    int modelIndex = 0;
+    for (auto& model : m_Models[pageMouseIsOver]) {
+        bool horizontallyOnModel = normalizedMousePositionOnPage.x > model.minBound.x && normalizedMousePositionOnPage.x < model.maxBound.x;
+        bool verticallyOnModel = normalizedMousePositionOnPage.y > model.minBound.y && normalizedMousePositionOnPage.y < model.maxBound.y;
+
+        if (!(horizontallyOnModel && verticallyOnModel)) {
+            continue; // Making the assumption no two models overlap
+        }
+
+        m_ActiveModel = &model;
+        m_ActiveModelInfo = glm::ivec2{ normalizedMousePos.pageNumber, modelIndex };
+        break;
+
+        ++modelIndex;
+    }
+
+    m_LastMousePosition = m_MousePosition;
+
+    bool controlKey = event->modifiers() & Qt::ControlModifier;
+    bool shiftKey = event->modifiers() & Qt::ShiftModifier;
+    bool altKey = event->modifiers() & Qt::AltModifier;
+
+    if (controlKey && !shiftKey && !altKey) {
+        m_DragMode = DragMode::SHIFT;
+    } else if (!controlKey && shiftKey && !altKey) {
+        m_DragMode = DragMode::ZOOM;
+    } else if (!controlKey && !shiftKey && altKey) {
+        m_DragMode = DragMode::PAN;
+    } else {
+        m_DragMode = DragMode::ROTATE;
+    }
+    */
 
     NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition();
 
@@ -280,7 +394,7 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 
 bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
     if (m_Models.size() == 0) {
-        // If the document has no models, this is almost certainly just a plain PDF document
+        // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
 
@@ -288,8 +402,10 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
         return false;
     }
 
-    if (m_MouseDown != true) {
-        return true;
+
+    if (!m_MouseDown) {
+        std::cout << "ERROR: releaseing a mouse that is already up" << std::endl;
+        return false;
     }
 
     m_MouseDown = false;
@@ -299,9 +415,49 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
 
 bool V3dModelManager::wheelEvent(QWheelEvent* event) {
     if (m_Models.size() == 0) {
-        // If the document has no models, this is almost certainly just a plain PDF document
+        // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
+
+    /*
+    if (m_ActiveModel == nullptr && m_ActiveModelInfo.x == -1 && m_ActiveModelInfo.y == -1) {
+        return false;
+    }
+
+    glm::vec2 normalizedPositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelInfo.x);
+
+    bool horizontallyOnModel = normalizedPositionOnPage.x > m_ActiveModel->minBound.x && normalizedPositionOnPage.x < m_ActiveModel->maxBound.x;
+    bool verticallyOnModel = normalizedPositionOnPage.y > m_ActiveModel->minBound.y && normalizedPositionOnPage.y < m_ActiveModel->maxBound.y;
+
+    if (!horizontallyOnModel || !verticallyOnModel) {
+        return false;
+    }
+
+    if (event->angleDelta().y() < 0) {
+        m_ActiveModel->zoom /= m_ActiveModel->file->headerInfo.zoomFactor;
+    } else {
+        m_ActiveModel->zoom *= m_ActiveModel->file->headerInfo.zoomFactor;
+    }
+
+    float maxZoom = std::sqrt(std::numeric_limits<float>::max());
+    float minZoom = 1 / maxZoom;
+
+    if (m_ActiveModel->zoom < minZoom) {
+        m_ActiveModel->zoom = minZoom;
+    } else if (m_ActiveModel->zoom > maxZoom) {
+        m_ActiveModel->zoom = maxZoom;
+    }
+
+    glm::vec2 canvasSize = {
+        (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * m_CachedRequestSizes[m_ActiveModelInfo.x].size.x,
+        (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * m_CachedRequestSizes[m_ActiveModelInfo.x].size.y,
+    };
+
+    m_ActiveModel->setProjection(canvasSize);
+    requestPixmapRefresh(m_ActiveModelInfo.x);
+
+    return true;
+    */
 
     if (m_ActiveModel != nullptr && m_ActiveModelInfo.x != -1 && m_ActiveModelInfo.y != -1) {
         NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition(m_ActiveModelInfo.x);
@@ -380,11 +536,15 @@ void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
 }
 
 void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
+    Okular::Page* page = request->page();
+
     if (request->priority() != PAGEVIEW_PRIO && request->priority() != PAGEVIEW_PRELOAD_PRIO) {
+        if (m_CachedRequestSizes.size() < page->number() + 1 || (m_CachedRequestSizes[page->number()].size.x == 0 && m_CachedRequestSizes[page->number()].size.y == 0)) {
+            CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
+        }
+
         return;
     }
-
-    Okular::Page* page = request->page();
 
     CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
     CachePage(page->number(), page);
@@ -425,7 +585,174 @@ void V3dModelManager::CachePage(size_t pageNumber, Okular::Page* page) {
     m_Pages[pageNumber] = page;
 }
 
+std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisiblePages() {
+    auto visiblePages = m_Document->visiblePageRects();
+
+    std::vector<PageBorders> pageBorders{ };
+
+    if (visiblePages.size() == 0) return pageBorders;
+
+    pageBorders.resize(visiblePages.size());
+
+    glm::vec2 viewPortSize{ m_PageView->width(), m_PageView->height() };
+    float dpr = qGuiApp->devicePixelRatio();
+
+    if (visiblePages.size() == 1) {
+        // There is exactly one visible page
+        Okular::NormalizedRect rect = visiblePages[0]->rect;
+
+        pageBorders[0].pageNumber = visiblePages[0]->pageNumber;
+
+        glm::vec2 pageSize{ m_CachedRequestSizes[pageBorders[0].pageNumber].size.x / dpr, m_CachedRequestSizes[pageBorders[0].pageNumber].size.y / dpr };
+
+        if (rect.left == 0.0f && rect.right == 1.0f && rect.top == 0.0f && rect.bottom == 1.0f) {
+            // Page is fully visible and centered in all directions
+            pageBorders[0].hi = pageBorders[0].lo = (viewPortSize.y - pageSize.y) / 2.0f;
+            pageBorders[0].le = pageBorders[0].ri = (viewPortSize.x - pageSize.x) / 2.0f;
+        }
+        else if (rect.left == 0.0f && rect.right == 1.0f) {
+            // Page is horizontaly centered
+            pageBorders[0].hi = -rect.top * pageSize.y;
+            pageBorders[0].lo = -(1.0f - rect.bottom) * pageSize.y;
+            pageBorders[0].le = pageBorders[0].ri = (viewPortSize.x - pageSize.x) / 2.0f;
+        }
+        else if (rect.top == 0.0f && rect.bottom == 1.0f) {
+            // Page is vertically centered
+            pageBorders[0].hi = pageBorders[0].lo = (viewPortSize.y - pageSize.y) / 2.0f;
+            pageBorders[0].le = -rect.left * pageSize.x;
+            pageBorders[0].ri = viewPortSize.x - (rect.right * pageSize.x);
+        }
+        else {
+            // Page fills the entire viewport
+            pageBorders[0].hi = -rect.top * pageSize.y;
+            pageBorders[0].lo = -(1.0f - rect.bottom) * pageSize.y; // TODO why does one do this normalized and the other in pixel space
+            pageBorders[0].le = -rect.left * pageSize.x;
+            pageBorders[0].ri = viewPortSize.x - (rect.right * pageSize.x);
+        }
+    }
+    else {
+        // There is more then one visible page
+
+        size_t i = 0;
+        for (auto& page : visiblePages) {
+            Okular::NormalizedRect rect = page->rect;
+            glm::vec2 pageSize{ m_CachedRequestSizes[page->pageNumber].size.x / dpr, m_CachedRequestSizes[page->pageNumber].size.y / dpr };
+
+            pageBorders[i].pageNumber = page->pageNumber;
+
+            if (rect.left == 0.0f && rect.right == 1.0f) {
+                // Either horizontally centerd or edge case #1
+                pageBorders[i].le = pageBorders[i].ri = (viewPortSize.x - pageSize.x) / 2.0f;
+            }
+            else if (rect.left != 0.0f && rect.right != 1.0f) {
+                pageBorders[i].le = -rect.left * pageSize.x;
+                pageBorders[i].ri = -rect.right * pageSize.x;
+            }
+            else {
+                // EDGE CASE // TODO
+            }
+
+            ++i;
+        }
+
+        // First page
+        auto& firstPage = visiblePages[0];
+        Okular::NormalizedRect firstPageRect = firstPage->rect;
+        glm::vec2 firstPageSize{ m_CachedRequestSizes[firstPage->pageNumber].size.x / dpr, m_CachedRequestSizes[firstPage->pageNumber].size.y / dpr };
+
+        pageBorders[0].pageNumber = firstPage->pageNumber;
+
+        if (firstPageRect.top == 0.0f) {
+            // Vertical margin calculation
+
+            float totalPageHeight = 0;
+            for (int i = visiblePages[0]->pageNumber; i <= visiblePages[visiblePages.size() - 1]->pageNumber; ++i) {
+                totalPageHeight += m_CachedRequestSizes[i].size.y / dpr;
+            }
+
+            totalPageHeight += (visiblePages.size() - 1.0f) * 10.0f; // Margins
+
+            float verticalMargin = (viewPortSize.y - totalPageHeight) / 2.0f;
+
+            pageBorders[0].hi = verticalMargin;
+            pageBorders[0].lo = viewPortSize.y - pageBorders[0].hi - firstPageSize.y;
+        }
+        else {
+            pageBorders[0].hi = -firstPageRect.top * firstPageSize.y;
+            pageBorders[0].lo = viewPortSize.y - (1.0f - firstPageRect.top) * firstPageSize.y;
+        }
+
+        // All other pages
+        i = 0;
+        for (auto& page : visiblePages) {
+            if (i == 0) { ++i; continue; } // First page is the base case and is handled above
+
+            glm::vec2 pageSize{ m_CachedRequestSizes[page->pageNumber].size.x / dpr, m_CachedRequestSizes[page->pageNumber].size.y / dpr };
+
+            pageBorders[i].hi = viewPortSize.y - pageBorders[i - 1].lo + 10;
+            pageBorders[i].lo = viewPortSize.y - pageBorders[i].hi - pageSize.y;
+
+            ++i;
+        }
+    }
+
+    return pageBorders;
+}
+
+int V3dModelManager::GetPageMouseIsOver() {
+    std::vector<PageBorders> pageBorders = GetPageBordersForVisiblePages();
+
+    glm::vec2 viewPortSize{ m_PageView->width(), m_PageView->height() };
+
+    for (auto& border : pageBorders) {
+        if (m_MousePosition.x > border.le &&
+            m_MousePosition.x < (viewPortSize.x - border.ri) &&
+            m_MousePosition.y > border.hi &&
+            m_MousePosition.y < (viewPortSize.y - border.lo)) {
+
+            return border.pageNumber;
+        }
+    }
+
+    return -1;
+}
+
+glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& pos, int pageNumber) {
+    std::vector<PageBorders> pageBorders = GetPageBordersForVisiblePages();
+
+    float dpr = qGuiApp->devicePixelRatio();
+    glm::vec2 pageSize{ m_CachedRequestSizes[pageNumber].size.x / dpr, m_CachedRequestSizes[pageNumber].size.y / dpr };
+
+    auto it = std::find_if(pageBorders.begin(), pageBorders.end(), [&pageNumber](PageBorders border){
+        return border.pageNumber == pageNumber;
+    });
+
+    PageBorders& border = *it;
+
+    return (pos - glm::vec2{ border.le, border.hi }) / pageSize;
+}
+
 V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosition(int pageReference) {
+    // std::cout << "m_MousePosition: (" << m_MousePosition.x << ", " << m_MousePosition.y << ")" << std::endl;
+    // std::cout << "m_PageView: (" << m_PageView->width() << ", " << m_PageView->height() << ")" << std::endl;
+    // std::cout << "page: (" << m_Pages[0]->width() << ", " << m_Pages[0]->height() << std::endl;
+    // std::cout << "Chached Request Size: " << m_CachedRequestSizes.size() << std::endl;
+
+    auto dpr = qGuiApp->devicePixelRatio();
+
+    // std::cout << "DPR: " << dpr << std::endl;
+
+    // std::cout << "m_CachedRequestSizes[0] (" << m_CachedRequestSizes[0].size.x << ", " << m_CachedRequestSizes[0].size.y << ")" << std::endl;
+    // std::cout << "m_CachedRequestSizes[0] / DPR (" << m_CachedRequestSizes[0].size.x / dpr << ", " << m_CachedRequestSizes[0].size.y / dpr << ")" << std::endl;
+
+
+
+    std::cout << m_Pages[0]->ratio() << std::endl;
+
+    // const double dpr = image.devicePixelRatio();
+    // const double fImageWidth = image.width() / dpr;
+    // const double fImageHeight = image.height() / dpr;
+
     auto visiblePages = m_Document->visiblePageRects();
 
     NormalizedMousePosition normalizedMousePosition{ };
@@ -443,6 +770,10 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
         }
 
         Okular::NormalizedRect rect = visiblePages[0]->rect;
+        // std::cout << "rect.left: " << rect.left << std::endl;
+        // std::cout << "rect.right: " << rect.right << std::endl;
+        // std::cout << "rect.top: " << rect.top << std::endl;
+        // std::cout << "rect.bottomm: " << rect.bottom << std::endl;
         if (rect.left == 0.0 && rect.right == 1.0 && rect.top == 0.0 && rect.bottom == 1.0) {
             // The full page is visible
             int horizontalMargin = (m_PageView->width() - m_CachedRequestSizes[pageNumber].size.x) / 2;
@@ -497,9 +828,9 @@ V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosi
         // The document has multiple pages
 
         // TODO these constexpr values can be found with the following:
-        // std::cout << "CONTENT AREA HEIGHT: " << m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height() << std::endl;
-        // std::cout << "Total page height: " << m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
-        // std::cout << "Difference: " << (m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height()) - m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
+        std::cout << "CONTENT AREA HEIGHT: " << m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height() << std::endl;
+        std::cout << "Total page height: " << m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
+        std::cout << "Difference: " << (m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height()) - m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
         constexpr int verticalPageMargin = 12;
         constexpr int verticalBorderHeight = 6;
         constexpr int horizontalBorderWidth = 3;

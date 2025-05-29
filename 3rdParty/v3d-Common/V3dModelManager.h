@@ -11,7 +11,7 @@
 #include "Rendering/renderheadless.h"
 #include "V3dModel.h"
 
-// #define MOUSE_BOUNDARIES
+#define MOUSE_BOUNDARIES
 
 class EventFilter;
 
@@ -63,13 +63,34 @@ private:
 
 #endif
 
+     /*
+     hi: the distance between the top of the viewport and the top of the page
+     lo: the distance between the bottom of the viewport and the bottom of the page
+     le: the distance between the left side of the viewport and the left side of the page
+     ri: the distance between the right side of the viewport and the right side of the page
+     */
+
+    struct PageBorders {
+        float hi, lo, le, ri;
+        int pageNumber{ 0 };
+    };
+
+    // Returns the page borders for all currently visible pages
+    std::vector<PageBorders> GetPageBordersForVisiblePages();
+
+    // Returns the index of the page the mouse is over, or -1 if the mouse is not over a page
+    int GetPageMouseIsOver();
+
+    // Returns the given position relative to the given page in normalized coordinates
+    glm::vec2 GetNormalizedPositionRelativeToPage(const glm::vec2& pos, int pageNumber);
+
     struct NormalizedMousePosition {
         glm::vec2 currentPosition;
         glm::vec2 lastPosition;
 
         int pageNumber;
     };
-    
+
     // Gets the normalized mouse position with respect to the page provided by pageReference, or if the pageReference is
     // set to -1, than with respect to whatever page the mouse is currently over, in a one page document it will always be
     // with respect to the only page.
@@ -113,7 +134,7 @@ private:
     std::chrono::time_point<std::chrono::system_clock> m_StartTime{ };
 
     struct RequestCache {
-        glm::ivec2 size;
+        glm::ivec2 size{ 0, 0 };
         int priority{ std::numeric_limits<int>::max() };
         std::chrono::duration<double> requestTime{ };
     };
