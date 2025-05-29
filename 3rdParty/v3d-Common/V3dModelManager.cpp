@@ -148,52 +148,47 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     m_MousePosition.x = event->x();
     m_MousePosition.y = event->y();
 
-    int pg = GetPageMouseIsOver();
-    std::cout << "=====================================" << std::endl;
-    std::cout << "The mouse is over page " << pg << std::endl;
-
-    if (pg != -1) {
-        glm::vec2 normMousePos = GetNormalizedPositionRelativeToPage(m_MousePosition, pg);
-        std::cout << "Normalized position relative to hovered page: (" << normMousePos.x << ", " << normMousePos.y << std::endl;
-    }
-
-    if (m_MouseDown == false) {
-        return false;
-    }
-
-    if (m_ActiveModel == nullptr) {
-        return false;
-    }
-
-    auto visiblePages = m_Document->visiblePageRects();
+    if (!m_Dragging) { m_LastMousePosition = m_MousePosition; return false; }
 
 
+    // MOUSE_BOUNDARIES // TODO
 
 
-
-
-
-
-
-
-
-    /*
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelInfo.x);
     glm::vec2 lastNormalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_LastMousePosition, m_ActiveModelInfo.x);
 
+    V3dModel& model = *m_ActiveModel;
+
     glm::vec2 normalizedPositionOnModel = {
-        (normalizedPositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
-        (normalizedPositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
+        (normalizedMousePositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
+        (normalizedMousePositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
     };
 
     glm::vec2 lastNormalizedPositionOnModel = {
-        (lastNormalizedPositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
-        (lastNormalizedPositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
+        (lastNormalizedMousePositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
+        (lastNormalizedMousePositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
     };
 
     glm::vec2 pageViewSize = { m_PageView->width(), m_PageView->height() };
 
-    switch (m_DragMode) {
+    bool controlKey = event->modifiers() & Qt::ControlModifier;
+    bool shiftKey = event->modifiers() & Qt::ShiftModifier;
+    bool altKey = event->modifiers() & Qt::AltModifier;
+
+    DragMode dragMode; // TODO remove old m_Dragmode
+
+    // TODO combine if/else tree with switch
+    if (controlKey && !shiftKey && !altKey) {
+        dragMode = DragMode::SHIFT;
+    } else if (!controlKey && shiftKey && !altKey) {
+        dragMode = DragMode::ZOOM;
+    } else if (!controlKey && !shiftKey && altKey) {
+        dragMode = DragMode::PAN;
+    } else {
+        dragMode = DragMode::ROTATE;
+    }
+
+    switch (dragMode) {
         case DragMode::SHIFT: {
             model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
             break;
@@ -215,65 +210,6 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     requestPixmapRefresh(m_ActiveModelInfo.x);
 
     m_LastMousePosition = m_MousePosition;
-    */
-
-    NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition(m_ActiveModelInfo.x);
-
-    m_LastMousePosition.x = m_MousePosition.x;
-    m_LastMousePosition.y = m_MousePosition.y;
-
-    glm::vec2 normalizedPositionOnPage = normalizedMousePos.currentPosition;
-    glm::vec2 lastNormalizedPositionOnPage = normalizedMousePos.lastPosition;
-
-    V3dModel& model = *m_ActiveModel;
-
-#ifdef MOUSE_BOUNDARIES
-    int leftPixel = model.minBound.x * m_CachedRequestSizes[normalizedMousePos.pageNumber].size.x;
-    int rightPixel = leftPixel + (model.maxBound.x - model.minBound.x) * m_CachedRequestSizes[normalizedMousePos.pageNumber].size.x;
-
-    int topPixel = model.minBound.y * m_CachedRequestSizes[normalizedMousePos.pageNumber].size.y;
-    int bottomPixel = topPixel + (model.maxBound.y - model.minBound.y) * m_CachedRequestSizes[normalizedMousePos.pageNumber].size.y;
-
-    if (m_ActiveModelInfo.x >= 0) {
-        m_MouseBoundaryLines[m_ActiveModelInfo.x].push_back(Line{ glm::vec2{ leftPixel, topPixel }, glm::vec2{ rightPixel, topPixel } });
-        m_MouseBoundaryLines[m_ActiveModelInfo.x].push_back(Line{ glm::vec2{ leftPixel, topPixel }, glm::vec2{ leftPixel, bottomPixel } });
-        m_MouseBoundaryLines[m_ActiveModelInfo.x].push_back(Line{ glm::vec2{ rightPixel, topPixel }, glm::vec2{ rightPixel, bottomPixel } });
-        m_MouseBoundaryLines[m_ActiveModelInfo.x].push_back(Line{ glm::vec2{ leftPixel, bottomPixel }, glm::vec2{ rightPixel, bottomPixel } });
-    }
-#endif
-
-    glm::vec2 normalizedPositionOnModel = {
-        (normalizedPositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
-        (normalizedPositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
-    };
-
-    glm::vec2 lastNormalizedPositionOnModel = {
-        (lastNormalizedPositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
-        (lastNormalizedPositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
-    };
-
-    glm::vec2 pageViewSize = { m_PageView->width(), m_PageView->height() };
-
-    switch (m_DragMode) {
-        case DragMode::SHIFT: {
-            model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-        case DragMode::ZOOM: {
-            model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-        case DragMode::PAN: {
-            model.dragModePan(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-        case DragMode::ROTATE: {
-            model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-    }
-
-    requestPixmapRefresh(m_ActiveModelInfo.x);
 
     return true;
 }
@@ -284,112 +220,45 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
         return false;
     }
 
+    // Always keep an updated record of the mouse position even if the click is not the left button
+    m_MousePosition.x = event->x();
+    m_MousePosition.y = event->y();
+
+    // m_LastMousePosition = m_MousePosition;
+
     if (!(event->button() & Qt::MouseButton::LeftButton)) {
         return false;
     }
 
-    if (m_MouseDown) {
-        std::cout << "ERROR: Mouse already down" << std::endl;
-        // The mouse was pressed twice without being released in between, this should be theoretically impossible
-        // but incase it does happen ignore it.
-        return false;
-    }
-
-    /*
-    m_MouseDown = true;
-
     int pageMouseIsOver = GetPageMouseIsOver();
 
-    if (pageMouseIsOver == -1) {
-        // Not over a page
-        return true;
-    }
-
-    m_MousePosition.x = event->x();
-    m_MousePosition.y = event->y();
+    if (pageMouseIsOver == -1) return false;
 
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
 
+    V3dModel* modelMouseIsOver = nullptr;
     int modelIndex = 0;
     for (auto& model : m_Models[pageMouseIsOver]) {
         bool horizontallyOnModel = normalizedMousePositionOnPage.x > model.minBound.x && normalizedMousePositionOnPage.x < model.maxBound.x;
         bool verticallyOnModel = normalizedMousePositionOnPage.y > model.minBound.y && normalizedMousePositionOnPage.y < model.maxBound.y;
 
-        if (!(horizontallyOnModel && verticallyOnModel)) {
-            continue; // Making the assumption no two models overlap
-        }
+        if (!(horizontallyOnModel && verticallyOnModel)) continue; // Making the assumption no two models overlap
 
-        m_ActiveModel = &model;
-        m_ActiveModelInfo = glm::ivec2{ normalizedMousePos.pageNumber, modelIndex };
+        modelMouseIsOver = &model;
         break;
 
-        ++modelIndex;
+        ++modelIndex; // TODO Does nothing????
     }
 
-    m_LastMousePosition = m_MousePosition;
+    if (modelMouseIsOver != nullptr) {
+        m_Dragging = true;
+        m_ActiveModel = modelMouseIsOver;
+        m_ActiveModelInfo = glm::ivec2{ GetPageMouseIsOver(), modelIndex };
 
-    bool controlKey = event->modifiers() & Qt::ControlModifier;
-    bool shiftKey = event->modifiers() & Qt::ShiftModifier;
-    bool altKey = event->modifiers() & Qt::AltModifier;
-
-    if (controlKey && !shiftKey && !altKey) {
-        m_DragMode = DragMode::SHIFT;
-    } else if (!controlKey && shiftKey && !altKey) {
-        m_DragMode = DragMode::ZOOM;
-    } else if (!controlKey && !shiftKey && altKey) {
-        m_DragMode = DragMode::PAN;
-    } else {
-        m_DragMode = DragMode::ROTATE;
-    }
-    */
-
-    NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition();
-
-    glm::vec2 normalizedPositionOnPage = normalizedMousePos.currentPosition;
-    glm::vec2 lastNormalizedPositionOnPage = normalizedMousePos.lastPosition;
-
-    m_ActiveModel = nullptr;
-    m_ActiveModelInfo = glm::ivec2{ -1, -1 };
-
-    // If we are not over the page, than we are not over any models on that page, and so we should not have an activeModel
-    if (normalizedMousePos.pageNumber != -1) {
-        int modelIndex = 0;
-        for (auto& model : m_Models[normalizedMousePos.pageNumber]) {
-            bool horizontallyOnModel = normalizedPositionOnPage.x > model.minBound.x && normalizedPositionOnPage.x < model.maxBound.x;
-            bool verticallyOnModel = normalizedPositionOnPage.y > model.minBound.y && normalizedPositionOnPage.y < model.maxBound.y;
-
-            if (!(horizontallyOnModel && verticallyOnModel)) {
-                continue;
-            }
-
-            m_ActiveModel = &model;
-            m_ActiveModelInfo = glm::ivec2{ normalizedMousePos.pageNumber, modelIndex };
-            break;
-
-            ++modelIndex;
-        }
+        return true;
     }
 
-    m_LastMousePosition.x = m_MousePosition.x;
-    m_LastMousePosition.y = m_MousePosition.y;
-
-    m_MouseDown = true;
-
-    bool controlKey = event->modifiers() & Qt::ControlModifier;
-    bool shiftKey = event->modifiers() & Qt::ShiftModifier;
-    bool altKey = event->modifiers() & Qt::AltModifier;
-
-    if (controlKey && !shiftKey && !altKey) {
-        m_DragMode = DragMode::SHIFT;
-    } else if (!controlKey && shiftKey && !altKey) {
-        m_DragMode = DragMode::ZOOM;
-    } else if (!controlKey && !shiftKey && altKey) {
-        m_DragMode = DragMode::PAN;
-    } else {
-        m_DragMode = DragMode::ROTATE;
-    }
-
-    return true;
+    return false;
 }
 
 bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
@@ -402,13 +271,7 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
         return false;
     }
 
-
-    if (!m_MouseDown) {
-        std::cout << "ERROR: releaseing a mouse that is already up" << std::endl;
-        return false;
-    }
-
-    m_MouseDown = false;
+    m_Dragging = false;
 
     return true;
 }
@@ -419,7 +282,6 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
-    /*
     if (m_ActiveModel == nullptr && m_ActiveModelInfo.x == -1 && m_ActiveModelInfo.y == -1) {
         return false;
     }
@@ -457,44 +319,6 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
     requestPixmapRefresh(m_ActiveModelInfo.x);
 
     return true;
-    */
-
-    if (m_ActiveModel != nullptr && m_ActiveModelInfo.x != -1 && m_ActiveModelInfo.y != -1) {
-        NormalizedMousePosition normalizedMousePos = GetNormalizedMousePosition(m_ActiveModelInfo.x);
-        glm::vec2 normalizedPositionOnPage = normalizedMousePos.currentPosition;
-
-        bool horizontallyOnModel = normalizedPositionOnPage.x > m_ActiveModel->minBound.x && normalizedPositionOnPage.x < m_ActiveModel->maxBound.x;
-        bool verticallyOnModel = normalizedPositionOnPage.y > m_ActiveModel->minBound.y && normalizedPositionOnPage.y < m_ActiveModel->maxBound.y;
-
-        if (horizontallyOnModel && verticallyOnModel) {
-            if (event->angleDelta().y() < 0) {
-                m_ActiveModel->zoom /= m_ActiveModel->file->headerInfo.zoomFactor;
-            } else {
-                m_ActiveModel->zoom *= m_ActiveModel->file->headerInfo.zoomFactor;
-            }
-
-            float maxZoom = std::sqrt(std::numeric_limits<float>::max());
-            float minZoom = 1 / maxZoom;
-
-            if (m_ActiveModel->zoom < minZoom) {
-                m_ActiveModel->zoom = minZoom;
-            } else if (m_ActiveModel->zoom > maxZoom) {
-                m_ActiveModel->zoom = maxZoom;
-            }
-
-            glm::vec2 canvasSize = {
-                (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * m_CachedRequestSizes[m_ActiveModelInfo.x].size.x,
-                (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * m_CachedRequestSizes[m_ActiveModelInfo.x].size.y,
-            };
-
-            m_ActiveModel->setProjection(canvasSize);
-            requestPixmapRefresh(m_ActiveModelInfo.x);
-
-            return true;
-        }
-    }
-
-    return false;
 }
 
 void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
@@ -730,485 +554,6 @@ glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& 
     PageBorders& border = *it;
 
     return (pos - glm::vec2{ border.le, border.hi }) / pageSize;
-}
-
-V3dModelManager::NormalizedMousePosition V3dModelManager::GetNormalizedMousePosition(int pageReference) {
-    // std::cout << "m_MousePosition: (" << m_MousePosition.x << ", " << m_MousePosition.y << ")" << std::endl;
-    // std::cout << "m_PageView: (" << m_PageView->width() << ", " << m_PageView->height() << ")" << std::endl;
-    // std::cout << "page: (" << m_Pages[0]->width() << ", " << m_Pages[0]->height() << std::endl;
-    // std::cout << "Chached Request Size: " << m_CachedRequestSizes.size() << std::endl;
-
-    auto dpr = qGuiApp->devicePixelRatio();
-
-    // std::cout << "DPR: " << dpr << std::endl;
-
-    // std::cout << "m_CachedRequestSizes[0] (" << m_CachedRequestSizes[0].size.x << ", " << m_CachedRequestSizes[0].size.y << ")" << std::endl;
-    // std::cout << "m_CachedRequestSizes[0] / DPR (" << m_CachedRequestSizes[0].size.x / dpr << ", " << m_CachedRequestSizes[0].size.y / dpr << ")" << std::endl;
-
-
-
-    std::cout << m_Pages[0]->ratio() << std::endl;
-
-    // const double dpr = image.devicePixelRatio();
-    // const double fImageWidth = image.width() / dpr;
-    // const double fImageHeight = image.height() / dpr;
-
-    auto visiblePages = m_Document->visiblePageRects();
-
-    NormalizedMousePosition normalizedMousePosition{ };
-
-    normalizedMousePosition.currentPosition = glm::vec2{ };
-    normalizedMousePosition.lastPosition = glm::vec2{ };
-    normalizedMousePosition.pageNumber = -1;
-
-    if (m_Models.size() == 1) {
-        // The document has only one page
-        int pageNumber = 0;
-
-        if (visiblePages.size() != 1) {
-            return normalizedMousePosition;
-        }
-
-        Okular::NormalizedRect rect = visiblePages[0]->rect;
-        // std::cout << "rect.left: " << rect.left << std::endl;
-        // std::cout << "rect.right: " << rect.right << std::endl;
-        // std::cout << "rect.top: " << rect.top << std::endl;
-        // std::cout << "rect.bottomm: " << rect.bottom << std::endl;
-        if (rect.left == 0.0 && rect.right == 1.0 && rect.top == 0.0 && rect.bottom == 1.0) {
-            // The full page is visible
-            int horizontalMargin = (m_PageView->width() - m_CachedRequestSizes[pageNumber].size.x) / 2;
-            int verticalMargin = (m_PageView->height() - m_CachedRequestSizes[pageNumber].size.y) / 2;
-
-            bool horizontallyOnPage = m_MousePosition.x > horizontalMargin && m_MousePosition.x < horizontalMargin + m_CachedRequestSizes[pageNumber].size.x;
-            bool verticallyOnPage = m_MousePosition.y > verticalMargin && m_MousePosition.y < verticalMargin + m_CachedRequestSizes[pageNumber].size.y;
-
-            if (horizontallyOnPage && verticallyOnPage) {
-                normalizedMousePosition.pageNumber = 0;
-            } else {
-                normalizedMousePosition.pageNumber = -1;
-            }
-
-            normalizedMousePosition.currentPosition = {
-                (float)(m_MousePosition.x - horizontalMargin) / (float)m_CachedRequestSizes[pageNumber].size.x,
-                (float)(m_MousePosition.y - verticalMargin) / (float)m_CachedRequestSizes[pageNumber].size.y
-            };
-
-            normalizedMousePosition.lastPosition = {
-                (float)(m_LastMousePosition.x - horizontalMargin) / (float)m_CachedRequestSizes[pageNumber].size.x,
-                (float)(m_LastMousePosition.y - verticalMargin) / (float)m_CachedRequestSizes[pageNumber].size.y
-            };
-
-        } else {
-            // Only a section of the page is visible
-            float leftPixel = 0.0;
-            if (rect.left == 0.0 && rect.right == 1.0) {
-                // Page is fully visible horizontally
-                int horizontalMargin = (m_PageView->width() - m_CachedRequestSizes[pageNumber].size.x) / 2;
-                leftPixel = horizontalMargin;
-            } else {
-                leftPixel = -(float)rect.left * (float)m_CachedRequestSizes[pageNumber].size.x;
-            }
-
-            float topPixel = -(float)rect.top * (float)m_CachedRequestSizes[pageNumber].size.y;
-
-            normalizedMousePosition.pageNumber = 0;
-
-            normalizedMousePosition.currentPosition = {
-                (float)(m_MousePosition.x - leftPixel) / (float)m_CachedRequestSizes[pageNumber].size.x,
-                (float)(m_MousePosition.y - topPixel) / (float)m_CachedRequestSizes[pageNumber].size.y
-            };
-
-            normalizedMousePosition.lastPosition = {
-                (float)(m_LastMousePosition.x - leftPixel) / (float)m_CachedRequestSizes[pageNumber].size.x,
-                (float)(m_LastMousePosition.y - topPixel) / (float)m_CachedRequestSizes[pageNumber].size.y
-            };
-        }
-
-    } else {
-        // The document has multiple pages
-
-        // TODO these constexpr values can be found with the following:
-        std::cout << "CONTENT AREA HEIGHT: " << m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height() << std::endl;
-        std::cout << "Total page height: " << m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
-        std::cout << "Difference: " << (m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height()) - m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages() << std::endl;
-        constexpr int verticalPageMargin = 12;
-        constexpr int verticalBorderHeight = 6;
-        constexpr int horizontalBorderWidth = 3;
-
-        int contentAreaHeight = m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height();
-        int totalPageHeight = m_CachedRequestSizes[visiblePages[0]->pageNumber].size.y * m_Document->pages();
-        int yDifference = contentAreaHeight - totalPageHeight;
-
-        int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
-        int totalPageWidth = m_CachedRequestSizes[visiblePages[0]->pageNumber].size.x;
-        int xDifference = contentAreaWidth - totalPageWidth;
-
-        // One margin between each page, and a half margin on top of the top page, and another on the bottom of the last page
-        int verticalMargin = (yDifference - (visiblePages.size() * verticalPageMargin)) / 2;
-        int horizontalMargin = xDifference / 2;
-
-        // The document has more than one page   
-        bool oneNotFullyVisible = false;
-
-        for (auto visiblePage : visiblePages) {
-            int pageNumber = visiblePage->pageNumber;
-
-            Okular::NormalizedRect rect = visiblePage->rect;
-            if (!(rect.left == 0.0 && rect.right == 1.0 && rect.top == 0.0 && rect.bottom == 1.0)) {
-                oneNotFullyVisible = true;
-                break;
-            }
-        }
-
-        if (oneNotFullyVisible) {
-            // One page minimum is not fully visible
-            if (visiblePages.size() == 1) {
-                // Only one partially visible page, the page will either take up the entire viewport, or well be able to
-                // see off the edges on the left and right, in that case it will be centred horizontally.
-
-                int pageMouseIsOver = -1;
-                if (pageReference == -1) {
-                    // Find what page were over top of
-                    bool horizontallyOnPage = false;
-
-                    Okular::NormalizedRect rect = visiblePages[0]->rect;
-                    if (rect.left == 0.0 && rect.right == 1.0) {
-                        // The page is horizontally centred, and there exists a horizontal margin on either side.
-                        horizontallyOnPage = m_MousePosition.x > horizontalMargin && 
-                            m_MousePosition.x < horizontalMargin + m_CachedRequestSizes[visiblePages[0]->pageNumber].size.x;
-
-                    } else {
-                        // There is no margin on either side, the page takes up the whole viewport
-                        horizontallyOnPage = true;
-                    }
-
-                    // If there is only one visible page, but the full document has more than one page, than we must
-                    // either be on the page vertically or on one of the pages above or below, which is not possible because
-                    // only one page is visible, thus the mouse needs to be vertically on the page.
-                    bool verticallyOnPage = true;
-
-                    if (horizontallyOnPage && verticallyOnPage) {
-                        pageMouseIsOver = visiblePages[0]->pageNumber;
-                    }
-
-                } else {
-                    pageMouseIsOver = pageReference;
-                }
-
-                normalizedMousePosition.pageNumber = pageMouseIsOver;
-
-                if (pageMouseIsOver != -1) {
-                    // Calculate normalized coords on page
-
-                    Okular::NormalizedRect rect = visiblePages[0]->rect;
-
-                    int leftOfPage = 0;
-                    int topOfPage = -(rect.top * m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y);
-
-                    if (rect.left == 0.0 && rect.right == 1.0) {
-                        // The page is horizontally centred, and there exists a horizontal margin on either side.
-                        leftOfPage = horizontalMargin;
-                    } else {
-                        // There is no margin on either side, the page takes up the whole viewport
-                        leftOfPage = -(rect.left * m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x);
-                    }
-
-                    normalizedMousePosition.currentPosition = {
-                        (float)(m_MousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_MousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-
-                    normalizedMousePosition.lastPosition = {
-                        (float)(m_LastMousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_LastMousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-                }
-            } else {
-                // There are multiple pages with varying visiblity
-                int pageMouseIsOver = -1;
-                if (pageReference == -1) {
-                    // Find what page the mouse is over right now
-                    int j = 0;
-                    int totalPageHeightSoFar = 0;
-                    for (auto page : visiblePages) {
-                        bool horizontallyOnPage = false;
-                        bool verticallyOnPage = false;
-
-                        Okular::NormalizedRect rect = page->rect;
-                        if (rect.left == 0.0 && rect.right == 1.0) {
-                            // The page is horizontally centred, and there exists a horizontal margin on either side.
-
-                            int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
-                            int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
-                            int xDifference = contentAreaWidth - totalPageWidth;
-
-                            int horizontalMargin = xDifference / 2;
-
-                            horizontallyOnPage = m_MousePosition.x > horizontalMargin && 
-                                m_MousePosition.x < horizontalMargin + m_CachedRequestSizes[page->pageNumber].size.x;
-
-                        } else {
-                            // There is no margin on either side, the page takes up the whole viewport
-                            horizontallyOnPage = true;
-                        }
-
-                        int topOfPage = totalPageHeightSoFar;
-                        int bottomOfPage = totalPageHeightSoFar + (m_CachedRequestSizes[page->pageNumber].size.y * (rect.bottom - rect.top));
-
-                        verticallyOnPage = m_MousePosition.y > topOfPage && m_MousePosition.y < bottomOfPage;
-
-                        totalPageHeightSoFar = bottomOfPage + verticalPageMargin;
-
-                        if (horizontallyOnPage && verticallyOnPage) {
-                            pageMouseIsOver = visiblePages[j]->pageNumber;
-                            break;
-                        }
-
-                        ++j;
-                    }
-
-                } else {
-                    // Use the given pageReference as the page the mouse is over
-                    pageMouseIsOver = pageReference;
-                }
-
-                normalizedMousePosition.pageNumber = pageMouseIsOver;
-
-                int topOfPage = 0;
-                int leftOfPage = 0;
-                if (pageMouseIsOver != -1) {
-                    int j = 0;
-                    int totalPageHeightSoFar = 0;
-
-                    bool isFullyVisible = false;
-
-                    int k = 0;
-                    for (auto page : visiblePages) {
-                        Okular::NormalizedRect rect = page->rect;
-
-                        if (rect.left == 0.0 && rect.right == 1.0) {
-                            // The page is horizontally centred, and there exists a horizontal margin on either side.
-                            int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
-                            int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
-                            int xDifference = contentAreaWidth - totalPageWidth;
-
-                            int horizontalMargin = xDifference / 2;
-
-                            leftOfPage = horizontalMargin;
-
-                        } else {
-                            // There is no margin on either side, the page takes up the whole viewport
-                            leftOfPage = -(rect.left * m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x);
-                        }
-
-                        if (rect.left == 0.0 && rect.top == 0.0 && rect.right == 1.0 && rect.bottom == 1.0) {
-                            isFullyVisible = true;
-                        }
-
-                        if (pageMouseIsOver == page->pageNumber) {
-                            if (k == 0 && !isFullyVisible) {
-                                topOfPage = -m_CachedRequestSizes[page->pageNumber].size.y * rect.top;
-                            }
-
-                            break;
-                        }
-
-                        totalPageHeightSoFar += m_CachedRequestSizes[page->pageNumber].size.y * (rect.bottom - rect.top);
-                        totalPageHeightSoFar += 12;
-                        topOfPage = totalPageHeightSoFar;
-
-                        ++k;
-                    }
-
-                    normalizedMousePosition.currentPosition = {
-                        (float)(m_MousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_MousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-
-                    normalizedMousePosition.lastPosition = {
-                        (float)(m_LastMousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_LastMousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-                }
-            }
-
-        } else {
-            // All pages are fully visible
-
-            int pageCount = m_Document->pages();
-            if (visiblePages.size() == pageCount) {
-                // Case 1
-                // The document has a low number of pages (2-4) and so literally all pages are on screen. 
-                // Pages are horizontally and vertically centred as a whole.
-
-                int pageMouseIsOver = -1;
-                if (pageReference == -1) {
-                    // Find what page the mouse is over right now
-
-                    bool horizontallyOnPage = m_MousePosition.x > horizontalMargin &&
-                        m_MousePosition.x < contentAreaWidth - horizontalMargin;
-
-                    int j = 0;
-                    for (auto page : visiblePages) {
-                        int contentAreaHeight = m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height();
-                        int totalPageHeight = m_CachedRequestSizes[page->pageNumber].size.y * m_Document->pages();
-                        int yDifference = contentAreaHeight - totalPageHeight;
-
-                        int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
-                        int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
-                        int xDifference = contentAreaWidth - totalPageWidth;
-
-                        // One margin between each page, and a half margin on top of the top page, and another on the bottom of the last page
-                        int verticalMargin = (yDifference - (visiblePages.size() * verticalPageMargin)) / 2;
-                        int horizontalMargin = xDifference / 2;
-
-                        int totalMarginSize = j * verticalPageMargin;
-                        int totalPreviousPageHeight = j * m_CachedRequestSizes[page->pageNumber].size.y;
-
-                        int topOfPage = verticalMargin + verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
-                        int bottomOfPage = topOfPage + m_CachedRequestSizes[page->pageNumber].size.y;
-
-                        if (m_MousePosition.y > topOfPage && m_MousePosition.y < bottomOfPage) {
-                            pageMouseIsOver = j;
-                            break;
-                        }
-                        ++j;
-                    }
-
-                    if (!horizontallyOnPage || pageMouseIsOver == -1) {
-                        pageMouseIsOver = -1;
-                    }
-
-                } else {
-                    // Use the given pageReference as the page the mouse is over
-                    pageMouseIsOver = pageReference;
-                }
-
-                normalizedMousePosition.pageNumber = pageMouseIsOver;
-                
-                if (pageMouseIsOver != -1) {
-                    int leftOfPage = horizontalMargin;
-
-                    int totalMarginSize = pageMouseIsOver * verticalPageMargin;
-                    int totalPreviousPageHeight = pageMouseIsOver * m_CachedRequestSizes[0].size.y; // TODO assumes all pages are the same size
-
-                    int topOfPage = verticalMargin + verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
-
-                    normalizedMousePosition.currentPosition = {
-                        (float)(m_MousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_MousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-
-                    normalizedMousePosition.lastPosition = {
-                        (float)(m_LastMousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_LastMousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-                }
-
-            } else {
-                // Case 2:
-                // The document has many pages, and they are lined up in a way that, for example, 3 full pages are off the 
-                // top of the screen, 4 full pages are visible, and then 10 pages are entirely off the page at the bottom
-
-                // In case 2 we cant exactly know how many pixels are between the top of the top page, and the top of the viewport,
-                // but if we assume its 6 pixels, well be off by at most 6 pixels, and considering this case is already very rare,
-                // this wont be very noticeable.
-
-                int pageMouseIsOver = -1;
-                int pageMouseIsOverOnScreen = -1; // The index of the page that the mouse is over, where the page at the top of the screen has an index of 0
-                if (pageReference == -1) {
-                    // Find what page the mouse is over right now
-
-                    int j = 0;
-                    for (auto page : visiblePages) {
-                        int totalMarginSize = j * verticalPageMargin;
-                        int totalPreviousPageHeight = j * m_CachedRequestSizes[page->pageNumber].size.y;
-
-                        int topOfPage = verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
-                        int bottomOfPage = topOfPage + m_CachedRequestSizes[page->pageNumber].size.y;
-
-                        // Check if we are on the page vertically
-                        if (m_MousePosition.y > topOfPage && m_MousePosition.y < bottomOfPage) {
-                            int contentAreaHeight = m_PageView->verticalScrollBar()->maximum() + m_PageView->viewport()->height();
-                            int totalPageHeight = m_CachedRequestSizes[page->pageNumber].size.y * m_Document->pages();
-                            int yDifference = contentAreaHeight - totalPageHeight;
-
-                            int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
-                            int totalPageWidth = m_CachedRequestSizes[page->pageNumber].size.x;
-                            int xDifference = contentAreaWidth - totalPageWidth;
-
-                            // One margin between each page, and a half margin on top of the top page, and another on the bottom of the last page
-                            int verticalMargin = (yDifference - (visiblePages.size() * verticalPageMargin)) / 2;
-                            int horizontalMargin = xDifference / 2;
-
-                            // Then check if were on the page horizontally
-                            if (m_MousePosition.x > horizontalMargin && 
-                                m_MousePosition.x < horizontalMargin + m_CachedRequestSizes[page->pageNumber].size.x) {
-                                pageMouseIsOver = page->pageNumber;
-                                pageMouseIsOverOnScreen = j;
-                                break;
-                            }
-                        }
-                        ++j;
-                    }
-
-                } else {
-                    // Use the given pageReference as the page the mouse is over
-                    pageMouseIsOver = pageReference;
-
-                    pageMouseIsOverOnScreen = -1;
-                    int j = 0;
-                    for (auto page : visiblePages) {
-                        if (page->pageNumber == pageMouseIsOver) {
-                            pageMouseIsOverOnScreen = j;
-                        }
-                        ++j;
-                    }
-                    
-                    if (pageMouseIsOverOnScreen == -1) {
-                        std::cout << "ERROR: The reference page is not visible." << std::endl;
-                    }
-                }
-
-                normalizedMousePosition.pageNumber = pageMouseIsOver;
-                if (pageMouseIsOver != -1) {
-                    int contentAreaWidth = m_PageView->horizontalScrollBar()->maximum() + m_PageView->viewport()->width();
-                    int totalPageWidth = m_CachedRequestSizes[pageMouseIsOver].size.x;
-                    int xDifference = contentAreaWidth - totalPageWidth;
-
-                    int horizontalMargin = xDifference / 2;
-
-                    int leftOfPage = horizontalMargin;
-
-                    int totalMarginSize = pageMouseIsOverOnScreen * verticalPageMargin;
-                    int totalPreviousPageHeight = 0;
-                    for (int i = 0; i < pageMouseIsOverOnScreen; ++i) {
-                        totalPreviousPageHeight += m_CachedRequestSizes[i].size.y;
-                    }
-
-                    int topOfPage = verticalBorderHeight + totalMarginSize + totalPreviousPageHeight;
-
-                    normalizedMousePosition.currentPosition = {
-                        (float)(m_MousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_MousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-
-                    normalizedMousePosition.lastPosition = {
-                        (float)(m_LastMousePosition.x - leftOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.x,
-                        (float)(m_LastMousePosition.y - topOfPage) / (float)m_CachedRequestSizes[normalizedMousePosition.pageNumber].size.y
-                    };
-                }
-            }
-        }
-    }
-
-#ifdef MOUSE_BOUNDARIES
-    if (pageReference != -1) {
-        m_MouseBoundaryPoints[pageReference].push_back(Point{ normalizedMousePosition.currentPosition * glm::vec2{ (float)m_CachedRequestSizes[pageReference].size.x, (float)m_CachedRequestSizes[pageReference].size.y } });
-    }
-#endif MOUSE_BOUNDARIES
-
-    return normalizedMousePosition;
 }
 
 QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {

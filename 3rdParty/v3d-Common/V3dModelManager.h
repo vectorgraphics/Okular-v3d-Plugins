@@ -84,21 +84,6 @@ private:
     // Returns the given position relative to the given page in normalized coordinates
     glm::vec2 GetNormalizedPositionRelativeToPage(const glm::vec2& pos, int pageNumber);
 
-    struct NormalizedMousePosition {
-        glm::vec2 currentPosition;
-        glm::vec2 lastPosition;
-
-        int pageNumber;
-    };
-
-    // Gets the normalized mouse position with respect to the page provided by pageReference, or if the pageReference is
-    // set to -1, than with respect to whatever page the mouse is currently over, in a one page document it will always be
-    // with respect to the only page.
-
-    // PageNumber will be set to -1 if the mouse is not over the pageReference, or if its not over a page at all, 
-    // and otherwise will be set to the page the mouse is over top of.
-    NormalizedMousePosition GetNormalizedMousePosition(int pageReference = -1);
-
     const Okular::Document* m_Document;
 
     QAbstractScrollArea* GetPageViewWidget();
@@ -124,6 +109,8 @@ private:
     };
 
     DragMode m_DragMode{ DragMode::ROTATE };
+
+    bool m_Dragging{ false };
 
     glm::ivec2 m_MousePosition;
     glm::ivec2 m_LastMousePosition;
