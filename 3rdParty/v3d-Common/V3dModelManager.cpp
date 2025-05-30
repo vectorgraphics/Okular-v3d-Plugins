@@ -358,7 +358,7 @@ void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
     Okular::Page* page = request->page();
 
     if (request->priority() != PAGEVIEW_PRIO && request->priority() != PAGEVIEW_PRELOAD_PRIO) {
-        if (m_CachedRequestSizes.size() < page->number() + 1 || (m_CachedRequestSizes[page->number()].size.x == 0 && m_CachedRequestSizes[page->number()].size.y == 0)) {
+        if (m_CachedRequestSizes.size() < (size_t)(page->number() + 1) || (m_CachedRequestSizes[page->number()].size.x == 0 && m_CachedRequestSizes[page->number()].size.y == 0)) {
             CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
         }
 
