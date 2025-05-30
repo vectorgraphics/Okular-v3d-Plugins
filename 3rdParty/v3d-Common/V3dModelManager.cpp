@@ -439,14 +439,14 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
             // Page is vertically centered
             pageBorders[0].hi = pageBorders[0].lo = (viewPortSize.y - pageSize.y) / 2.0f;
             pageBorders[0].le = -rect.left * pageSize.x;
-            pageBorders[0].ri = viewPortSize.x - (rect.right * pageSize.x);
+            pageBorders[0].ri = -(1.0f - rect.right) * pageSize.x;
         }
         else {
             // Page fills the entire viewport
             pageBorders[0].hi = -rect.top * pageSize.y;
-            pageBorders[0].lo = -(1.0f - rect.bottom) * pageSize.y; // TODO why does one do this normalized and the other in pixel space
+            pageBorders[0].lo = -(1.0f - rect.bottom) * pageSize.y;
             pageBorders[0].le = -rect.left * pageSize.x;
-            pageBorders[0].ri = viewPortSize.x - (rect.right * pageSize.x);
+            pageBorders[0].ri = -(1.0f - rect.right) * pageSize.x;
         }
     }
     else {
