@@ -6,19 +6,13 @@ if [[ ! -d "releases" ]]; then
     exit 1
 fi
 
-if [[ $# -ne 1 ]]; then
-    echo "Incorrect usage: ./push-releases.sh \"<Insert release notes here>\""
+if [[ $# -ne 2 ]]; then
+    echo "Incorrect usage: ./push-releases.sh <Release Number> \"<Insert release notes here>\""
     exit 1
 fi
 
 for d in releases/*/ ; do
     version=$(basename "$d")
 
-    gh release delete ${version} --cleanup-tag -y
-done
-
-for d in releases/*/ ; do
-    version=$(basename "$d")
-
-    gh release create ${version} releases/${version}/release.zip --notes "$1"
+    gh release create ${version}v${1} releases/${version}/release.zip --notes "$2"
 done
