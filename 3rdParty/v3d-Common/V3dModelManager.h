@@ -69,7 +69,6 @@ private:
      le: the distance between the left side of the viewport and the left side of the page
      ri: the distance between the right side of the viewport and the right side of the page
      */
-
     struct PageBorders {
         float hi, lo, le, ri;
         int pageNumber{ 0 };
@@ -129,6 +128,6 @@ private:
     std::vector<RequestCache> m_CachedRequestSizes;
     std::vector<Okular::Page*> m_Pages;
 
-    V3dModel* m_ActiveModel;
-    glm::ivec2 m_ActiveModelInfo{ -1, -1 };
+    V3dModel* m_ActiveModel{ nullptr };
+    int m_ActiveModelPage{ -1};
 };

@@ -154,8 +154,8 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     // MOUSE_BOUNDARIES // TODO
 
 
-    glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelInfo.x);
-    glm::vec2 lastNormalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_LastMousePosition, m_ActiveModelInfo.x);
+    glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelPage);
+    glm::vec2 lastNormalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_LastMousePosition, m_ActiveModelPage);
 
     V3dModel& model = *m_ActiveModel;
 
@@ -207,7 +207,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
         }
     }
 
-    requestPixmapRefresh(m_ActiveModelInfo.x);
+    requestPixmapRefresh(m_ActiveModelPage);
 
     m_LastMousePosition = m_MousePosition;
 
@@ -237,7 +237,6 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
 
     V3dModel* modelMouseIsOver = nullptr;
-    int modelIndex = 0;
     for (auto& model : m_Models[pageMouseIsOver]) {
         bool horizontallyOnModel = normalizedMousePositionOnPage.x > model.minBound.x && normalizedMousePositionOnPage.x < model.maxBound.x;
         bool verticallyOnModel = normalizedMousePositionOnPage.y > model.minBound.y && normalizedMousePositionOnPage.y < model.maxBound.y;
@@ -246,14 +245,12 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 
         modelMouseIsOver = &model;
         break;
-
-        ++modelIndex; // TODO Does nothing????
     }
 
     if (modelMouseIsOver != nullptr) {
         m_Dragging = true;
         m_ActiveModel = modelMouseIsOver;
-        m_ActiveModelInfo = glm::ivec2{ GetPageMouseIsOver(), modelIndex };
+        m_ActiveModelPage = pageMouseIsOver;
 
         return true;
     }
@@ -282,11 +279,11 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
-    if (m_ActiveModel == nullptr && m_ActiveModelInfo.x == -1 && m_ActiveModelInfo.y == -1) {
+    if (m_ActiveModel == nullptr && m_ActiveModelPage == -1) {
         return false;
     }
 
-    glm::vec2 normalizedPositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelInfo.x);
+    glm::vec2 normalizedPositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelPage);
 
     bool horizontallyOnModel = normalizedPositionOnPage.x > m_ActiveModel->minBound.x && normalizedPositionOnPage.x < m_ActiveModel->maxBound.x;
     bool verticallyOnModel = normalizedPositionOnPage.y > m_ActiveModel->minBound.y && normalizedPositionOnPage.y < m_ActiveModel->maxBound.y;
@@ -311,12 +308,12 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
     }
 
     glm::vec2 canvasSize = {
-        (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * m_CachedRequestSizes[m_ActiveModelInfo.x].size.x,
-        (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * m_CachedRequestSizes[m_ActiveModelInfo.x].size.y,
+        (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * m_CachedRequestSizes[m_ActiveModelPage].size.x,
+        (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * m_CachedRequestSizes[m_ActiveModelPage].size.y,
     };
 
     m_ActiveModel->setProjection(canvasSize);
-    requestPixmapRefresh(m_ActiveModelInfo.x);
+    requestPixmapRefresh(m_ActiveModelPage);
 
     return true;
 }
