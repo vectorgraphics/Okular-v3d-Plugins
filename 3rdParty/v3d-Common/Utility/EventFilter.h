@@ -9,7 +9,7 @@ public:
     EventFilter(QObject* parent, V3dModelManager* modelManager);
     ~EventFilter() override = default;
 
-    bool eventFilter(QObject *object, QEvent *event);
+    bool eventFilter(QObject *object, QEvent *event) override;
 
     V3dModelManager* modelManager;
 };
