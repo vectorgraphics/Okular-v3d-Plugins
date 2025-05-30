@@ -98,17 +98,6 @@ private:
 
     std::unique_ptr<HeadlessRenderer> m_HeadlessRenderer;
 
-    bool m_MouseDown{ false };
-
-    enum class DragMode {
-        SHIFT,
-        ZOOM,
-        PAN,
-        ROTATE
-    };
-
-    DragMode m_DragMode{ DragMode::ROTATE };
-
     bool m_Dragging{ false };
 
     glm::ivec2 m_MousePosition;

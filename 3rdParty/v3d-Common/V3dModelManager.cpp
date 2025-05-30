@@ -150,10 +150,6 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 
     if (!m_Dragging) { m_LastMousePosition = m_MousePosition; return false; }
 
-
-    // MOUSE_BOUNDARIES // TODO
-
-
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelPage);
     glm::vec2 lastNormalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_LastMousePosition, m_ActiveModelPage);
 
@@ -175,36 +171,14 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     bool shiftKey = event->modifiers() & Qt::ShiftModifier;
     bool altKey = event->modifiers() & Qt::AltModifier;
 
-    DragMode dragMode; // TODO remove old m_Dragmode
-
-    // TODO combine if/else tree with switch
     if (controlKey && !shiftKey && !altKey) {
-        dragMode = DragMode::SHIFT;
+        model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     } else if (!controlKey && shiftKey && !altKey) {
-        dragMode = DragMode::ZOOM;
+        model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     } else if (!controlKey && !shiftKey && altKey) {
-        dragMode = DragMode::PAN;
+        model.dragModePan(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     } else {
-        dragMode = DragMode::ROTATE;
-    }
-
-    switch (dragMode) {
-        case DragMode::SHIFT: {
-            model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-        case DragMode::ZOOM: {
-            model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-        case DragMode::PAN: {
-            model.dragModePan(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
-        case DragMode::ROTATE: {
-            model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-            break;
-        }
+        model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     }
 
     requestPixmapRefresh(m_ActiveModelPage);
