@@ -145,8 +145,8 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     }
 
     // Always keep an updated record of the mouse position even if the mouse is not down
-    m_MousePosition.x = event->x();
-    m_MousePosition.y = event->y();
+    m_MousePosition.x = (int)event->position().x();
+    m_MousePosition.y = (int)event->position().y();
 
     if (!m_Dragging) { m_LastMousePosition = m_MousePosition; return false; }
 
@@ -219,8 +219,8 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
     }
 
     // Always keep an updated record of the mouse position even if the click is not the left button
-    m_MousePosition.x = event->x();
-    m_MousePosition.y = event->y();
+    m_MousePosition.x = (int)event->position().x();
+    m_MousePosition.y = (int)event->position().y();
 
     // m_LastMousePosition = m_MousePosition;
 
