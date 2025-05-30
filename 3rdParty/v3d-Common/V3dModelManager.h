@@ -11,7 +11,7 @@
 #include "Rendering/renderheadless.h"
 #include "V3dModel.h"
 
-#define MOUSE_BOUNDARIES
+// #define MOUSE_BOUNDARIES
 
 class EventFilter;
 

@@ -155,6 +155,30 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 
     V3dModel& model = *m_ActiveModel;
 
+#ifdef MOUSE_BOUNDARIES
+    if (m_ActiveModelPage >= 0) {
+
+        float dpr = qGuiApp->devicePixelRatio();
+
+        int pg = GetPageMouseIsOver();
+
+        int leftPixel = model.minBound.x * m_CachedRequestSizes[pg].size.x;
+        int rightPixel = leftPixel + (model.maxBound.x - model.minBound.x) * m_CachedRequestSizes[pg].size.x;
+
+        int topPixel = model.minBound.y * m_CachedRequestSizes[pg].size.y;
+        int bottomPixel = topPixel + (model.maxBound.y - model.minBound.y) * m_CachedRequestSizes[pg].size.y;
+
+        glm::vec2 mousePositionPixelSpace = normalizedMousePositionOnPage * glm::vec2{ m_CachedRequestSizes[pg].size };
+
+        m_MouseBoundaryLines[m_ActiveModelPage].push_back(Line{ glm::vec2{ leftPixel, topPixel }, glm::vec2{ rightPixel, topPixel } });
+        m_MouseBoundaryLines[m_ActiveModelPage].push_back(Line{ glm::vec2{ leftPixel, topPixel }, glm::vec2{ leftPixel, bottomPixel } });
+        m_MouseBoundaryLines[m_ActiveModelPage].push_back(Line{ glm::vec2{ rightPixel, topPixel }, glm::vec2{ rightPixel, bottomPixel } });
+        m_MouseBoundaryLines[m_ActiveModelPage].push_back(Line{ glm::vec2{ leftPixel, bottomPixel }, glm::vec2{ rightPixel, bottomPixel } });
+
+        m_MouseBoundaryPoints[m_ActiveModelPage].push_back(Point{ glm::vec2{ mousePositionPixelSpace } });
+    }
+#endif
+
     glm::vec2 normalizedPositionOnModel = {
         (normalizedMousePositionOnPage.x - model.minBound.x) / (model.maxBound.x - model.minBound.x),
         (normalizedMousePositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
@@ -349,7 +373,7 @@ void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
         m_MouseBoundaryLines.resize(page->number() + 1);
         m_MouseBoundaryPoints.resize(page->number() + 1);
     }
-#endif MOUSE_BOUNDARIES
+#endif
 }
 
 void V3dModelManager::CacheRequestSize(size_t pageNumber, int width, int height, int priority) {
