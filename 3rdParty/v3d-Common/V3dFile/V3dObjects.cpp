@@ -353,7 +353,7 @@ std::vector<float> V3dTriangleGroup::getVertexData() {
         vertices[PI2] = P2;
     }
 
-    for (int i = 0; i < vertices.size(); ++i) {
+    for (size_t i = 0; i < vertices.size(); ++i) {
         out.push_back(vertices[i].x);
         out.push_back(vertices[i].y);
         out.push_back(vertices[i].z);
