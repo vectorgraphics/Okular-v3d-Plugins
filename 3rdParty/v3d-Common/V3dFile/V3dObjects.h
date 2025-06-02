@@ -138,10 +138,10 @@ public:
     UINT materialIndex;
 };
 
-class V3dStraightPlanarQuadWithCornderColors : public V3dObject {
+class V3dStraightPlanarQuadWithCornerColors : public V3dObject {
 public:
-    V3dStraightPlanarQuadWithCornderColors(xdr::ixstream& xdrFile, BOOL doublePrecision);
-    ~V3dStraightPlanarQuadWithCornderColors() override = default;
+    V3dStraightPlanarQuadWithCornerColors(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    ~V3dStraightPlanarQuadWithCornerColors() override = default;
 
     std::vector<float> getVertexData() override;
     std::vector<unsigned int> getIndices() override;

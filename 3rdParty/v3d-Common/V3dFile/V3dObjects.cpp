@@ -206,7 +206,7 @@ std::vector<unsigned int> V3dStraightTriangle::getIndices() {
 }
 
 
-V3dStraightPlanarQuadWithCornderColors::V3dStraightPlanarQuadWithCornderColors(xdr::ixstream& xdrFile, BOOL doublePrecision)
+V3dStraightPlanarQuadWithCornerColors::V3dStraightPlanarQuadWithCornerColors(xdr::ixstream& xdrFile, BOOL doublePrecision)
     : V3dObject{ ObjectTypes::QUAD_COLOR } { 
         for (int i = 0; i < 4; ++i) {
             vertices[i].x = readReal(xdrFile, doublePrecision);
@@ -225,13 +225,13 @@ V3dStraightPlanarQuadWithCornderColors::V3dStraightPlanarQuadWithCornderColors(x
         }
     }
 
-std::vector<float> V3dStraightPlanarQuadWithCornderColors::getVertexData() {
-    std::cout << "ERROR: V3dStraightPlanarQuadWithCornderColors cannot currently give vertices" << std::endl;
+std::vector<float> V3dStraightPlanarQuadWithCornerColors::getVertexData() {
+    std::cout << "ERROR: V3dStraightPlanarQuadWithCornerColors cannot currently give vertices" << std::endl;
     return std::vector<float>{};
 }
 
-std::vector<unsigned int> V3dStraightPlanarQuadWithCornderColors::getIndices() {
-    std::cout << "ERROR: V3dStraightPlanarQuadWithCornderColors cannot currently give indices" << std::endl;
+std::vector<unsigned int> V3dStraightPlanarQuadWithCornerColors::getIndices() {
+    std::cout << "ERROR: V3dStraightPlanarQuadWithCornerColors cannot currently give indices" << std::endl;
     return std::vector<unsigned int>{};
 }
 

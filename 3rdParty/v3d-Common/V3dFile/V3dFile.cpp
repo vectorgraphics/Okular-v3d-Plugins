@@ -247,7 +247,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 
         case ObjectTypes::QUAD_COLOR:
             PRINT_OBJECT_TYPE(QUAD_COLOR);
-            m_Objects.push_back(std::move(std::make_unique<V3dStraightPlanarQuadWithCornderColors>(xdrFile, doublePrecisionFlag)));
+            m_Objects.push_back(std::move(std::make_unique<V3dStraightPlanarQuadWithCornerColors>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::CURVE_COLOR:
