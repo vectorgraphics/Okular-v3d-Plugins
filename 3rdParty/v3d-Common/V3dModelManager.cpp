@@ -268,7 +268,7 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
 
     m_Dragging = false;
 
-    return true;
+    return false;
 }
 
 bool V3dModelManager::wheelEvent(QWheelEvent* event) {
