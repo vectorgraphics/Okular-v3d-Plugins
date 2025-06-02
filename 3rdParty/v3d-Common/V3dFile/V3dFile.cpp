@@ -316,4 +316,8 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
         appendOffset(indices, ind, vertices.size() / 6);
         vertices.insert(vertices.end(), vert.begin(), vert.end());
     }
+
+    if (indices.empty() || vertices.empty()) {
+        std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
+    }
 }
