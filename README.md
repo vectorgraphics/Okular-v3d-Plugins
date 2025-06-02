@@ -262,6 +262,5 @@ Finally run the test script.
 * Customizable Controls
 
 ## BUGS
-* Model interaction is not consistent across different screen resolutions.
 * Opening multiple documents causes a crash
 * Flickering on model movement on some systems
