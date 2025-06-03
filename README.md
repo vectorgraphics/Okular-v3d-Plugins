@@ -260,6 +260,7 @@ Finally run the test script.
 * Documentation
 * Presentation Mode dosent work at all
 * Customizable Controls
+* Documents with variable sized pages.
 
 ## BUGS
 * Opening multiple documents causes a crash
