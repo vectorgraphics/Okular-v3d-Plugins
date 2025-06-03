@@ -49,9 +49,9 @@ in the CMakeLists.txt file in the root of the Okular source code. ie `build/25.0
 
 You will also need to install many packages in order to build the plugins, you can just repeatadly run the build script and install whatever packages cmake cannot find, but if you use dnf as a package manager you can simply execute:
 
-`sudo dnf install kate cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-threadweaver-devel kf6-kwindowsystem-devel kf6-kxmlgui-devel kf6-kio-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel kf6-ktextwidgets-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel glew-devel libXxf86vm-devel libXrandr-devel libXi-devel kf6-karchive-devel libzip-devel`
+`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel`
 
-which is a mostly minimal list of packages required.
+which is a minimal list of packages required.
 
 ### v3d
 The v3d plugin is quite simple, and dosent rely on many features of Okular, therefore it most likely dosent require any changes to work with a new version of okular, however it does need to be re-built specificly for the new version of Okular.
@@ -250,12 +250,10 @@ Finally run the test script.
 
 ## TODO
 * Add passing files to test scripts
-* Make the mostly minimal list of packages truely minimal, and add minimal lists for other distros
 * Look into making the pageview location function more consistent, possibly with some kind of check, and or dynamicly writing to file info about the correct one once found
 * Optimise rendering code to be more performant
 * Make an install script that detects what version of Okular the user has installed and installs the correct version.
 * True vector based renderer
-* Panning and Shifting models
 * Make the index and vertex buffers once, than cache them, currently they are recreated every time we render
 * Documentation
 * Presentation Mode dosent work at all
