@@ -112,8 +112,12 @@ void V3dModel::updateViewMatrix() {
     m_HasChanged = true;
 }
 
-void V3dModel::dragModeShift(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
+void V3dModel::dragModeShift(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& displayDimensions) {
+    float zoomInv = 1 / zoom;
+    shift.x += (normalizedMousePosition.x - lastNormalizedMousePosition.x) * zoomInv * (displayDimensions.x / 2.0f);
+    shift.y -= (normalizedMousePosition.y - lastNormalizedMousePosition.y) * zoomInv * (displayDimensions.y / 2.0f);
 
+    m_HasChanged = true;
 }
 
 void V3dModel::dragModeZoom(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
@@ -139,7 +143,14 @@ void V3dModel::dragModeZoom(const glm::vec2& normalizedMousePosition, const glm:
 }
 
 void V3dModel::dragModePan(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
+    if (file->headerInfo.orthographic) {
+        dragModeShift(normalizedMousePosition, lastNormalizedMousePosition, pageViewSize);
+    } else {
+        center.x += (normalizedMousePosition.x - lastNormalizedMousePosition.x) * (viewParam.maxValues.x - viewParam.minValues.x);
+        center.y -= (normalizedMousePosition.y - lastNormalizedMousePosition.y) * (viewParam.maxValues.y - viewParam.minValues.y);
+    }
 
+    m_HasChanged = true;
 }
 
 void V3dModel::dragModeRotate(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {

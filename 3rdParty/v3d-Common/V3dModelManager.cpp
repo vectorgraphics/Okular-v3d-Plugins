@@ -204,7 +204,14 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     bool altKey = event->modifiers() & Qt::AltModifier;
 
     if (controlKey && !shiftKey && !altKey) {
-        model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
+        float dpr = qGuiApp->devicePixelRatio();
+
+        glm::vec2 canvasSize = {
+            (model.maxBound.x - model.minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x),
+            (model.maxBound.y - model.minBound.y) * (m_CachedRequestSizes[m_ActiveModelPage].size.y),
+        };
+
+        model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, canvasSize);
     } else if (!controlKey && shiftKey && !altKey) {
         model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     } else if (!controlKey && !shiftKey && altKey) {
@@ -313,9 +320,11 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         m_ActiveModel->zoom = maxZoom;
     }
 
+    float dpr = qGuiApp->devicePixelRatio();
+
     glm::vec2 canvasSize = {
-        (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * m_CachedRequestSizes[m_ActiveModelPage].size.x,
-        (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * m_CachedRequestSizes[m_ActiveModelPage].size.y,
+        (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x / dpr),
+        (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * (m_CachedRequestSizes[m_ActiveModelPage].size.y / dpr),
     };
 
     m_ActiveModel->setProjection(canvasSize);
