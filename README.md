@@ -263,3 +263,4 @@ Finally run the test script.
 ## BUGS
 * Opening multiple documents causes a crash
 * Flickering on model movement on some systems
+* Using on a device with multiple monitors with different resolutions breaks interaction due to different device pixel ratio per monitor
