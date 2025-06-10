@@ -1,5 +1,13 @@
 #!/bin/bash
 
+if [[ $1 = "--help" ]]; then
+    echo "Usage: ./create-releases.sh"
+    echo "Creates releases for all versions of Okular supported"
+    echo "Be sure to buid plugins prior to creating releases"
+
+    exit
+fi
+
 rm -rf releases
 
 mkdir releases/
