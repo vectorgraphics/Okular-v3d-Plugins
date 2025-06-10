@@ -1,12 +1,15 @@
 #!/bin/bash
 
-if [[ $1 = "--help" ]]; then
-    echo "Usage: ./create-releases.sh"
-    echo "Creates releases for all versions of Okular supported"
-    echo "Be sure to buid plugins prior to creating releases"
-
-    exit
-fi
+for arg in $@
+do
+    if [[ $arg = "--help" ]]; then
+        echo "Usage: ./create-releases.sh"
+        echo "Creates releases for all versions of Okular supported"
+        echo "Be sure to buid plugins prior to creating releases"
+        echo "  --help          See this message"
+        exit
+    fi
+done
 
 rm -rf releases
 
