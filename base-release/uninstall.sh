@@ -31,3 +31,13 @@ update-mime-database /usr/share/mime
 
 rm /usr/share/applications/okularApplication_v3d.desktop  2> /dev/null || \
 echo "Could not find okularApplication_v3d.desktop, was the plugin ever installed?"
+
+mv ${FEDORA}tmp/okularGenerator_poppler.so ${FEDORA}okularGenerator_poppler.so 2> /dev/null || \
+mv ${UBUNTU}tmp/okularGenerator_poppler.so ${UBUNTU}okularGenerator_poppler.so 2> /dev/null || \
+mv ${ARCH}tmp/okularGenerator_poppler.so ${ARCH}okularGenerator_poppler.so 2> /dev/null || \
+echo "Could not find existing okularGenerator_poppler.so to save"
+
+rm -r ${FEDORA}tmp/ 2> /dev/null || \
+rm -r ${UBUNTU}tmp/ 2> /dev/null || \
+rm -r ${ARCH}tmp/ 2> /dev/null || \
+echo "Could not find existing okularGenerator_poppler.so to save"
