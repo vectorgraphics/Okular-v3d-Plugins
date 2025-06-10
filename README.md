@@ -1,3 +1,14 @@
+# Okular-v3d-Plugins
+A set of plugins adding v3d file support to the pdf reader Okular.
+
+Note: Most scripts can be run with --help for more info
+
+## V3D
+Adds support for opening v3d files directly inside of Okular, currently rotation, zooming, and panning are all supported, however v3d files must be prerendered.
+
+## PDF
+Adds support for opening pdf files with v3d files embedded inside, currently rotation, zooming and panning of models is supported, however v3d files must be prerendered.
+
 ## Installing
 1. Install Okular through your favourite package manager
 2. Find out what version of Okular you have installed either by running `okular --version` or launch okular, click on `help` in the top bar and then `About Okular` in the drop down. The version will have the format: `YY.MM.0X` where YY is the year, MM is the month, and 0X is the sub version.
