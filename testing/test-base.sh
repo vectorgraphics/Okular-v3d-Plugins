@@ -1,4 +1,19 @@
 testFunc() {
+    for arg in $@
+    do
+        if [[ $arg = "--help" ]]; then
+            echo "Usage: ./test.sh [OPTIONS]..."
+            echo "Tests Okular version ${okularVersion} using ${distro}"
+            echo "  --clean         Delete and recreate the testing distrobox before testing"
+            echo "  --clean-only    Delete the distrobox without testing"
+            echo "  --release       Test the release build of the pdf and v3d plugin"
+            echo "  --debug         Test the debug build of the pdf and v3d plugin"
+            echo "  --install-only  Creates the distrobox if needed, and then installs the plugins without testing"
+
+            exit
+        fi
+    done
+
     clean=0
     cleanOnly=0
     release=0
@@ -29,7 +44,7 @@ testFunc() {
     done
 
     if [[ $release -eq 0 ]] && [[ $debug -eq 0 ]]; then
-        echo "No build type selected, please specify either --debug, --release or both."
+        echo "No build type selected, please specify either --debug, --release or both. See --help for more information"
         exit 1
     fi
 
