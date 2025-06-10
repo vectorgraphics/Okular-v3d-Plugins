@@ -1,3 +1,5 @@
+#!/bin/bash
+
 testFunc() {
     for arg in $@
     do
