@@ -4,6 +4,7 @@ testFunc() {
         if [[ $arg = "--help" ]]; then
             echo "Usage: ./test.sh [OPTIONS]..."
             echo "Tests Okular version ${okularVersion} using ${distro}"
+            echo "  --help          See this message"
             echo "  --clean         Delete and recreate the testing distrobox before testing"
             echo "  --clean-only    Delete the distrobox without testing"
             echo "  --release       Test the release build of the pdf and v3d plugin"
