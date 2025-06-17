@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
-    <mime-type type="text/x-v3d">
+    <mime-type type="application/gzip">
         <comment>Vertex Data Type</comment>
         <icon name="v3d"/>
         <glob pattern="*.v3d"/>

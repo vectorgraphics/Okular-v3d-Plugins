@@ -1,5 +1,5 @@
 [Desktop Entry]
-MimeType=text/x-v3d;
+MimeType=application/gzip;
 Terminal=false
 Name=Okular
 GenericName=Document Viewer

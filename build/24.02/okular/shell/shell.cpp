@@ -189,6 +189,7 @@ Shell::Shell(const QString &serializedOptions)
     , m_toolBarWasShown(true)
     , m_isValid(true)
 {
+    std::cout << "Shell consturctor" << std::endl;
     setObjectName(QStringLiteral("okular::Shell#"));
     setContextMenuPolicy(Qt::NoContextMenu);
     // otherwise .rc file won't be found by unit test
@@ -622,6 +623,7 @@ void Shell::readProperties(const KConfigGroup &group)
 
 void Shell::fileOpen()
 {
+    std::cout << "File open" << std::endl;
     // this slot is called whenever the File->Open menu is selected,
     // the Open shortcut is pressed (usually CTRL+O) or the Open toolbar
     // button is clicked

@@ -5,6 +5,8 @@ include_directories(
     "../../../../../3rdParty/v3d-Common/"
     "../../core/"
     "/usr/include/tirpc" 
+    "/VulkanSDK/1.3.280.0/Include"
+    "/CraftDependencies/glm/"
 )
 
 set(
@@ -25,9 +27,13 @@ set(
     ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
 )
 
+link_directories("/VulkanSDK/1.3.280.0/Lib")
+
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})
 
-target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan tirpc)
+target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan-1 
+# tirpc
+)
 
 ########### install files ###############
 install(PROGRAMS okularApplication_v3d.desktop DESTINATION ${KDE_INSTALL_APPDIR})

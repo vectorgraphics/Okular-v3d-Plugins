@@ -10,7 +10,8 @@
         "Description": "v3d file backend",
         "License": "GPL",
         "MimeTypes": [
-            "text/x-v3d"
+            "text/x-v3d",
+	    "application/gzip"
         ],
         "Name": "v3d Backend",
         "Version": "0.1"
