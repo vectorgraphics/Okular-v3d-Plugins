@@ -70,6 +70,8 @@ inline bool_t xdr_u_long(XDR *__xdrs, unsigned long *__lp) {
 #include <rpc/rpc.h>
 #endif
 
+#include "xdr.h"
+
 namespace xdr {
 
 class xbyte {
@@ -113,12 +115,12 @@ public:
   xstream& seek(off_t pos, seekdir dir=beg) {
     if(buf) {
       clear();
-      if(fseeko(buf,pos,dir) != 0) set(failbit);
+      if(_fseeki64(buf,pos,dir) != 0) set(failbit);
     }
     return *this;
   }
   off_t tell() {
-    return ftello(buf);
+    return ftell(buf);
   }
 };
 
@@ -132,7 +134,7 @@ class ixstream : virtual public xstream {
 private:
   bool singleprecision;
 protected:
-  XDR xdri;
+  XDR xdri;                                                                                                   // TODO
 public:
   ixstream(bool singleprecision=false) : singleprecision(singleprecision) {}
 

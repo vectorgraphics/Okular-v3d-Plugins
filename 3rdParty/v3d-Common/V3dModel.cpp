@@ -14,13 +14,13 @@ V3dModel::V3dModel(const std::string& filePath, const glm::vec2& minBound, const
 }
 
 
-V3dModel::V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound, const glm::vec2& maxBound) 
-    : minBound(minBound), maxBound(maxBound) {
+// V3dModel::V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound, const glm::vec2& maxBound) 
+//     : minBound(minBound), maxBound(maxBound) {
 
-    file = std::make_unique<V3dFile>(xdrFile);
+//     file = std::make_unique<V3dFile>(xdrFile);
 
-    initProjection();
-}
+//     initProjection();
+// }
 
 void V3dModel::initProjection() {
     h = -std::tan(0.5f * file->headerInfo.angleOfView) * file->headerInfo.maxBound.z;

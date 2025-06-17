@@ -6,10 +6,10 @@
 class V3dFile {
 public:
     V3dFile(const std::string& fileName);
-    V3dFile(xdr::memixstream& xdrFile);
+    // V3dFile(xdr::memixstream& xdrFile);
 
     UINT versionNumber;
-    BOOL doublePrecisionFlag;
+    V3D_BOOL doublePrecisionFlag;
 
     std::vector<TRIPLE> centers;
     std::vector<V3dMaterial> materials;
@@ -22,5 +22,5 @@ public:
     std::vector<unsigned int> indices;
 
 private:
-    void load(xdr::ixstream& xdrFile);
+    // void load(xdr::ixstream& xdrFile);
 };
