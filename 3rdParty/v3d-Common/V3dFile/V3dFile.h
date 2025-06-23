@@ -3,13 +3,15 @@
 #include "V3dObjects.h"
 #include "V3dHeaderInfo.h"
 
+#include "xstream.h"
+
 class V3dFile {
 public:
     V3dFile(const std::string& fileName);
     V3dFile(xdr::memixstream& xdrFile);
 
     UINT versionNumber;
-    BOOL doublePrecisionFlag;
+    V3D_BOOL doublePrecisionFlag;
 
     std::vector<TRIPLE> centers;
     std::vector<V3dMaterial> materials;

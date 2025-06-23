@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Utility/Arcball.h"
+#include "xstream.h"
 
 V3dModel::V3dModel(const std::string& filePath, const glm::vec2& minBound, const glm::vec2& maxBound) 
     : minBound(minBound), maxBound(maxBound) {

@@ -1,12 +1,11 @@
 #pragma once
 
 #include "V3dTypes.h"
-#include "../3rdParty/xstream.h"
 
 enum HeaderTypes {
     CANVAS_WIDTH = 1,           // Canvas width
-    CANVAS_HEIGHT = 2,          // Canvas heighot
-    ABSOLUTE = 3,               // true: absolute size; false: scale to canvas
+    CANVAS_HEIGHT = 2,          // Canvas height
+    V3D_ABSOLUTE = 3,           // true: absolute size; false: scale to canvas // Note: ABSOLUTE is a pre-existing type on windows
     MIN_BOUND = 4,              // Scene minimum bounding box corners
     MAX_BOUND = 5,              // Scene maximum bounding box corners
     ORTHOGRAPHIC = 6,           // true: orthographic; false: perspective
@@ -34,10 +33,10 @@ public:
 
     UINT canvasWidth = 500;
     UINT canvasHeight = 500;
-    BOOL absolute = false;
+    V3D_BOOL absolute = false;
     TRIPLE minBound = { 0.0f, 0.0f, 0.0f };
     TRIPLE maxBound = { 100.0f, 100.0f, 100.0f};
-    BOOL orthographic = false;
+    V3D_BOOL orthographic = false;
     REAL angleOfView = glm::radians(45.0f);
     REAL initialZoom = 1.0f;
     PAIR viewportShift = { 0.0f, 0.0f};

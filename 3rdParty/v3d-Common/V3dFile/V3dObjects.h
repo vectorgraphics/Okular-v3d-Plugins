@@ -6,7 +6,7 @@
 #include <array>
 
 #include "V3dObject.h"
-#include "../3rdParty/xstream.h"
+#include "xstream.h"
 
 enum ObjectTypes {
     MATERIAL = 1,
@@ -60,7 +60,9 @@ struct V3dMaterial {
 
 class V3dBezierPatch : public V3dObject {
 public:
-    V3dBezierPatch(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dBezierPatch(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dBezierPatch() override = default;
 
     std::vector<float> getVertexData() override;
@@ -73,7 +75,9 @@ public:
 
 class V3dBezierTriangle : public V3dObject {
 public:
-    V3dBezierTriangle(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dBezierTriangle(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dBezierTriangle() override = default;
 
     std::vector<float> getVertexData() override;
@@ -86,7 +90,9 @@ public:
 
 class V3dBezierPatchWithCornerColors : public V3dObject {
 public:
-    V3dBezierPatchWithCornerColors(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dBezierPatchWithCornerColors(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dBezierPatchWithCornerColors() override = default;
 
     std::vector<float> getVertexData() override;
@@ -100,7 +106,9 @@ public:
 
 class V3dBezierTriangleWithCornerColors : public V3dObject {
 public:
-    V3dBezierTriangleWithCornerColors(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dBezierTriangleWithCornerColors(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dBezierTriangleWithCornerColors() override = default;
 
     std::vector<float> getVertexData() override;
@@ -114,7 +122,9 @@ public:
 
 class V3dStraightPlanarQuad : public V3dObject {
 public:
-    V3dStraightPlanarQuad(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dStraightPlanarQuad(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dStraightPlanarQuad() override = default;
 
     std::vector<float> getVertexData() override;
@@ -127,7 +137,9 @@ public:
 
 class V3dStraightTriangle : public V3dObject {
 public:
-    V3dStraightTriangle(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dStraightTriangle(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dStraightTriangle() override = default;
 
     std::vector<float> getVertexData() override;
@@ -140,7 +152,9 @@ public:
 
 class V3dStraightPlanarQuadWithCornerColors : public V3dObject {
 public:
-    V3dStraightPlanarQuadWithCornerColors(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dStraightPlanarQuadWithCornerColors(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dStraightPlanarQuadWithCornerColors() override = default;
 
     std::vector<float> getVertexData() override;
@@ -154,7 +168,9 @@ public:
 
 class V3dStraightTriangleWithCornerColors : public V3dObject {
 public:
-    V3dStraightTriangleWithCornerColors(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dStraightTriangleWithCornerColors(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dStraightTriangleWithCornerColors() override = default;
 
     std::vector<float> getVertexData() override;
@@ -168,7 +184,9 @@ public:
 
 class V3dTriangleGroup : public V3dObject {
 public:
-    V3dTriangleGroup(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dTriangleGroup(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dTriangleGroup() override = default;
 
     std::vector<float> getVertexData() override;
@@ -179,10 +197,10 @@ public:
     std::vector<TRIPLE> vertexPositions;        // size is nP
     UINT nN;
     std::vector<TRIPLE> vertexNormalArray;      // size is nN
-    BOOL explicitNI;
+    V3D_BOOL explicitNI;
     UINT nC;
     std::vector<RGBA> vertexColorArray;         // size is nC
-    BOOL explicitCI;
+    V3D_BOOL explicitCI;
 
     std::vector<std::array<UINT, 3>> positionIndices;   // Vector has size nI
     std::vector<std::array<UINT, 3>> normalIndices;     // Vector has size nI
@@ -194,7 +212,9 @@ public:
 
 class V3dSphere : public V3dObject {
 public:
-    V3dSphere(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dSphere(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dSphere() override = default;
 
     std::vector<float> getVertexData() override;
@@ -208,7 +228,9 @@ public:
 
 class V3dHemiSphere : public V3dObject {
 public:
-    V3dHemiSphere(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dHemiSphere(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dHemiSphere() override = default;
 
     std::vector<float> getVertexData() override;
@@ -224,7 +246,9 @@ public:
 
 class V3dDisk : public V3dObject {
 public:
-    V3dDisk(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dDisk(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dDisk() override = default;
 
     std::vector<float> getVertexData() override;
@@ -240,7 +264,9 @@ public:
 
 class V3dCylinder : public V3dObject {
 public:
-    V3dCylinder(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dCylinder(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dCylinder() override = default;
 
     std::vector<float> getVertexData() override;
@@ -257,7 +283,9 @@ public:
 
 class V3dTube : public V3dObject {
 public:
-    V3dTube(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dTube(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dTube() override = default;
 
     std::vector<float> getVertexData() override;
@@ -267,12 +295,14 @@ public:
     REAL width;
     UINT centerIndex;
     UINT materialIndex;
-    BOOL core;
+    V3D_BOOL core;
 };
 
 class V3dBezierCurve : public V3dObject {
 public:
-    V3dBezierCurve(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dBezierCurve(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dBezierCurve() override = default;
 
     std::vector<float> getVertexData() override;
@@ -285,7 +315,9 @@ public:
 
 class V3dLineSegment : public V3dObject {
 public:
-    V3dLineSegment(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dLineSegment(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dLineSegment() override = default;
 
     std::vector<float> getVertexData() override;
@@ -298,7 +330,9 @@ public:
 
 class V3dPixel : public V3dObject {
 public:
-    V3dPixel(xdr::ixstream& xdrFile, BOOL doublePrecision);
+    V3dPixel(
+        xdr::ixstream& xdrFile, 
+        V3D_BOOL doublePrecision);
     ~V3dPixel() override = default;
 
     std::vector<float> getVertexData() override;

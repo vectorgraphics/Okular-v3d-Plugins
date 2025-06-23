@@ -5,7 +5,7 @@
 
 #include "V3dFile.h"
 
-#include "../3rdParty/xstream.h"
+#include "xstream.h"
 
 #include "V3dUtil.h"
 
@@ -23,7 +23,7 @@ void appendOffset(std::vector<UINT>& a, const std::vector<UINT>& b, size_t offse
     size_t m=b.size();
     a.resize(n+m);
     for(size_t i=0; i < m; ++i)
-        a[n+i]=b[i]+offset;
+        a[n+i]=b[i]+(UINT)offset;
 }
 
 V3dFile::V3dFile(const std::string& fileName) { 
@@ -119,7 +119,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                         xdrFile >> headerInfo.canvasHeight; 
                         break;    
 
-                    case ABSOLUTE:
+                    case V3D_ABSOLUTE:
                         xdrFile >> headerInfo.absolute;   
                         break;     
 
