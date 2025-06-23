@@ -43,6 +43,7 @@ buildFunc() {
     if [[ $clean -eq 1 ]] || [[ $cleanOnly -eq 1 ]]; then
         rm -rf build/
         rm -rf usr/
+        cmake --target clean
     fi
 
     if [[ $cleanOnly -eq 1 ]]; then
