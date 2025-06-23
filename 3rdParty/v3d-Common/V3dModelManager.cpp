@@ -71,7 +71,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int wi
 
     std::vector<float> vertices = m_Models[pageNumber][modelIndex].file->vertices;
     std::vector<unsigned int> indices = m_Models[pageNumber][modelIndex].file->indices;
-
+    
     if (vertices.empty() || indices.empty()) {
         QImage image{ width, height, QImage::Format_ARGB32 };
 

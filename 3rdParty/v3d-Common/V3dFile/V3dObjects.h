@@ -6,7 +6,7 @@
 #include <array>
 
 #include "V3dObject.h"
-// #include "../3rdParty/xstream.h"
+#include "xstream.h"
 
 enum ObjectTypes {
     MATERIAL = 1,
@@ -61,7 +61,7 @@ struct V3dMaterial {
 class V3dBezierPatch : public V3dObject {
 public:
     V3dBezierPatch(
-        //xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dBezierPatch() override = default;
 
@@ -76,7 +76,7 @@ public:
 class V3dBezierTriangle : public V3dObject {
 public:
     V3dBezierTriangle(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dBezierTriangle() override = default;
 
@@ -91,7 +91,7 @@ public:
 class V3dBezierPatchWithCornerColors : public V3dObject {
 public:
     V3dBezierPatchWithCornerColors(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dBezierPatchWithCornerColors() override = default;
 
@@ -107,7 +107,7 @@ public:
 class V3dBezierTriangleWithCornerColors : public V3dObject {
 public:
     V3dBezierTriangleWithCornerColors(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dBezierTriangleWithCornerColors() override = default;
 
@@ -123,7 +123,7 @@ public:
 class V3dStraightPlanarQuad : public V3dObject {
 public:
     V3dStraightPlanarQuad(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dStraightPlanarQuad() override = default;
 
@@ -138,7 +138,7 @@ public:
 class V3dStraightTriangle : public V3dObject {
 public:
     V3dStraightTriangle(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dStraightTriangle() override = default;
 
@@ -153,7 +153,7 @@ public:
 class V3dStraightPlanarQuadWithCornerColors : public V3dObject {
 public:
     V3dStraightPlanarQuadWithCornerColors(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dStraightPlanarQuadWithCornerColors() override = default;
 
@@ -169,7 +169,7 @@ public:
 class V3dStraightTriangleWithCornerColors : public V3dObject {
 public:
     V3dStraightTriangleWithCornerColors(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dStraightTriangleWithCornerColors() override = default;
 
@@ -185,7 +185,7 @@ public:
 class V3dTriangleGroup : public V3dObject {
 public:
     V3dTriangleGroup(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dTriangleGroup() override = default;
 
@@ -213,7 +213,7 @@ public:
 class V3dSphere : public V3dObject {
 public:
     V3dSphere(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dSphere() override = default;
 
@@ -229,7 +229,7 @@ public:
 class V3dHemiSphere : public V3dObject {
 public:
     V3dHemiSphere(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dHemiSphere() override = default;
 
@@ -247,7 +247,7 @@ public:
 class V3dDisk : public V3dObject {
 public:
     V3dDisk(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dDisk() override = default;
 
@@ -265,7 +265,7 @@ public:
 class V3dCylinder : public V3dObject {
 public:
     V3dCylinder(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dCylinder() override = default;
 
@@ -284,7 +284,7 @@ public:
 class V3dTube : public V3dObject {
 public:
     V3dTube(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dTube() override = default;
 
@@ -301,7 +301,7 @@ public:
 class V3dBezierCurve : public V3dObject {
 public:
     V3dBezierCurve(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dBezierCurve() override = default;
 
@@ -316,7 +316,7 @@ public:
 class V3dLineSegment : public V3dObject {
 public:
     V3dLineSegment(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dLineSegment() override = default;
 
@@ -331,7 +331,7 @@ public:
 class V3dPixel : public V3dObject {
 public:
     V3dPixel(
-        // xdr::ixstream& xdrFile, 
+        xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
     ~V3dPixel() override = default;
 

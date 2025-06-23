@@ -3,10 +3,12 @@
 #include "V3dObjects.h"
 #include "V3dHeaderInfo.h"
 
+#include "xstream.h"
+
 class V3dFile {
 public:
     V3dFile(const std::string& fileName);
-    // V3dFile(xdr::memixstream& xdrFile);
+    V3dFile(xdr::memixstream& xdrFile);
 
     UINT versionNumber;
     V3D_BOOL doublePrecisionFlag;
@@ -22,5 +24,5 @@ public:
     std::vector<unsigned int> indices;
 
 private:
-    // void load(xdr::ixstream& xdrFile);
+    void load(xdr::ixstream& xdrFile);
 };

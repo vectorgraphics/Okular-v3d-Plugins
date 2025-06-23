@@ -5,7 +5,7 @@
 
 #include "V3dFile.h"
 
-// #include "../3rdParty/xstream.h"
+#include "xstream.h"
 
 #include "V3dUtil.h"
 
@@ -27,15 +27,14 @@ void appendOffset(std::vector<UINT>& a, const std::vector<UINT>& b, size_t offse
 }
 
 V3dFile::V3dFile(const std::string& fileName) { 
-    // xdr::ixstream xdrFile{ fileName.c_str() };
-    // load(xdrFile);
+    xdr::ixstream xdrFile{ fileName.c_str() };
+    load(xdrFile);
 }
 
-// V3dFile::V3dFile(xdr::memixstream& xdrFile) {
-//    load(xdrFile);
-// }
+V3dFile::V3dFile(xdr::memixstream& xdrFile) {
+   load(xdrFile);
+}
 
-/*
 void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile >> versionNumber;
     xdrFile >> doublePrecisionFlag;
@@ -120,7 +119,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                         xdrFile >> headerInfo.canvasHeight; 
                         break;    
 
-                    case ABSOLUTE:
+                    case V3D_ABSOLUTE:
                         xdrFile >> headerInfo.absolute;   
                         break;     
 
@@ -322,5 +321,3 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
 }
-
-*/

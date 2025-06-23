@@ -6,7 +6,7 @@ struct V3dModel {
     friend class V3dModelManager;
 
     V3dModel(const std::string& filePath, const glm::vec2& minBound = { 0.0f, 0.0f }, const glm::vec2& maxBound = { 1.0f, 1.0f });
-    // V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound = { 0.0f, 0.0f }, const glm::vec2& maxBound = { 1.0f, 1.0f });
+    V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound = { 0.0f, 0.0f }, const glm::vec2& maxBound = { 1.0f, 1.0f });
     V3dModel(const V3dModel& other) = default;
     V3dModel(V3dModel&& other) noexcept = default;
     V3dModel& operator=(const V3dModel& other) = default;
