@@ -39,6 +39,7 @@ set(okularGenerator_poppler_PART_SRCS
    ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
+   ../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc
    # ========== end v3d ==========
 )
 
@@ -51,11 +52,9 @@ kconfig_add_kcfg_files(okularGenerator_poppler_PART_SRCS GENERATE_MOC conf/pdfse
 okular_add_generator(okularGenerator_poppler ${okularGenerator_poppler_PART_SRCS})
 
 target_link_libraries(okularGenerator_poppler okularcore KF6::I18n KF6::Completion KF6::KIOWidgets Poppler::Qt6 Qt6::Xml
-
 # ========== begin v3d ==========
 vulkan tirpc z
 # ========== end v3d ==========
-
 )
 
 ########### autotests ###############
@@ -64,6 +63,10 @@ ecm_add_test(autotests/testimagescaling.cpp
     TEST_NAME "imageScalingTest"
     LINK_LIBRARIES Qt6::Test Qt6::Gui
 )
+
+# ========== begin v3d ==========
+add_compile_definitions(HAVE_LIBTIRPC)
+# ========== end v3d ==========
 
 ########### install files ###############
 install( PROGRAMS okularApplication_pdf.desktop org.kde.mobile.okular_pdf.desktop  DESTINATION  ${KDE_INSTALL_APPDIR} )

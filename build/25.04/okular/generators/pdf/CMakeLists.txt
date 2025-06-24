@@ -39,6 +39,7 @@ set(okularGenerator_poppler_PART_SRCS
    ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
+   ../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc
    # ========== end v3d ==========
 )
 
@@ -64,6 +65,10 @@ if(BUILD_TESTING)
         LINK_LIBRARIES Qt6::Test Qt6::Gui
     )
 endif()
+
+# ========== begin v3d ==========
+add_compile_definitions(HAVE_LIBTIRPC)
+# ========== end v3d ==========
 
 ########### install files ###############
 if (BUILD_DESKTOP)
