@@ -278,7 +278,7 @@ Finally run the test script.
 * Presentation Mode dosent work at all
 * Customizable Controls
 * Documents with variable sized pages.
-* Uninstall script
+* Preview of release name in create release script
 
 ## BUGS
 * Opening multiple documents causes a crash
