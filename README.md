@@ -239,6 +239,7 @@ Located in `build/version/okular/generators/pdf/`
 ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
 ../../../../../3rdParty/v3d-Common/V3dModel.cpp
 ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
+../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc
 # ========== end v3d ==========
 ```
 
@@ -247,6 +248,13 @@ Located in `build/version/okular/generators/pdf/`
 ```
 # ========== begin v3d ==========
 vulkan tirpc z
+# ========== end v3d ==========
+```
+
+* Insert the following just above the install files secition
+```
+# ========== begin v3d ==========
+add_compile_definitions(HAVE_LIBTIRPC)
 # ========== end v3d ==========
 ```
 

@@ -5,7 +5,7 @@
 
 #include "V3dFile.h"
 
-#include "xstream.h"
+#include "3rdParty/xstream.h"
 
 #include "V3dUtil.h"
 

@@ -3,7 +3,7 @@
 #include "V3dObjects.h"
 #include "V3dHeaderInfo.h"
 
-#include "xstream.h"
+#include "3rdParty/xstream.h"
 
 class V3dFile {
 public:
