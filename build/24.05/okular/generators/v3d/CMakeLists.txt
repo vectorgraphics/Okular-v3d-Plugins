@@ -20,6 +20,7 @@ set(
     ../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
     ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
     ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
+    ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
     ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
     ../../../../../3rdParty/v3d-Common/V3dModel.cpp
     ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp

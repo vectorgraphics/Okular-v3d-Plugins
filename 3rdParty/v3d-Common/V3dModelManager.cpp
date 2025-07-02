@@ -10,6 +10,7 @@
 #include <utils.h>
 
 #include "Utility/EventFilter.h"
+#include "Utility/ApplicationEventFilter.h"
 #include "Utility/ProtectedFunctionCaller.h"
 
 bool fileExists(const std::string& path) {
@@ -46,9 +47,12 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
 
     m_PageView = GetPageViewWidget();
 
+    // Qt takes ownership of event filters once installed, and deletes them when no longer needed
     m_EventFilter = new EventFilter(m_PageView, this);
     m_PageView->viewport()->installEventFilter(m_EventFilter);
 
+    m_ApplicationEventFilter = new ApplicationEventFilter(qApp, this);
+    qApp->installEventFilter(m_ApplicationEventFilter);
 }
 
 void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
@@ -329,6 +333,14 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
 
     m_ActiveModel->setProjection(canvasSize);
     requestPixmapRefresh(m_ActiveModelPage);
+
+    return true;
+}
+
+bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_T) {
+        std::cout << "TEST" << std::endl;
+    }
 
     return true;
 }

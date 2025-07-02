@@ -37,6 +37,7 @@ set(okularGenerator_poppler_PART_SRCS
    ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
    ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
    ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
    ../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc

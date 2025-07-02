@@ -14,10 +14,12 @@
 // #define MOUSE_BOUNDARIES
 
 class EventFilter;
+class ApplicationEventFilter;
 
 class V3dModelManager {
 public:
     friend class EventFilter;
+    friend class ApplicationEventFilter;
 
     V3dModelManager(const Okular::Document* document);
 
@@ -37,6 +39,7 @@ public:
     bool mouseButtonPressEvent(QMouseEvent* event);
     bool mouseButtonReleaseEvent(QMouseEvent* event);
     bool wheelEvent(QWheelEvent* event);
+    bool keyPressEvent(QKeyEvent* event);
 
     void DrawMouseBoundaries(QImage* img, size_t pageNumber);
 
@@ -105,6 +108,7 @@ private:
 
     QAbstractScrollArea* m_PageView{ nullptr };
     EventFilter* m_EventFilter{ nullptr };
+    ApplicationEventFilter* m_ApplicationEventFilter{ nullptr };
 
     std::chrono::time_point<std::chrono::system_clock> m_StartTime{ };
 
