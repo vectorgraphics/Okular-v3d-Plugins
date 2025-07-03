@@ -10,14 +10,6 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 
-// ========== begin v3d ==========
-#include <gzip/compress.hpp>
-#include <gzip/config.hpp>
-#include <gzip/decompress.hpp>
-#include <gzip/utils.hpp>
-#include <gzip/version.hpp>
-// ========== end v3d ==========
-
 #include <memory>
 
 #include "generator_pdf.h"
@@ -40,6 +32,7 @@
 #include <QTextStream>
 #include <QTimeZone>
 #include <QTimer>
+#include <QXmlStreamReader>
 
 #include <KAboutData>
 #include <KConfigDialog>
@@ -676,6 +669,7 @@ PDFGenerator::PDFGenerator(QObject *parent, const QVariantList &args)
     , pdfdoc(nullptr)
     , docSynopsisDirty(true)
     , xrefReconstructed(false)
+    , hasVisibleOverprint(false)
     , docEmbeddedFilesDirty(true)
     , nextFontPage(0)
     , annotProxy(nullptr)
@@ -709,6 +703,9 @@ PDFGenerator::PDFGenerator(QObject *parent, const QVariantList &args)
         Poppler::setActiveCryptoSignBackend(activeBackend.value());
     }
 #endif
+#if POPPLER_VERSION_MACRO >= QT_VERSION_CHECK(25, 02, 90)
+    Poppler::setPgpSignaturesAllowed(PDFSettings::enablePgp());
+#endif
 }
 
 PDFGenerator::~PDFGenerator()
@@ -723,12 +720,6 @@ PDFGenerator::~PDFGenerator()
 // BEGIN Generator inherited functions
 Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QVector<Okular::Page *> &pagesVector, const QString &password)
 {
-    // ========== begin v3d ==========
-    if (document() != nullptr) {
-        modelManager.SetDocument(document());
-    }
-    // ========== end v3d ==========
-
 #ifndef NDEBUG
     if (pdfdoc) {
         qCDebug(OkularPdfDebug) << "PDFGenerator: multiple calls to loadDocument. Check it.";
@@ -783,6 +774,16 @@ Okular::Document::OpenResult PDFGenerator::init(QVector<Okular::Page *> &pagesVe
     } else {
         std::function<void()> cb = std::bind(&PDFGenerator::xrefReconstructionHandler, this);
         pdfdoc->setXRefReconstructedCallback(cb);
+    }
+
+    hasVisibleOverprint = false;
+    QXmlStreamReader xml(pdfdoc->metadata());
+    while (!xml.atEnd()) {
+        xml.readNext();
+        if (xml.isStartElement() && xml.name() == QStringLiteral("HasVisibleOverprint")) {
+            xml.readNext();
+            hasVisibleOverprint = xml.text().toString().toLower() == QStringLiteral("true");
+        }
     }
 
     // build Pages (currentPage was set -1 by deletePages)
@@ -1362,39 +1363,6 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
         resolveMediaLinkReferences(page);
     }
 
-    // ========== begin v3d ==========
-    if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
-        size_t pageNumber = (size_t)request->page()->number();
-
-        int i = 0;
-        for (auto& model : modelManager.Models(pageNumber)) {
-            int xMin = (int)(request->width() * model.minBound.x);
-            int xMax = (int)(request->width() * model.maxBound.x);
-            int yMin = (int)(request->height() * model.minBound.y);
-            int yMax = (int)(request->height() * model.maxBound.y);
-            
-            int imageWidth = xMax - xMin;
-            int imageHeight = yMax - yMin;
-
-            modelManager.CacheRequest(request);
-
-            QImage image = modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
-
-            QPainter painter{ &img };
-
-            if (request->isTile()) {
-                painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
-            } else {
-                painter.drawImage(xMin, yMin, image);
-            }
-
-            ++i;
-        }
-    }
-
-    modelManager.DrawMouseBoundaries(&img, request->pageNumber());
-    // ========== end v3d ==========
-
     // 3. UNLOCK [re-enables shared access]
     userMutex()->unlock();
 
@@ -1554,7 +1522,8 @@ Okular::Document::PrintError PDFGenerator::print(QPrinter &printer)
         scaleMode = pdfOptionsPage->scaleMode();
     }
 
-    const auto overprintPreviewEnabled = PDFSettings::overprintPreviewEnabled();
+    const auto overprintSetting = PDFSettings::overprintPreviewEnabled();
+    const auto overprintPreviewEnabled = overprintSetting == PDFSettings::EnumOverprintPreviewEnabled::Always || (overprintSetting == PDFSettings::EnumOverprintPreviewEnabled::Automatic && hasVisibleOverprint);
 
 #ifdef Q_OS_WIN
     // Windows can only print by rasterization, because that is
@@ -1807,7 +1776,8 @@ bool PDFGenerator::setDocumentRenderHints()
     // load thin line mode
     const int thinLineMode = PDFSettings::enhanceThinLines();
 #if POPPLER_VERSION_MACRO >= QT_VERSION_CHECK(23, 07, 0)
-    const bool enableOverprintPreview = PDFSettings::overprintPreviewEnabled();
+    const auto overprintSetting = PDFSettings::overprintPreviewEnabled();
+    const auto enableOverprintPreview = overprintSetting == PDFSettings::EnumOverprintPreviewEnabled::Always || (overprintSetting == PDFSettings::EnumOverprintPreviewEnabled::Automatic && hasVisibleOverprint);
 #endif
     const bool enableThinLineSolid = thinLineMode == PDFSettings::EnumEnhanceThinLines::Solid;
     const bool enableShapeLineSolid = thinLineMode == PDFSettings::EnumEnhanceThinLines::Shape;
@@ -1964,50 +1934,6 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
     std::vector<std::unique_ptr<Poppler::Annotation>> popplerAnnotations = popplerPage->annotations(subtypes);
 
     for (auto &a : popplerAnnotations) {
-        // ========== begin v3d ==========
-        if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
-            QRectF bound = a->boundary();
-            bound = bound.normalized();
-
-            Poppler::RichMediaAnnotation* richMedia = dynamic_cast<Poppler::RichMediaAnnotation*>(a.get());
-            if (richMedia == nullptr) {
-                continue;
-            }
-
-            Poppler::RichMediaAnnotation::Content* content = richMedia->content();
-            if (content == nullptr) {
-                continue;
-            }
-
-            QList<Poppler::RichMediaAnnotation::Asset*> assets = content->assets();
-
-            for (Poppler::RichMediaAnnotation::Asset* asset : assets) {
-                if (asset == nullptr) {
-                    continue;
-                }
-                
-                Poppler::EmbeddedFile* embeddedFile = asset->embeddedFile();
-                if (embeddedFile == nullptr) {
-                    continue;
-                }
-
-                QByteArray fileData = embeddedFile->data();
-
-                std::string decompressedData = gzip::decompress(fileData.data(), fileData.size());
-
-                xdr::memixstream xdrFile{ decompressedData.data(), decompressedData.size() };
-
-                QRectF bound = a->boundary();
-                bound = bound.normalized();
-
-                glm::vec2 minBound{ bound.left(), bound.top() };
-                glm::vec2 maxBound{ bound.right(), bound.bottom() };
-
-                modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());         
-            }    
-        }
-        // ========== end v3d ==========
-
         bool doDelete = true;
         Okular::Annotation *newann = createAnnotationFromPopplerAnnotation(a.get(), *popplerPage, &doDelete);
         if (newann) {
