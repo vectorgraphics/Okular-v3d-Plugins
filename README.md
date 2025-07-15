@@ -18,6 +18,9 @@ Adds support for opening pdf files with v3d files embedded inside, currently rot
 6. Manually copy `vertex.spv` and `fragment.spv` into `C:\Program Files\Okular\bin`
 
 ## TODO
+WINDOWS:
+* Make vertex.spv and fragment.spv auto install with the installer
+* Allow the user to customize the install path
 * Add passing files to test scripts
 * Look into making the pageview location function more consistent, possibly with some kind of check, and or dynamicly writing to file info about the correct one once found
 * Optimise rendering code to be more performant
