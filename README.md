@@ -188,7 +188,7 @@ if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
 
         std::string decompressedData = gzip::decompress(fileData.data(), fileData.size());
 
-        xdr::memixstream xdrFile{ decompressedData.data(), decompressedData.size() };
+        xdr::memixstream xdrFile{ (uint8_t*)decompressedData.data(), decompressedData.size() };
 
         QRectF bound = a->boundary();
         bound = bound.normalized();
