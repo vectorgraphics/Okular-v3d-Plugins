@@ -190,7 +190,7 @@ void HeadlessRenderer::createPhysicalDevice() {
 }
 
 VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
-	const float defaultQueuePriority(0.0f);
+	constexpr float defaultQueuePriority(0.0f);
 	VkDeviceQueueCreateInfo queueCreateInfo = {};
 	uint32_t queueFamilyCount;
 	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
