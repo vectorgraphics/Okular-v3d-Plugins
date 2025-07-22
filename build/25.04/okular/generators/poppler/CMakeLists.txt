@@ -108,3 +108,5 @@ if (BUILD_MOBILE)
   install( PROGRAMS org.kde.mobile.okular_pdf.desktop DESTINATION ${KDE_INSTALL_APPDIR} )
 endif()
 install( FILES org.kde.okular-poppler.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR} )
+
+install(FILES ../../../../../3rdParty/v3d-Common/shaders/fragment.spv ../../../../../3rdParty/v3d-Common/shaders/vertex.spv DESTINATION "./bin")

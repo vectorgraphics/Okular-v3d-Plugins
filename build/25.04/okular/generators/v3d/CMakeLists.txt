@@ -60,3 +60,4 @@ add_compile_definitions(HAVE_LIBTIRPC)
 
 ########### install files ###############
 install(PROGRAMS okularApplication_v3d.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+install(FILES ../../../../../3rdParty/v3d-Common/shaders/fragment.spv ../../../../../3rdParty/v3d-Common/shaders/vertex.spv DESTINATION "./bin")

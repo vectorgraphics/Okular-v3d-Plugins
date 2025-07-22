@@ -49,6 +49,8 @@ private:
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
     void CachePage(size_t pageNumber, Okular::Page* page);
 
+    float GetDevicePixelRatio();
+
 #ifdef MOUSE_BOUNDARIES
     struct Line {
         glm::vec2 start;
