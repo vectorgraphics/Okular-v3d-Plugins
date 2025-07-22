@@ -4,6 +4,7 @@
 #include <QBoxLayout>
 #include <QScrollBar>
 #include <QPainter>
+#include <QWindow>
 
 #include <generator.h>
 #include <gui/priorities.h>
@@ -171,7 +172,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 #ifdef MOUSE_BOUNDARIES
     if (m_ActiveModelPage >= 0) {
 
-        float dpr = qGuiApp->devicePixelRatio();
+        float dpr = GetDevicePixelRatio();
 
         int pg = GetPageMouseIsOver();
 
@@ -209,7 +210,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     bool altKey = event->modifiers() & Qt::AltModifier;
 
     if (controlKey && !shiftKey && !altKey) {
-        float dpr = qGuiApp->devicePixelRatio();
+        float dpr = GetDevicePixelRatio();
 
         glm::vec2 canvasSize = {
             (model.maxBound.x - model.minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x),
@@ -325,7 +326,7 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         m_ActiveModel->zoom = maxZoom;
     }
 
-    float dpr = qGuiApp->devicePixelRatio();
+    float dpr = GetDevicePixelRatio();
 
     glm::vec2 canvasSize = {
         (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x / dpr),
@@ -434,6 +435,17 @@ void V3dModelManager::CachePage(size_t pageNumber, Okular::Page* page) {
     m_Pages[pageNumber] = page;
 }
 
+float V3dModelManager::GetDevicePixelRatio() {
+    auto window = QApplication::activeWindow();
+
+    if (window != nullptr) {
+        return window->devicePixelRatio();
+
+    } else {
+        return qGuiApp->devicePixelRatio();
+    }
+}
+
 std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisiblePages() {
     auto visiblePages = m_Document->visiblePageRects();
 
@@ -444,7 +456,7 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
     pageBorders.resize(visiblePages.size());
 
     glm::vec2 viewPortSize{ m_PageView->width(), m_PageView->height() };
-    float dpr = qGuiApp->devicePixelRatio();
+    float dpr = GetDevicePixelRatio();
 
     if (visiblePages.size() == 1) {
         // There is exactly one visible page
@@ -569,7 +581,7 @@ int V3dModelManager::GetPageMouseIsOver() {
 glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& pos, int pageNumber) {
     std::vector<PageBorders> pageBorders = GetPageBordersForVisiblePages();
 
-    float dpr = qGuiApp->devicePixelRatio();
+    float dpr = GetDevicePixelRatio();
     glm::vec2 pageSize{ m_CachedRequestSizes[pageNumber].size.x / dpr, m_CachedRequestSizes[pageNumber].size.y / dpr };
 
     auto it = std::find_if(pageBorders.begin(), pageBorders.end(), [&pageNumber](PageBorders border){
