@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = git@github.com:vectorgraphics/asymptote.git
+	branch = render
+	commit = a023c0ee57314ca1eda5dbe9a2ba13fe9f4ea3a5
+	parent = 21042b8902e1d5f2808c63805caac56709628394
+	method = merge
+	cmdver = 0.4.9
