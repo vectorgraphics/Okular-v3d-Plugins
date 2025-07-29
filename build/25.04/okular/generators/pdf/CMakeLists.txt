@@ -1,5 +1,5 @@
 remove_definitions(-DTRANSLATION_DOMAIN="okular")
-add_definitions(-DTRANSLATION_DOMAIN="okular_poppler")
+add_definitions(-DTRANSLATION_DOMAIN="okular_poppler" -DOMIT_OPTIONAL)
 
 add_subdirectory( conf )
 
@@ -13,6 +13,10 @@ include_directories(
     "../../../../../3rdParty/gzip-hpp/include"
     "../../core/"
     "/usr/include/tirpc"
+
+    "../../../../../3rdParty/asymptote"
+    "../../../../../3rdParty/asymptote/backports/optional/include"
+    "../../../../../3rdParty/asymptote/LspCpp/include"
     # ========== end v3d ==========
 )
 
@@ -40,7 +44,8 @@ set(okularGenerator_poppler_PART_SRCS
    ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
-   ../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc
+   ../../../../../3rdParty/asymptote/xstream.cc
+   ../../../../../3rdParty/asymptote/bezierpatch.cc
    # ========== end v3d ==========
 )
 

@@ -1,10 +1,14 @@
 remove_definitions(-DTRANSLATION_DOMAIN="okular")
-add_definitions(-DTRANSLATION_DOMAIN="okular_v3d" -DGLFW_INCLUDE_VULKAN -DVULKAN_DEBUG=1 -DGLM_FORCE_RIGHT_HANDED)
+add_definitions(-DTRANSLATION_DOMAIN="okular_v3d" -DGLFW_INCLUDE_VULKAN -DVULKAN_DEBUG=1 -DGLM_FORCE_RIGHT_HANDED -DOMIT_OPTIONAL)
 
 include_directories(
     "../../../../../3rdParty/v3d-Common/"
     "../../core/"
     "/usr/include/tirpc" 
+
+    "../../../../../3rdParty/asymptote"
+    "../../../../../3rdParty/asymptote/backports/optional/include"
+    "../../../../../3rdParty/asymptote/LspCpp/include"
 )
 
 set(
@@ -24,7 +28,8 @@ set(
     ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
     ../../../../../3rdParty/v3d-Common/V3dModel.cpp
     ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
-    ../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc
+    ../../../../../3rdParty/asymptote/xstream.cc
+    ../../../../../3rdParty/asymptote/bezierpatch.cc
 )
 
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})

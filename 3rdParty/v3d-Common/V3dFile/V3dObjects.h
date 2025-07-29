@@ -6,7 +6,7 @@
 #include <array>
 
 #include "V3dObject.h"
-#include "3rdParty/xstream.h"
+#include "xstream.h"
 
 enum ObjectTypes {
     MATERIAL = 1,
@@ -71,6 +71,10 @@ public:
     std::array<TRIPLE, 16> controlPoints;
     UINT centerIndex;
     UINT materialIndex;
+
+private:
+    std::vector<float> m_Vertices{ };
+    std::vector<unsigned int> m_Indices{ };
 };
 
 class V3dBezierTriangle : public V3dObject {

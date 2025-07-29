@@ -1,4 +1,5 @@
 #pragma once
+#include "xstream.h"
 
 namespace prc {
 
