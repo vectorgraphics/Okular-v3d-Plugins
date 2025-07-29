@@ -73,7 +73,6 @@ V3dBezierPatch::V3dBezierPatch(
         bool remesh=true;
 
         S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
-        cout << materialData.materialVertices.size() << endl;
 
         unsigned int i = 0;
         for (auto& materialVertex : materialData.materialVertices) {
@@ -106,8 +105,6 @@ V3dBezierTriangle::V3dBezierTriangle(
             controlPoints[i].y = readReal(xdrFile, doublePrecision);
             controlPoints[i].z = readReal(xdrFile, doublePrecision);
         }
-
-        std::cout << "Reading bezierTriangle" << std::endl;
 
         xdrFile >> centerIndex;
         xdrFile >> materialIndex;
