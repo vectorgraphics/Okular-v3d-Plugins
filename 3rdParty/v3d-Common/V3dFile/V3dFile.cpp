@@ -9,6 +9,9 @@
 
 #include "V3dUtil.h"
 
+#include "rgba.h"
+#include "bezierpatch.h"
+
 // #define printObjectTypes
 
 #ifdef printObjectTypes
@@ -310,23 +313,49 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile.close();
 }
 
-Mesh V3dFile::GetMesh(int imageWidth, int imageHeight) {
-    std::vector<float> vertices{ };
-    std::vector<unsigned int> indices{ };
-
+void V3dFile::QueueMesh(int imageWidth, int imageHeight) {
     for (auto& object : m_Objects) {
-        Mesh mesh = object->getMesh(imageWidth, imageHeight);
+        object->QueueMesh(imageWidth, imageHeight);
+    }
+}
+
+Mesh V3dFile::GetMesh() {
+    // std::vector<float> vertices{ };
+    // std::vector<unsigned int> indices{ };
+/*
+    for (auto& object : m_Objects) {
+        Mesh mesh = object->getMesh();
 
         std::vector<float> vert = mesh.vertices;
         std::vector<unsigned int> ind = mesh.indices;
 
         appendOffset(indices, ind, vertices.size() / 6);
         vertices.insert(vertices.end(), vert.begin(), vert.end());
+    }*/
+
+    using namespace std;
+    using namespace camp;
+
+
+    std::vector<float> vertices{ };
+
+    for (auto& materialVertex : materialData.materialVertices) {
+        vertices.push_back(materialVertex.position.x);
+        vertices.push_back(materialVertex.position.y);
+        vertices.push_back(materialVertex.position.z);
+
+        vertices.push_back(materialVertex.normal.x);
+        vertices.push_back(materialVertex.normal.y);
+        vertices.push_back(materialVertex.normal.z);
     }
 
-    if (indices.empty() || vertices.empty()) {
+    if (materialData.indices.empty() || vertices.empty()) {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
 
-    return Mesh{ vertices, indices };
+    return Mesh{ vertices, materialData.indices };
+
+
+
+    // return Mesh{ vertices, indices };
 }

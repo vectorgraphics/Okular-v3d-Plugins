@@ -10,7 +10,8 @@ public:
     V3dObject(UINT objectType);
     virtual ~V3dObject() = default;
 
-    virtual Mesh getMesh(int imageWidth, int imageHeight) {
+    virtual void QueueMesh(int imageWidth, int imageHeight) { }
+    virtual Mesh getMesh() {
         return Mesh{ getVertexData(), getIndices() };
     }
 

@@ -68,7 +68,8 @@ public:
     std::vector<float> getVertexData() override; // TODO remove
     std::vector<unsigned int> getIndices() override;
 
-    Mesh getMesh(int imageWidth, int imageHeight) override;
+    void QueueMesh(int imageWidth, int imageHeight) override;
+    Mesh getMesh() override;
 
     std::array<TRIPLE, 16> controlPoints;
     UINT centerIndex;

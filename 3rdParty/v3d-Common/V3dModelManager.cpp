@@ -77,13 +77,21 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         return m_ModelImages[pageNumber][modelIndex];
     }
 
+    {
+        utils::stopWatch timer{ };
+
+        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight);
+
+        std::cout << "Queue Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+    }
+
     Mesh mesh{ };
 
     {
         utils::stopWatch timer{ };
-        mesh = m_Models[pageNumber][modelIndex].file->GetMesh(imageWidth, imageHeight);
+        mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
 
-        // std::cout << "Get Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+        std::cout << "Get Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
     }
 
     std::vector<float> vertices = mesh.vertices;
@@ -117,7 +125,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         utils::stopWatch timer{ };
         imageData = m_HeadlessRenderer->render(imageWidth, imageHeight, &imageSubresourceLayout, vertices, indices, mvp);
 
-        // std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+        std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
     }
 
     unsigned char* imgDataTmp = imageData;

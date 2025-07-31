@@ -37,7 +37,7 @@ std::vector<unsigned int> V3dBezierPatch::getIndices() {
     return std::vector<unsigned int>{ };
 }
 
-Mesh V3dBezierPatch::getMesh(int imageWidth, int imageHeight) {
+void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight) {
     int n=16;
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
@@ -78,10 +78,11 @@ Mesh V3dBezierPatch::getMesh(int imageWidth, int imageHeight) {
     bool transparent=false;
     bool straight=false;
 
-    std::cout << "size3.length()/size2: " << size3.length()/size2 << std::endl;
-
+    // std::cout << "size3.length()/size2: " << size3.length()/size2 << std::endl;
     S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
+}
 
+Mesh V3dBezierPatch::getMesh() {
     std::vector<float> vertices{ };
 
     unsigned int i = 0;

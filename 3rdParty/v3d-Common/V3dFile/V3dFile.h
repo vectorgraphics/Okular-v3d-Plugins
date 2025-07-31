@@ -21,7 +21,8 @@ public:
 
     V3dHeaderInfo headerInfo;
 
-    Mesh GetMesh(int imageWidth, int imageHeight);
+    void QueueMesh(int imageWidth, int imageHeight);
+    Mesh GetMesh();
 
 private:
     void load(xdr::ixstream& xdrFile);
