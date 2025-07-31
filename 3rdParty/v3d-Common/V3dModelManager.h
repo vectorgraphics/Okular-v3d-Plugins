@@ -25,7 +25,7 @@ public:
 
     void AddModel(V3dModel model, size_t pageNumber);
 
-    QImage RenderModel(size_t pageNumber, size_t modelIndex, int width, int height);
+    QImage RenderModel(size_t pageNumber, size_t modelIndex, int imageWidth, int imageHeight);
 
     V3dModel& Model(size_t pageNumber, size_t modelIndex);
     std::vector<V3dModel>& Models(size_t pageNumber);

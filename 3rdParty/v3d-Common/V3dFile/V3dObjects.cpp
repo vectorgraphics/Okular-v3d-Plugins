@@ -27,73 +27,75 @@ V3dBezierPatch::V3dBezierPatch(
 
         xdrFile >> centerIndex;
         xdrFile >> materialIndex;
-
-        int n=16;
-        triple Controls[] = {
-            triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
-            triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
-            triple(controlPoints[2].x, controlPoints[2].y, controlPoints[2].z),
-            triple(controlPoints[3].x, controlPoints[3].y, controlPoints[3].z),
-
-            triple(controlPoints[4].x, controlPoints[4].y, controlPoints[4].z),
-            triple(controlPoints[5].x, controlPoints[5].y, controlPoints[5].z),
-            triple(controlPoints[6].x, controlPoints[6].y, controlPoints[6].z),
-            triple(controlPoints[7].x, controlPoints[7].y, controlPoints[7].z),
-
-            triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
-            triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
-            triple(controlPoints[10].x, controlPoints[10].y, controlPoints[10].z),
-            triple(controlPoints[11].x, controlPoints[11].y, controlPoints[11].z),
-
-            triple(controlPoints[12].x, controlPoints[12].y, controlPoints[12].z),
-            triple(controlPoints[13].x, controlPoints[13].y, controlPoints[13].z),
-            triple(controlPoints[14].x, controlPoints[14].y, controlPoints[14].z),
-            triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
-        };
-
-        BezierPatch S;
-
-        double width=1920;
-        double height=1080;
-
-        bool orthographic=false;
-        triple Min,Max;
-        boundstriples(Min,Max,n,Controls);
-
-        triple b=Min, B=Max; // cumulative scene bounds; for now use patch bounds
-        double Zmax=B.getz();
-
-        double perspective=orthographic ? 0.0 : 1.0/Zmax;
-        double s=perspective ? Min.getz()*perspective : 1.0; // Move to glrender
-        double size2=hypot(width,height);
-
-        const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
-        bool transparent=false;
-        bool straight=false;
-        bool remesh=true;
-
-        S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
-
-        unsigned int i = 0;
-        for (auto& materialVertex : materialData.materialVertices) {
-            m_Vertices.push_back(materialVertex.position.x);
-            m_Vertices.push_back(materialVertex.position.y);
-            m_Vertices.push_back(materialVertex.position.z);
-
-            m_Vertices.push_back(materialVertex.normal.x);
-            m_Vertices.push_back(materialVertex.normal.y);
-            m_Vertices.push_back(materialVertex.normal.z);
-        }
-
-        m_Indices = materialData.indices;
     }
 
 std::vector<float> V3dBezierPatch::getVertexData() {
-    return m_Vertices;
+    return std::vector<float>{ };
 }
 
 std::vector<unsigned int> V3dBezierPatch::getIndices() {
-    return m_Indices;
+    return std::vector<unsigned int>{ };
+}
+
+Mesh V3dBezierPatch::getMesh(int imageWidth, int imageHeight) {
+    int n=16;
+    triple Controls[] = {
+        triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
+        triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
+        triple(controlPoints[2].x, controlPoints[2].y, controlPoints[2].z),
+        triple(controlPoints[3].x, controlPoints[3].y, controlPoints[3].z),
+
+        triple(controlPoints[4].x, controlPoints[4].y, controlPoints[4].z),
+        triple(controlPoints[5].x, controlPoints[5].y, controlPoints[5].z),
+        triple(controlPoints[6].x, controlPoints[6].y, controlPoints[6].z),
+        triple(controlPoints[7].x, controlPoints[7].y, controlPoints[7].z),
+
+        triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
+        triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
+        triple(controlPoints[10].x, controlPoints[10].y, controlPoints[10].z),
+        triple(controlPoints[11].x, controlPoints[11].y, controlPoints[11].z),
+
+        triple(controlPoints[12].x, controlPoints[12].y, controlPoints[12].z),
+        triple(controlPoints[13].x, controlPoints[13].y, controlPoints[13].z),
+        triple(controlPoints[14].x, controlPoints[14].y, controlPoints[14].z),
+        triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
+    };
+
+    BezierPatch S;
+
+    bool orthographic=false;
+    triple Min,Max;
+    boundstriples(Min,Max,n,Controls);
+
+    triple b=Min, B=Max; // cumulative scene bounds; for now use patch bounds
+    double Zmax=B.getz();
+
+    double perspective=orthographic ? 0.0 : 1.0/Zmax;
+    double s=perspective ? Min.getz()*perspective : 1.0; // Move to glrender
+    double size2=hypot(imageWidth,imageHeight);
+
+    const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
+    bool transparent=false;
+    bool straight=false;
+
+    std::cout << "size3.length()/size2: " << size3.length()/size2 << std::endl;
+
+    S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
+
+    std::vector<float> vertices{ };
+
+    unsigned int i = 0;
+    for (auto& materialVertex : materialData.materialVertices) {
+        vertices.push_back(materialVertex.position.x);
+        vertices.push_back(materialVertex.position.y);
+        vertices.push_back(materialVertex.position.z);
+
+        vertices.push_back(materialVertex.normal.x);
+        vertices.push_back(materialVertex.normal.y);
+        vertices.push_back(materialVertex.normal.z);
+    }
+
+    return Mesh{ vertices, materialData.indices };
 }
 
 V3dBezierTriangle::V3dBezierTriangle(

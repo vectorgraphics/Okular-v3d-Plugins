@@ -65,8 +65,10 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dBezierPatch() override = default;
 
-    std::vector<float> getVertexData() override;
+    std::vector<float> getVertexData() override; // TODO remove
     std::vector<unsigned int> getIndices() override;
+
+    Mesh getMesh(int imageWidth, int imageHeight) override;
 
     std::array<TRIPLE, 16> controlPoints;
     UINT centerIndex;

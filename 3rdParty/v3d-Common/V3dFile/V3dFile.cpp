@@ -308,10 +308,17 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
     }
 
     xdrFile.close();
+}
+
+Mesh V3dFile::GetMesh(int imageWidth, int imageHeight) {
+    std::vector<float> vertices{ };
+    std::vector<unsigned int> indices{ };
 
     for (auto& object : m_Objects) {
-        std::vector<float> vert = object->getVertexData();
-        std::vector<unsigned int> ind = object->getIndices();
+        Mesh mesh = object->getMesh(imageWidth, imageHeight);
+
+        std::vector<float> vert = mesh.vertices;
+        std::vector<unsigned int> ind = mesh.indices;
 
         appendOffset(indices, ind, vertices.size() / 6);
         vertices.insert(vertices.end(), vert.begin(), vert.end());
@@ -320,4 +327,6 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
     if (indices.empty() || vertices.empty()) {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
+
+    return Mesh{ vertices, indices };
 }

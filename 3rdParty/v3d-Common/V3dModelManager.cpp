@@ -14,6 +14,8 @@
 #include "Utility/ApplicationEventFilter.h"
 #include "Utility/ProtectedFunctionCaller.h"
 
+#include "seconds.h"
+
 bool fileExists(const std::string& path) {
     std::ifstream f{ path.c_str() };
     return f.good();
@@ -67,19 +69,28 @@ void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
     m_ModelImages[pageNumber].push_back(QImage{ });
 }
 
-QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int width, int height) {
+QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int imageWidth, int imageHeight) {
     if (!m_Models[pageNumber][modelIndex].m_HasChanged && 
-        m_ModelImages[pageNumber][modelIndex].width() == width && 
-        m_ModelImages[pageNumber][modelIndex].height() == height) {
+        m_ModelImages[pageNumber][modelIndex].width() == imageWidth &&
+        m_ModelImages[pageNumber][modelIndex].height() == imageHeight) {
 
         return m_ModelImages[pageNumber][modelIndex];
     }
 
-    std::vector<float> vertices = m_Models[pageNumber][modelIndex].file->vertices;
-    std::vector<unsigned int> indices = m_Models[pageNumber][modelIndex].file->indices;
+    Mesh mesh{ };
+
+    {
+        utils::stopWatch timer{ };
+        mesh = m_Models[pageNumber][modelIndex].file->GetMesh(imageWidth, imageHeight);
+
+        // std::cout << "Get Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+    }
+
+    std::vector<float> vertices = mesh.vertices;
+    std::vector<unsigned int> indices = mesh.indices;
     
     if (vertices.empty() || indices.empty()) {
-        QImage image{ width, height, QImage::Format_ARGB32 };
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
 
         image.fill(Qt::black);
 
@@ -101,18 +112,24 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int wi
 
 	glm::mat4 mvp = m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix * model;
 
-    unsigned char* imageData = m_HeadlessRenderer->render(width, height, &imageSubresourceLayout, vertices, indices, mvp);
+    unsigned char* imageData = nullptr;
+    {
+        utils::stopWatch timer{ };
+        imageData = m_HeadlessRenderer->render(imageWidth, imageHeight, &imageSubresourceLayout, vertices, indices, mvp);
+
+        // std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+    }
 
     unsigned char* imgDataTmp = imageData;
 
-    size_t finalImageSize = width * height * 4;
+    size_t finalImageSize = imageWidth * imageHeight * 4;
 
     std::vector<unsigned char> vectorData;
     vectorData.reserve(finalImageSize);
 
-    for (int32_t y = 0; y < height; y++) {
+    for (int32_t y = 0; y < imageHeight; y++) {
         unsigned int *row = (unsigned int*)imgDataTmp;
-        size_t rowBytes = width * 4;
+        size_t rowBytes = imageWidth * 4;
     
         vectorData.resize(vectorData.size() + rowBytes);
         std::memcpy(vectorData.data() + vectorData.size() - rowBytes, (unsigned char*)row, rowBytes);
@@ -122,7 +139,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int wi
 
     delete imageData;
 
-    QImage image{ vectorData.data(), width, height, QImage::Format_ARGB32 };
+    QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
 
     image = image.mirrored(false, true);
 

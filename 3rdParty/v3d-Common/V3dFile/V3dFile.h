@@ -2,6 +2,7 @@
 
 #include "V3dObjects.h"
 #include "V3dHeaderInfo.h"
+#include "Mesh.h"
 
 #include "xstream.h"
 
@@ -20,8 +21,7 @@ public:
 
     V3dHeaderInfo headerInfo;
 
-    std::vector<float> vertices;
-    std::vector<unsigned int> indices;
+    Mesh GetMesh(int imageWidth, int imageHeight);
 
 private:
     void load(xdr::ixstream& xdrFile);
