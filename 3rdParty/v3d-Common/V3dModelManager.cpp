@@ -16,6 +16,9 @@
 
 #include "seconds.h"
 
+#include "rgba.h"
+#include "bezierpatch.h"
+
 bool fileExists(const std::string& path) {
     std::ifstream f{ path.c_str() };
     return f.good();
@@ -80,19 +83,31 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     triple sceneMinBound = m_Models[pageNumber][modelIndex].viewParam.minValues;
     triple sceneMaxBound = m_Models[pageNumber][modelIndex].viewParam.maxValues;
 
-
     if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.gety()) {
         sceneMinBound = m_Models[pageNumber][modelIndex].file->headerInfo.minBound;
         sceneMaxBound = m_Models[pageNumber][modelIndex].file->headerInfo.maxBound;
     }
 
-    {
+    if (m_Models[pageNumber][modelIndex].remesh) {
+        using namespace std;
+        using namespace camp;
+
+        materialData.clear();
+
         utils::stopWatch timer{ };
 
         bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
-        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
+        // m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
 
-        std::cout << "Queue Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+        for (auto& object : m_Models[pageNumber][modelIndex].file->objects) {
+            object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
+        }
+
+        // std::cout << "Queue Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+
+        m_Models[pageNumber][modelIndex].remesh = false;
+
+        std::cout << "remesh" << std::endl;
     }
 
     Mesh mesh{ };
@@ -101,7 +116,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         utils::stopWatch timer{ };
         mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
 
-        std::cout << "Get Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+        // std::cout << "Get Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
     }
 
     std::vector<float> vertices = mesh.vertices;

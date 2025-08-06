@@ -210,32 +210,32 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 
         case ObjectTypes::LINE:
             PRINT_OBJECT_TYPE(LINE);
-            m_Objects.push_back(std::move(std::make_unique<V3dLineSegment>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dLineSegment>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::TRIANGLE:
             PRINT_OBJECT_TYPE(TRIANGLE);
-            m_Objects.push_back(std::move(std::make_unique<V3dStraightTriangle>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dStraightTriangle>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::QUAD:
             PRINT_OBJECT_TYPE(QUAD);
-            m_Objects.push_back(std::move(std::make_unique<V3dStraightPlanarQuad>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dStraightPlanarQuad>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::CURVE:
             PRINT_OBJECT_TYPE(CURVE);
-            m_Objects.push_back(std::move(std::make_unique<V3dBezierCurve>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dBezierCurve>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::BEZIER_TRIANGLE:
             PRINT_OBJECT_TYPE(BEZIER_TRIANGLE);
-            m_Objects.push_back(std::move(std::make_unique<V3dBezierTriangle>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dBezierTriangle>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::BEZIER_PATCH:
             PRINT_OBJECT_TYPE(BEZIER_PATCH);
-            m_Objects.push_back(std::move(std::make_unique<V3dBezierPatch>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dBezierPatch>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::LINE_COLOR:
@@ -245,12 +245,12 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 
         case ObjectTypes::TRIANGLE_COLOR:
             PRINT_OBJECT_TYPE(TRIANGLE_COLOR);
-            m_Objects.push_back(std::move(std::make_unique<V3dStraightTriangleWithCornerColors>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dStraightTriangleWithCornerColors>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::QUAD_COLOR:
             PRINT_OBJECT_TYPE(QUAD_COLOR);
-            m_Objects.push_back(std::move(std::make_unique<V3dStraightPlanarQuadWithCornerColors>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dStraightPlanarQuadWithCornerColors>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::CURVE_COLOR:
@@ -260,42 +260,42 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 
         case ObjectTypes::BEZIER_TRIANGLE_COLOR:
             PRINT_OBJECT_TYPE(BEZIER_TRIANGLE_COLOR);
-            m_Objects.push_back(std::move(std::make_unique<V3dBezierTriangleWithCornerColors>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dBezierTriangleWithCornerColors>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::BEZIER_PATCH_COLOR:
             PRINT_OBJECT_TYPE(BEZIER_PATCH_COLOR);
-            m_Objects.push_back(std::move(std::make_unique<V3dBezierPatchWithCornerColors>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dBezierPatchWithCornerColors>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::TRIANGLES:
             PRINT_OBJECT_TYPE(TRIANGLES);
-            m_Objects.push_back(std::move(std::make_unique<V3dTriangleGroup>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dTriangleGroup>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::DISK:
             PRINT_OBJECT_TYPE(DISK);
-            m_Objects.push_back(std::move(std::make_unique<V3dDisk>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dDisk>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::CYLINDER:
             PRINT_OBJECT_TYPE(CYLINDER);
-            m_Objects.push_back(std::move(std::make_unique<V3dCylinder>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dCylinder>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::TUBE:
             PRINT_OBJECT_TYPE(TUBE);
-            m_Objects.push_back(std::move(std::make_unique<V3dTube>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dTube>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::SPHERE:
             PRINT_OBJECT_TYPE(SPHERE);
-            m_Objects.push_back(std::move(std::make_unique<V3dSphere>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dSphere>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::HALF_SPHERE:
             PRINT_OBJECT_TYPE(HALF_SPHERE);
-            m_Objects.push_back(std::move(std::make_unique<V3dHemiSphere>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dHemiSphere>(xdrFile, doublePrecisionFlag)));
             break;
 
         case ObjectTypes::ANIMATION:
@@ -305,7 +305,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 
         case ObjectTypes::PIXEL:
             PRINT_OBJECT_TYPE(PIXEL);
-            m_Objects.push_back(std::move(std::make_unique<V3dPixel>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dPixel>(xdrFile, doublePrecisionFlag)));
             break;
         }
     }
@@ -314,7 +314,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 }
 
 void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic) {
-    for (auto& object : m_Objects) {
+    for (auto& object : objects) {
         object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
     }
 }
@@ -335,15 +335,11 @@ Mesh V3dFile::GetMesh() {
         vertices.push_back(materialVertex.normal.z);
     }
 
-    std::cout << "Mesh size: " << materialData.materialVertices.size() << std::endl;
-
     if (materialData.indices.empty() || vertices.empty()) {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
 
     std::vector<unsigned int> indices = materialData.indices;
-
-    materialData.clear();
 
     return Mesh{ vertices, indices };
 }

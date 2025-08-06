@@ -19,7 +19,7 @@ public:
     std::vector<TRIPLE> centers;
     std::vector<V3dMaterial> materials;
 
-    std::vector<std::unique_ptr<V3dObject>> m_Objects;
+    std::vector<std::unique_ptr<V3dObject>> objects;
 
     V3dHeaderInfo headerInfo;
 

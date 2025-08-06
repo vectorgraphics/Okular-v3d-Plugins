@@ -48,6 +48,8 @@ struct V3dModel {
 
     std::unique_ptr<V3dFile> file{ };
 
+    bool remesh{ true };
+
 private:
     bool m_HasChanged{ true };
 };

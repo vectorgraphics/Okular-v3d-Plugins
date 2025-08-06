@@ -140,6 +140,8 @@ void V3dModel::dragModeZoom(const glm::vec2& normalizedMousePosition, const glm:
 
         m_HasChanged = true;
     }
+
+    remesh = true;
 }
 
 void V3dModel::dragModePan(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
