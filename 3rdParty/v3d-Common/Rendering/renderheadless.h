@@ -17,6 +17,8 @@
 #include <vulkan/vulkan.h>
 #include "../3rdParty/VulkanTools/VulkanTools.h"
 
+#include "../V3dFile/Mesh.h"
+
 #define DEBUG (!NDEBUG)
 
 #define BUFFER_ELEMENTS 32
@@ -80,7 +82,11 @@ private:
 	void cleanup();
 
 public:
-	unsigned char* render(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout, const std::vector<float>& vertices, const std::vector<unsigned int>& indices, const glm::mat4& mvp);
+	void copyMeshToGPU(const Mesh& mesh);
+
+	unsigned char* render(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp);
+
+	void cleanupMeshData();
 
 	uint32_t getMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties);
 
@@ -88,4 +94,6 @@ public:
     
     // Submit command buffer to a queue and wait for fence until queue operations have been finished
 	void submitWork(VkCommandBuffer cmdBuffer, VkQueue queue);
+
+	unsigned int m_IndexCount{ 0 };
 };

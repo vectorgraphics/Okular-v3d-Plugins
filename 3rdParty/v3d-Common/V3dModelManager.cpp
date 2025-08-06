@@ -92,42 +92,36 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         using namespace std;
         using namespace camp;
 
-        materialData.clear();
+        if (m_Models[pageNumber][modelIndex].initialized) {
+            m_HeadlessRenderer->cleanupMeshData();
+
+            materialData.clear();
+        }
 
         utils::stopWatch timer{ };
 
         bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
-        // m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
 
         for (auto& object : m_Models[pageNumber][modelIndex].file->objects) {
             object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
         }
 
-        // std::cout << "Queue Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+        Mesh mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
 
-        m_Models[pageNumber][modelIndex].remesh = false;
+        if (mesh.vertices.empty() || mesh.indices.empty()) {
+            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+
+            image.fill(Qt::black);
+
+            return image;
+        }
+
+        m_HeadlessRenderer->copyMeshToGPU(mesh);
 
         std::cout << "remesh" << std::endl;
-    }
 
-    Mesh mesh{ };
-
-    {
-        utils::stopWatch timer{ };
-        mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
-
-        // std::cout << "Get Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
-    }
-
-    std::vector<float> vertices = mesh.vertices;
-    std::vector<unsigned int> indices = mesh.indices;
-    
-    if (vertices.empty() || indices.empty()) {
-        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
-
-        image.fill(Qt::black);
-
-        return image;
+        m_Models[pageNumber][modelIndex].remesh = false;
+        m_Models[pageNumber][modelIndex].initialized = true;
     }
 
     VkSubresourceLayout imageSubresourceLayout;
@@ -148,7 +142,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     unsigned char* imageData = nullptr;
     {
         utils::stopWatch timer{ };
-        imageData = m_HeadlessRenderer->render(imageWidth, imageHeight, &imageSubresourceLayout, vertices, indices, mvp);
+        imageData = m_HeadlessRenderer->render(imageWidth, imageHeight, &imageSubresourceLayout, mvp);
 
         std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
     }

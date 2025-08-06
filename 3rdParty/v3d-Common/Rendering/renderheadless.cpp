@@ -708,10 +708,6 @@ unsigned char* HeadlessRenderer::copyToHost(int targetWidth, int targetHeight, V
 }
 
 void HeadlessRenderer::cleanup() {
-	vkDestroyBuffer(device, vertexBuffer, nullptr);
-	vkFreeMemory(device, vertexMemory, nullptr);
-	vkDestroyBuffer(device, indexBuffer, nullptr);
-	vkFreeMemory(device, indexMemory, nullptr);
 	vkDestroyImageView(device, colorAttachment.view, nullptr);
 	vkDestroyImage(device, colorAttachment.image, nullptr);
 	vkFreeMemory(device, colorAttachment.memory, nullptr);
@@ -730,9 +726,17 @@ void HeadlessRenderer::cleanup() {
 	}
 }
 
-unsigned char* HeadlessRenderer::render(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout, const std::vector<float>& vertices, const std::vector<unsigned int>& indices, const glm::mat4& mvp) {	
-	copyVertexDataToGPU(vertices);
-	copyIndexDataToGPU(indices);
+void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
+	copyVertexDataToGPU(mesh.vertices);
+	copyIndexDataToGPU(mesh.indices);
+
+	m_IndexCount = mesh.indices.size();
+}
+
+unsigned char* HeadlessRenderer::render(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp) {
+	if (m_IndexCount == 0) {
+		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
+	}
 
 	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 	VkFormat depthFormat;
@@ -742,7 +746,7 @@ unsigned char* HeadlessRenderer::render(int targetWidth, int targetHeight, VkSub
 	createRenderPipeline(colorFormat, depthFormat, targetWidth, targetHeight);
 	createGraphicsPipeline();
 
-	recordCommandBuffer(targetWidth, targetHeight, indices.size(), mvp);
+	recordCommandBuffer(targetWidth, targetHeight, m_IndexCount, mvp);
 
 	unsigned char* returnData = copyToHost(targetWidth, targetHeight, imageSubresourceLayout);
 
@@ -751,4 +755,11 @@ unsigned char* HeadlessRenderer::render(int targetWidth, int targetHeight, VkSub
 	cleanup();
 
 	return returnData;
+}
+
+void HeadlessRenderer::cleanupMeshData() {
+	vkDestroyBuffer(device, vertexBuffer, nullptr);
+	vkFreeMemory(device, vertexMemory, nullptr);
+	vkDestroyBuffer(device, indexBuffer, nullptr);
+	vkFreeMemory(device, indexMemory, nullptr);
 }
