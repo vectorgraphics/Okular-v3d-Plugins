@@ -14,7 +14,6 @@ V3dModel::V3dModel(const std::string& filePath, const glm::vec2& minBound, const
     initProjection();
 }
 
-
 V3dModel::V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound, const glm::vec2& maxBound) 
     : minBound(minBound), maxBound(maxBound) {
 

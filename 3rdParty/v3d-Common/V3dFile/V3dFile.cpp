@@ -313,29 +313,15 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile.close();
 }
 
-void V3dFile::QueueMesh(int imageWidth, int imageHeight) {
+void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic) {
     for (auto& object : m_Objects) {
-        object->QueueMesh(imageWidth, imageHeight);
+        object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
     }
 }
 
 Mesh V3dFile::GetMesh() {
-    // std::vector<float> vertices{ };
-    // std::vector<unsigned int> indices{ };
-/*
-    for (auto& object : m_Objects) {
-        Mesh mesh = object->getMesh();
-
-        std::vector<float> vert = mesh.vertices;
-        std::vector<unsigned int> ind = mesh.indices;
-
-        appendOffset(indices, ind, vertices.size() / 6);
-        vertices.insert(vertices.end(), vert.begin(), vert.end());
-    }*/
-
     using namespace std;
     using namespace camp;
-
 
     std::vector<float> vertices{ };
 
@@ -349,13 +335,15 @@ Mesh V3dFile::GetMesh() {
         vertices.push_back(materialVertex.normal.z);
     }
 
+    std::cout << "Mesh size: " << materialData.materialVertices.size() << std::endl;
+
     if (materialData.indices.empty() || vertices.empty()) {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
 
-    return Mesh{ vertices, materialData.indices };
+    std::vector<unsigned int> indices = materialData.indices;
 
+    materialData.clear();
 
-
-    // return Mesh{ vertices, indices };
+    return Mesh{ vertices, indices };
 }

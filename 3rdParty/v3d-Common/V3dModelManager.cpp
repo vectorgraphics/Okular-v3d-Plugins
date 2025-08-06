@@ -77,10 +77,20 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         return m_ModelImages[pageNumber][modelIndex];
     }
 
+    triple sceneMinBound = m_Models[pageNumber][modelIndex].viewParam.minValues;
+    triple sceneMaxBound = m_Models[pageNumber][modelIndex].viewParam.maxValues;
+
+
+    if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.gety()) {
+        sceneMinBound = m_Models[pageNumber][modelIndex].file->headerInfo.minBound;
+        sceneMaxBound = m_Models[pageNumber][modelIndex].file->headerInfo.maxBound;
+    }
+
     {
         utils::stopWatch timer{ };
 
-        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight);
+        bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
+        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
 
         std::cout << "Queue Mesh: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
     }

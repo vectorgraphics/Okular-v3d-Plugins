@@ -37,8 +37,7 @@ std::vector<unsigned int> V3dBezierPatch::getIndices() {
     return std::vector<unsigned int>{ };
 }
 
-void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight) {
-    int n=16;
+void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic) {
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
         triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
@@ -63,22 +62,19 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight) {
 
     BezierPatch S;
 
-    bool orthographic=false;
-    triple Min,Max;
-    boundstriples(Min,Max,n,Controls);
-
-    triple b=Min, B=Max; // cumulative scene bounds; for now use patch bounds
+    triple b=sceneMinBound;
+    triple B=sceneMaxBound;
     double Zmax=B.getz();
 
     double perspective=orthographic ? 0.0 : 1.0/Zmax;
-    double s=perspective ? Min.getz()*perspective : 1.0; // Move to glrender
+    double s=perspective ? b.getz()*perspective : 1.0; // Move to glrender
     double size2=hypot(imageWidth,imageHeight);
 
-    const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
     bool transparent=false;
     bool straight=false;
 
-    // std::cout << "size3.length()/size2: " << size3.length()/size2 << std::endl;
+    const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
+
     S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
 }
 

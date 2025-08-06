@@ -467,6 +467,7 @@ void HeadlessRenderer::createGraphicsPipeline() {
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
 		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
 		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);

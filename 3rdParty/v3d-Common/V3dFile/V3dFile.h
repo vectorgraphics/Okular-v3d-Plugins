@@ -6,6 +6,8 @@
 
 #include "xstream.h"
 
+class V3dModel;
+
 class V3dFile {
 public:
     V3dFile(const std::string& fileName);
@@ -21,7 +23,7 @@ public:
 
     V3dHeaderInfo headerInfo;
 
-    void QueueMesh(int imageWidth, int imageHeight);
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic);
     Mesh GetMesh();
 
 private:
