@@ -12,6 +12,8 @@
 
 #include <chrono>
 
+#include "seconds.h"
+
 // #define VULKAN_DEBUG 1
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
@@ -597,37 +599,18 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 	vkDeviceWaitIdle(device);
 }
 
-unsigned char* HeadlessRenderer::copyToHost(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout) {
+unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout) {
 	// Copy framebuffer image to host visible image
 	const char* imagedata;
 	unsigned char* returnData;
 	
-	// Create the linear tiled destination image to copy to and to read the memory from
-	VkImageCreateInfo imgCreateInfo(vks::initializers::imageCreateInfo());
-	imgCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-	imgCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-	imgCreateInfo.extent.width = targetWidth;
-	imgCreateInfo.extent.height = targetHeight;
-	imgCreateInfo.extent.depth = 1;
-	imgCreateInfo.arrayLayers = 1;
-	imgCreateInfo.mipLevels = 1;
-	imgCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	imgCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imgCreateInfo.tiling = VK_IMAGE_TILING_LINEAR;
-	imgCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	// Create the image
-	VkImage dstImage;
-	VK_CHECK_RESULT(vkCreateImage(device, &imgCreateInfo, nullptr, &dstImage));
-	// Create memory to back up the image
-	VkMemoryRequirements memRequirements;
-	VkMemoryAllocateInfo memAllocInfo(vks::initializers::memoryAllocateInfo());
-	VkDeviceMemory dstImageMemory;
-	vkGetImageMemoryRequirements(device, dstImage, &memRequirements);
-	memAllocInfo.allocationSize = memRequirements.size;
-	// Memory must be host visible to copy from
-	memAllocInfo.memoryTypeIndex = getMemoryTypeIndex(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-	VK_CHECK_RESULT(vkAllocateMemory(device, &memAllocInfo, nullptr, &dstImageMemory));
-	VK_CHECK_RESULT(vkBindImageMemory(device, dstImage, dstImageMemory, 0));
+	if (targetSize.x != hostReadableDestinationImageSize.x || targetSize.y != hostReadableDestinationImageSize.y) {
+		destroyHostReadableDestinationImage();
+
+		hostReadableDestinationImageSize = targetSize;
+
+		createHostReadableDestinationImage(hostReadableDestinationImageSize);
+	}
 
 	// Do the actual blit from the offscreen image to our host visible destination image
 	VkCommandBufferAllocateInfo cmdBufAllocateInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
@@ -639,7 +622,7 @@ unsigned char* HeadlessRenderer::copyToHost(int targetWidth, int targetHeight, V
 	// Transition destination image to transfer destination layout
 	vks::tools::insertImageMemoryBarrier(
 		copyCmd,
-		dstImage,
+		hostReadableDestinationImage,
 		0,
 		VK_ACCESS_TRANSFER_WRITE_BIT,
 		VK_IMAGE_LAYOUT_UNDEFINED,
@@ -649,27 +632,26 @@ unsigned char* HeadlessRenderer::copyToHost(int targetWidth, int targetHeight, V
 		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
 
 	// colorAttachment.image is already in VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, and does not need to be transitioned
-
 	VkImageCopy imageCopyRegion{};
 	imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	imageCopyRegion.srcSubresource.layerCount = 1;
 	imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	imageCopyRegion.dstSubresource.layerCount = 1;
-	imageCopyRegion.extent.width = targetWidth;
-	imageCopyRegion.extent.height = targetHeight;
+	imageCopyRegion.extent.width = targetSize.x;
+	imageCopyRegion.extent.height = targetSize.y;
 	imageCopyRegion.extent.depth = 1;
 
 	vkCmdCopyImage(
 		copyCmd,
 		colorAttachment.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		hostReadableDestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
 		&imageCopyRegion);
 
 	// Transition destination image to general layout, which is the required layout for mapping the image memory later on
 	vks::tools::insertImageMemoryBarrier(
 		copyCmd,
-		dstImage,
+		hostReadableDestinationImage,
 		VK_ACCESS_TRANSFER_WRITE_BIT,
 		VK_ACCESS_MEMORY_READ_BIT,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -686,25 +668,55 @@ unsigned char* HeadlessRenderer::copyToHost(int targetWidth, int targetHeight, V
 	VkImageSubresource subResource{};
 	subResource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	VkSubresourceLayout subResourceLayout;
-
-	vkGetImageSubresourceLayout(device, dstImage, &subResource, &subResourceLayout);
+	vkGetImageSubresourceLayout(device, hostReadableDestinationImage, &subResource, &subResourceLayout);
 
 	*imageSubresourceLayout = subResourceLayout;
 
-	// Map image memory so we can start copying from it
-	vkMapMemory(device, dstImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&imagedata);
+	// Map image memory so we can copy from it
+	vkMapMemory(device, hostReadableDestinationImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&imagedata);
 	imagedata += subResourceLayout.offset;
 
 	returnData = new unsigned char[imageSubresourceLayout->size];
-
 	std::memcpy(returnData, imagedata, imageSubresourceLayout->size);
 
-	// Clean up resources
-	vkUnmapMemory(device, dstImageMemory);
-	vkFreeMemory(device, dstImageMemory, nullptr);
-	vkDestroyImage(device, dstImage, nullptr);
-
 	return returnData;
+}
+
+void HeadlessRenderer::createHostReadableDestinationImage(glm::ivec2 size) {
+
+	// Create the linear tiled destination image to copy to and to read the memory from
+	VkImageCreateInfo imgCreateInfo(vks::initializers::imageCreateInfo());
+	imgCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+	imgCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+	imgCreateInfo.extent.width = size.x;
+	imgCreateInfo.extent.height = size.y;
+	imgCreateInfo.extent.depth = 1;
+	imgCreateInfo.arrayLayers = 1;
+	imgCreateInfo.mipLevels = 1;
+	imgCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imgCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imgCreateInfo.tiling = VK_IMAGE_TILING_LINEAR;
+	imgCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+	// Create the image
+	VK_CHECK_RESULT(vkCreateImage(device, &imgCreateInfo, nullptr, &hostReadableDestinationImage));
+
+	// Create memory to back up the image
+	VkMemoryRequirements memRequirements;
+	VkMemoryAllocateInfo memAllocInfo(vks::initializers::memoryAllocateInfo());
+	vkGetImageMemoryRequirements(device, hostReadableDestinationImage, &memRequirements);
+	memAllocInfo.allocationSize = memRequirements.size;
+
+	// Memory must be host visible to copy from
+	memAllocInfo.memoryTypeIndex = getMemoryTypeIndex(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+	VK_CHECK_RESULT(vkAllocateMemory(device, &memAllocInfo, nullptr, &hostReadableDestinationImageMemory));
+	VK_CHECK_RESULT(vkBindImageMemory(device, hostReadableDestinationImage, hostReadableDestinationImageMemory, 0));
+}
+
+void HeadlessRenderer::destroyHostReadableDestinationImage() {
+	vkUnmapMemory(device, hostReadableDestinationImageMemory);
+	vkFreeMemory(device, hostReadableDestinationImageMemory, nullptr);
+	vkDestroyImage(device, hostReadableDestinationImage, nullptr);
 }
 
 void HeadlessRenderer::cleanup() {
@@ -733,22 +745,22 @@ void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
 	m_IndexCount = mesh.indices.size();
 }
 
-unsigned char* HeadlessRenderer::render(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp) {
+unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp) {
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
 
 	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 	VkFormat depthFormat;
+
 	vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
 
-	createAttachments(colorFormat, depthFormat, targetWidth, targetHeight);
-	createRenderPipeline(colorFormat, depthFormat, targetWidth, targetHeight);
+	createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y);
+	createRenderPipeline(colorFormat, depthFormat, targetSize.x, targetSize.y);
 	createGraphicsPipeline();
+	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, mvp);
 
-	recordCommandBuffer(targetWidth, targetHeight, m_IndexCount, mvp);
-
-	unsigned char* returnData = copyToHost(targetWidth, targetHeight, imageSubresourceLayout);
+	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
 
 	vkQueueWaitIdle(queue);
 

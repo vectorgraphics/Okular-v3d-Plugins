@@ -55,6 +55,10 @@ public:
 		VkImageView view;
 	};
 
+	VkImage hostReadableDestinationImage;
+	VkDeviceMemory hostReadableDestinationImageMemory;
+	glm::ivec2 hostReadableDestinationImageSize{ 0, 0 };
+
 	VkFramebuffer framebuffer;
 	FrameBufferAttachment colorAttachment, depthAttachment;
 	VkRenderPass renderPass;
@@ -77,14 +81,17 @@ private:
 	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createGraphicsPipeline();
 	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, const glm::mat4& mvp);
-	unsigned char* copyToHost(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout);
+	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout);
+
+	void createHostReadableDestinationImage(glm::ivec2 size);
+	void destroyHostReadableDestinationImage();
 
 	void cleanup();
 
 public:
 	void copyMeshToGPU(const Mesh& mesh);
 
-	unsigned char* render(int targetWidth, int targetHeight, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp);
+	unsigned char* render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp);
 
 	void cleanupMeshData();
 

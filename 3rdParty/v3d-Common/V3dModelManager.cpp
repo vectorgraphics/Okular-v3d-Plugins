@@ -142,9 +142,9 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     unsigned char* imageData = nullptr;
     {
         utils::stopWatch timer{ };
-        imageData = m_HeadlessRenderer->render(imageWidth, imageHeight, &imageSubresourceLayout, mvp);
+        imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, mvp);
 
-        std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
+        // std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
     }
 
     unsigned char* imgDataTmp = imageData;
