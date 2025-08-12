@@ -11,10 +11,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <chrono>
+#include <iostream>
 
 #include "seconds.h"
 
-// #define VULKAN_DEBUG 1
+#define VULKAN_DEBUG 1
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
@@ -60,7 +61,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageCallback(
 	const char* pMessage,
 	void* pUserData)
 {
-	LOG("[VALIDATION]: %s - %s\n", pLayerPrefix, pMessage);
+	std::cout << "[VALIDATION]: " << std::string(pLayerPrefix) << " - " << std::string(pMessage) << "\n" << std::endl;
+
 	return VK_FALSE;
 }
 
@@ -307,6 +309,65 @@ void HeadlessRenderer::copyIndexDataToGPU(const std::vector<unsigned int>& indic
 	vkFreeMemory(device, stagingMemory, nullptr);
 }
 
+void HeadlessRenderer::createUniformBuffer() {
+	VkDeviceSize uniformBufferSize = sizeof(UniformBufferObject);
+
+	auto result = createBuffer(
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		&uniformBuffer,
+		&uniformBufferMemory,
+		uniformBufferSize
+	);
+
+	// Map the buffer for it whole lifetime so it does not need to be remapped frequently
+	vkMapMemory(device, uniformBufferMemory, 0, uniformBufferSize, 0, (void**)&uniformBufferMapped);
+}
+
+void HeadlessRenderer::createDescriptorPool() {
+	VkDescriptorPoolSize poolSize{ };
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = maxFramesInFlight;
+
+	VkDescriptorPoolCreateInfo poolInfo{ };
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = maxFramesInFlight;
+
+	VK_CHECK_RESULT(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool));
+}
+
+void HeadlessRenderer::createDescirptorSets() {
+	std::vector<VkDescriptorSetLayout> layouts(maxFramesInFlight, descriptorSetLayout);
+	VkDescriptorSetAllocateInfo allocInfo{ };
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = maxFramesInFlight;
+	allocInfo.pSetLayouts = layouts.data();
+
+	descriptorSets.resize(maxFramesInFlight);
+	VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()));
+
+	for (size_t i = 0; i < maxFramesInFlight; i++) {
+		VkDescriptorBufferInfo bufferInfo{};
+		bufferInfo.buffer = uniformBuffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(UniformBufferObject);
+
+		VkWriteDescriptorSet descriptorWrite{ };
+		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite.dstSet = descriptorSets[i];
+		descriptorWrite.dstBinding = 0;
+		descriptorWrite.dstArrayElement = 0;
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &bufferInfo;
+
+		vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+	}
+}
+
 void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight) {
 	VkImageCreateInfo image = vks::initializers::imageCreateInfo();
 	image.imageType = VK_IMAGE_TYPE_2D;
@@ -443,17 +504,29 @@ void HeadlessRenderer::createRenderPipeline(VkFormat colorFormat, VkFormat depth
 	VK_CHECK_RESULT(vkCreateFramebuffer(device, &framebufferCreateInfo, nullptr, &framebuffer));
 }
 
-void HeadlessRenderer::createGraphicsPipeline() {
-	std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {};
-	VkDescriptorSetLayoutCreateInfo descriptorLayout =
-		vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
-	VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
+void HeadlessRenderer::createDescriptorSetLayout() {
+	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+	uboLayoutBinding.binding = 0;
+	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboLayoutBinding.descriptorCount = 1;
+	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
+	std::vector<VkDescriptorSetLayoutBinding> uboSetLayoutBindings = {};
+	uboSetLayoutBindings.push_back(uboLayoutBinding);
+
+	VkDescriptorSetLayoutCreateInfo descriptorLayout =
+	vks::initializers::descriptorSetLayoutCreateInfo(uboSetLayoutBindings);
+	VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
+}
+
+void HeadlessRenderer::createGraphicsPipeline() {
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
-		vks::initializers::pipelineLayoutCreateInfo(nullptr, 0);
+		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
+	// VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
+		// vks::initializers::pipelineLayoutCreateInfo(nullptr, 0);
 
 	// MVP via push constant block
-	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), 0);
+	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), 0);
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -589,7 +662,10 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, offsets);
 	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
+	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(mvp), &mvp);
+
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+
 	vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
@@ -601,15 +677,21 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 
 unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout) {
 	// Copy framebuffer image to host visible image
-	const char* imagedata;
 	unsigned char* returnData;
 	
 	if (targetSize.x != hostReadableDestinationImageSize.x || targetSize.y != hostReadableDestinationImageSize.y) {
-		destroyHostReadableDestinationImage();
+		if (hostReadableDestinationImageInitalized) {
+			destroyHostReadableDestinationImage();
+		}
 
 		hostReadableDestinationImageSize = targetSize;
 
 		createHostReadableDestinationImage(hostReadableDestinationImageSize);
+
+		// Map image memory so we can copy from it
+		vkMapMemory(device, hostReadableDestinationImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&hostReadableDestinationImageMapped);
+
+		hostReadableDestinationImageInitalized = true;
 	}
 
 	// Do the actual blit from the offscreen image to our host visible destination image
@@ -672,8 +754,8 @@ unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresource
 
 	*imageSubresourceLayout = subResourceLayout;
 
-	// Map image memory so we can copy from it
-	vkMapMemory(device, hostReadableDestinationImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&imagedata);
+	const char* imagedata = (const char*)hostReadableDestinationImageMapped;
+
 	imagedata += subResourceLayout.offset;
 
 	returnData = new unsigned char[imageSubresourceLayout->size];
@@ -729,9 +811,10 @@ void HeadlessRenderer::cleanup() {
 	vkDestroyRenderPass(device, renderPass, nullptr);
 	vkDestroyFramebuffer(device, framebuffer, nullptr);
 	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-	vkDestroyPipeline(device, pipeline, nullptr);
-	vkDestroyPipelineCache(device, pipelineCache, nullptr);
+
+	// vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+	// vkDestroyPipeline(device, pipeline, nullptr);
+	// vkDestroyPipelineCache(device, pipelineCache, nullptr);
 
 	for (auto shadermodule : shaderModules) {
 		vkDestroyShaderModule(device, shadermodule, nullptr);
@@ -739,13 +822,13 @@ void HeadlessRenderer::cleanup() {
 }
 
 void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
-	copyVertexDataToGPU(mesh.vertices);
+	copyVertexDataToGPU(mesh.vertices); // TODO doublecheck when these are deleted
 	copyIndexDataToGPU(mesh.indices);
 
 	m_IndexCount = mesh.indices.size();
 }
 
-unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp) {
+unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj) {
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
@@ -756,15 +839,37 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 	vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
 
 	createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y);
+
 	createRenderPipeline(colorFormat, depthFormat, targetSize.x, targetSize.y);
+
+	createDescriptorSetLayout();
+
 	createGraphicsPipeline();
-	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, mvp);
+
+	createUniformBuffer();
+	createDescriptorPool();
+	createDescirptorSets();
+
+	UniformBufferObject ubo;
+	ubo.projViewMat = proj * view;
+	ubo.viewMat = view;
+	ubo.normMat = glm::inverse(view);
+
+	std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
+
+	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, glm::mat4(proj * view));
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
 
 	vkQueueWaitIdle(queue);
 
 	cleanup();
+
+	vkDestroyBuffer(device, uniformBuffer, nullptr);
+	vkFreeMemory(device, uniformBufferMemory, nullptr);
+
+	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
 	return returnData;
 }

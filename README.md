@@ -60,7 +60,7 @@ in the CMakeLists.txt file in the root of the Okular source code. ie `build/25.0
 
 You will also need to install many packages in order to build the plugins, you can just repeatadly run the build script and install whatever packages cmake cannot find, but if you use dnf as a package manager you can simply execute:
 
-`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel`
+`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers`
 
 which is a minimal list of packages required.
 

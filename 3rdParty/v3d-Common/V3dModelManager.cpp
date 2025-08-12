@@ -126,9 +126,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     VkSubresourceLayout imageSubresourceLayout;
 
-    // Model
-    glm::mat4 model = glm::mat4{ 1.0f };
-
     // Projection
     glm::vec2 canvasSize = {
         (m_Models[pageNumber][modelIndex].maxBound.x - m_Models[pageNumber][modelIndex].minBound.x) * m_CachedRequestSizes[pageNumber].size.x,
@@ -137,15 +134,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     m_Models[pageNumber][modelIndex].setProjection(canvasSize);
 
-	glm::mat4 mvp = m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix * model;
-
-    unsigned char* imageData = nullptr;
-    {
-        utils::stopWatch timer{ };
-        imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, mvp);
-
-        // std::cout << "Render: " << timer.seconds() * 1000.0 << "ms" << std::endl; // TODO optimize
-    }
+    unsigned char* imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, m_Models[pageNumber][modelIndex].viewMatrix, m_Models[pageNumber][modelIndex].projectionMatrix);
 
     unsigned char* imgDataTmp = imageData;
 

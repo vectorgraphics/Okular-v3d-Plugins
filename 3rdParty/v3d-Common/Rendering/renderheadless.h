@@ -27,9 +27,17 @@
 
 #define VULKAN_DEBUG 1
 
+struct UniformBufferObject {
+	glm::mat4 projViewMat { };
+	glm::mat4 viewMat { };
+	glm::mat4 normMat { };
+};
+
 class HeadlessRenderer
 {
 public:
+	static constexpr uint32_t maxFramesInFlight = 1; // TODO potentially have multiple frames in flight
+
 	VkInstance instance;
 	VkPhysicalDevice physicalDevice;
 	VkDevice device;
@@ -49,6 +57,13 @@ public:
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexMemory;
 
+	VkBuffer uniformBuffer;
+	VkDeviceMemory uniformBufferMemory;
+	void* uniformBufferMapped{ nullptr };
+
+	VkDescriptorPool descriptorPool;
+	std::vector<VkDescriptorSet> descriptorSets;
+
 	struct FrameBufferAttachment {
 		VkImage image;
 		VkDeviceMemory memory;
@@ -58,6 +73,8 @@ public:
 	VkImage hostReadableDestinationImage;
 	VkDeviceMemory hostReadableDestinationImageMemory;
 	glm::ivec2 hostReadableDestinationImageSize{ 0, 0 };
+	bool hostReadableDestinationImageInitalized{ false };
+	void* hostReadableDestinationImageMapped;
 
 	VkFramebuffer framebuffer;
 	FrameBufferAttachment colorAttachment, depthAttachment;
@@ -77,8 +94,12 @@ private:
 	void createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateInfo);
 	void copyVertexDataToGPU(const std::vector<float>& vertices);
 	void copyIndexDataToGPU(const std::vector<unsigned int>& indices);
+	void createUniformBuffer();
+	void createDescriptorPool();
+	void createDescirptorSets();
 	void createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
+	void createDescriptorSetLayout();
 	void createGraphicsPipeline();
 	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, const glm::mat4& mvp);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout);
@@ -91,7 +112,7 @@ private:
 public:
 	void copyMeshToGPU(const Mesh& mesh);
 
-	unsigned char* render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& mvp);
+	unsigned char* render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj);
 
 	void cleanupMeshData();
 
