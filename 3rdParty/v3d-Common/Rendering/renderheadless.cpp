@@ -522,8 +522,6 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 void HeadlessRenderer::createGraphicsPipeline() {
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
 		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
-	// VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
-		// vks::initializers::pipelineLayoutCreateInfo(nullptr, 0);
 
 	// MVP via push constant block
 	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), 0);
@@ -615,7 +613,7 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipeline));
 }
 
-void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, const glm::mat4& mvp) {
+void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount) {
 	VkCommandBuffer commandBuffer;
 	VkCommandBufferAllocateInfo cmdBufAllocateInfo =
 		vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
@@ -662,6 +660,7 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, offsets);
 	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
+	glm::mat4 mvp{ 1.0 }; // TODO
 	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(mvp), &mvp);
 
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
@@ -857,7 +856,7 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 
 	std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
 
-	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, glm::mat4(proj * view));
+	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount);
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
 

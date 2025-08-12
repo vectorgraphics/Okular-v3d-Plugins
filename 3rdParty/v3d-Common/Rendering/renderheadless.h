@@ -101,7 +101,7 @@ private:
 	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createDescriptorSetLayout();
 	void createGraphicsPipeline();
-	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, const glm::mat4& mvp);
+	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout);
 
 	void createHostReadableDestinationImage(glm::ivec2 size);

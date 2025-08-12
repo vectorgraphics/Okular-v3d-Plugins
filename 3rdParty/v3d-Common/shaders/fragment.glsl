@@ -77,8 +77,6 @@ layout(location = 2) in vec3 norm;
 layout(location = 3) in vec4 inColor;
 layout(location = 4) flat in int materialIndex;
 
-layout(location = 5) in mat4 testMat;
-
 layout(push_constant) uniform PushConstants
 {
 	uvec4 constants;
@@ -274,11 +272,11 @@ void main() {
   Fresnel0 = mat.parameters[2];
   Roughness2 = Roughness * Roughness;
 
-// #ifdef ORTHOGRAPHIC
-  vec3 viewDirection=vec3(0.0,0.0,1.0); // TODO upload real viewDir
-// #else
-//   vec3 viewDirection=-normalize(viewPosition);
-// #endif
+#ifdef ORTHOGRAPHIC
+  vec3 viewDirection=vec3(0.0,0.0,1.0);
+#else
+  vec3 viewDirection=-normalize(viewPosition);
+#endif
   normal = normalize(norm);
 
   if (!gl_FrontFacing)
