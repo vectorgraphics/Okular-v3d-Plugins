@@ -58,6 +58,7 @@ public:
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexMemory;
 
+	UniformBufferObject cachedUbo{ };
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
 	void* uniformBufferMapped{ nullptr };

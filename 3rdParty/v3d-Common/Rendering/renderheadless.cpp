@@ -15,7 +15,7 @@
 
 #include "seconds.h"
 
-#define VULKAN_DEBUG 1
+// #define VULKAN_DEBUG 1
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
@@ -842,7 +842,7 @@ void HeadlessRenderer::cleanup() {
 }
 
 void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
-	copyVertexDataToGPU(mesh.vertices); // TODO doublecheck when these are deleted
+	copyVertexDataToGPU(mesh.vertices);
 	copyIndexDataToGPU(mesh.indices);
 
 	m_IndexCount = mesh.indices.size();
@@ -888,12 +888,14 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 		currentTargetSize = targetSize;
 	}
 
-	UniformBufferObject ubo; // TODO check if these have changed
+	UniformBufferObject ubo;
 	ubo.projViewMat = proj * view;
 	ubo.viewMat = view;
 	ubo.normMat = glm::inverse(view);
 
-	std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
+	if (cachedUbo.projViewMat != ubo.projViewMat && cachedUbo.viewMat != ubo.viewMat && cachedUbo.normMat != ubo.normMat) {
+		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
+	}
 
 	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount);
 
