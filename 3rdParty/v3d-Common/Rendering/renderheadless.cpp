@@ -34,9 +34,30 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
 		cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 		VK_CHECK_RESULT(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &commandPool));
+
 	}
 
 HeadlessRenderer::~HeadlessRenderer() { 
+	if (meshInitialized) {
+		cleanupMeshData();
+	}
+
+	if (hostReadableDestinationImageInitalized) {
+		destroyHostReadableDestinationImage();
+	}
+
+	if (initialized) {
+		cleanup();
+
+		vkDestroyBuffer(device, uniformBuffer, nullptr);
+		vkFreeMemory(device, uniformBufferMemory, nullptr);
+
+		vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+
+		initialized = false;
+	}
+
 	vkDestroyCommandPool(device, commandPool, nullptr);
 	vkDestroyDevice(device, nullptr);
 
@@ -247,6 +268,7 @@ void HeadlessRenderer::copyVertexDataToGPU(const std::vector<float>& vertices) {
 		(void*)vertices.data()
 	);
 
+	meshInitialized = true;
 	createBuffer(
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -289,6 +311,7 @@ void HeadlessRenderer::copyIndexDataToGPU(const std::vector<unsigned int>& indic
 		(void*)indices.data()
 	);
 
+	meshInitialized = true;
 	createBuffer(
 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -809,11 +832,9 @@ void HeadlessRenderer::cleanup() {
 	vkFreeMemory(device, depthAttachment.memory, nullptr);
 	vkDestroyRenderPass(device, renderPass, nullptr);
 	vkDestroyFramebuffer(device, framebuffer, nullptr);
+	vkDestroyPipeline(device, pipeline, nullptr);
 	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-
-	// vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-	// vkDestroyPipeline(device, pipeline, nullptr);
-	// vkDestroyPipelineCache(device, pipelineCache, nullptr);
+	vkDestroyPipelineCache(device, pipelineCache, nullptr);
 
 	for (auto shadermodule : shaderModules) {
 		vkDestroyShaderModule(device, shadermodule, nullptr);
@@ -832,24 +853,42 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
 
-	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	VkFormat depthFormat;
+	if (currentTargetSize != targetSize) {
+		if (initialized) {
+			cleanup();
 
-	vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
+			vkDestroyBuffer(device, uniformBuffer, nullptr);
+			vkFreeMemory(device, uniformBufferMemory, nullptr);
 
-	createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y);
+			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+			vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
-	createRenderPipeline(colorFormat, depthFormat, targetSize.x, targetSize.y);
+			initialized = false;
+		}
 
-	createDescriptorSetLayout();
+		VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+		VkFormat depthFormat;
 
-	createGraphicsPipeline();
+		vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
 
-	createUniformBuffer();
-	createDescriptorPool();
-	createDescirptorSets();
+		createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y);
 
-	UniformBufferObject ubo;
+		createRenderPipeline(colorFormat, depthFormat, targetSize.x, targetSize.y);
+
+		createDescriptorSetLayout();
+
+		createGraphicsPipeline();
+
+		createUniformBuffer();
+		createDescriptorPool();
+		createDescirptorSets();
+
+		initialized = true;
+
+		currentTargetSize = targetSize;
+	}
+
+	UniformBufferObject ubo; // TODO check if these have changed
 	ubo.projViewMat = proj * view;
 	ubo.viewMat = view;
 	ubo.normMat = glm::inverse(view);
@@ -862,14 +901,6 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 
 	vkQueueWaitIdle(queue);
 
-	cleanup();
-
-	vkDestroyBuffer(device, uniformBuffer, nullptr);
-	vkFreeMemory(device, uniformBufferMemory, nullptr);
-
-	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-
 	return returnData;
 }
 
@@ -878,4 +909,6 @@ void HeadlessRenderer::cleanupMeshData() {
 	vkFreeMemory(device, vertexMemory, nullptr);
 	vkDestroyBuffer(device, indexBuffer, nullptr);
 	vkFreeMemory(device, indexMemory, nullptr);
+
+	meshInitialized = false;
 }

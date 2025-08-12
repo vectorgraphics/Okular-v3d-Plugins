@@ -51,6 +51,7 @@ public:
 	VkPipeline pipeline;
 	std::vector<VkShaderModule> shaderModules;
 
+	bool meshInitialized{ false };
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexMemory;
 
@@ -75,6 +76,9 @@ public:
 	glm::ivec2 hostReadableDestinationImageSize{ 0, 0 };
 	bool hostReadableDestinationImageInitalized{ false };
 	void* hostReadableDestinationImageMapped;
+
+	glm::ivec2 currentTargetSize{ 0, 0 };
+	bool initialized{ false };
 
 	VkFramebuffer framebuffer;
 	FrameBufferAttachment colorAttachment, depthAttachment;

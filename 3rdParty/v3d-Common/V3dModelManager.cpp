@@ -118,8 +118,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
         m_HeadlessRenderer->copyMeshToGPU(mesh);
 
-        std::cout << "remesh" << std::endl;
-
         m_Models[pageNumber][modelIndex].remesh = false;
         m_Models[pageNumber][modelIndex].initialized = true;
     }
