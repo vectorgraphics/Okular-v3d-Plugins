@@ -72,9 +72,6 @@ public:
     std::vector<unsigned int> getIndices() override;
 
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
-    Mesh getMesh() override;
-
-    bool Offscreen() override;
 
     std::array<TRIPLE, 16> controlPoints;
     UINT centerIndex;
