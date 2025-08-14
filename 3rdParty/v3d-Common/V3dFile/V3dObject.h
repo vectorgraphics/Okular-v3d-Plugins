@@ -14,7 +14,7 @@ public:
     V3dObject(UINT objectType);
     virtual ~V3dObject() = default;
 
-    virtual void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic = false) { }
+    virtual void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic = false) { }
     virtual Mesh getMesh() {
         return Mesh{ getVertexData(), getIndices() };
     }
@@ -22,5 +22,9 @@ public:
     virtual std::vector<float> getVertexData() = 0;
     virtual std::vector<unsigned int> getIndices() = 0;
 
+    virtual bool Offscreen() { return false; };
+
     UINT objectType;
+
+    bool fullyOnscreen{ false };
 };

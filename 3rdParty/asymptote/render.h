@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 #include <array>
+#include <map>
 
 #include "glmCommon.h"
 #include "material.h"
@@ -19,10 +20,12 @@
 namespace camp
 {
 
+class Material;
+
 static const double pixelResolution=1.0; // Adaptive rendering constant.
 extern size_t materialIndex;
 
-typedef std::map<const Material, size_t> MaterialMap;
+typedef std::map<Material, size_t> MaterialMap;
 
 template<class T>
 inline void extendOffset(std::vector<T>& a, const std::vector<T>& b, T offset)

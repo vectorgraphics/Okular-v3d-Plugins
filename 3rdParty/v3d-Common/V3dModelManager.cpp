@@ -80,49 +80,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         return m_ModelImages[pageNumber][modelIndex];
     }
 
-    triple sceneMinBound = m_Models[pageNumber][modelIndex].viewParam.minValues;
-    triple sceneMaxBound = m_Models[pageNumber][modelIndex].viewParam.maxValues;
-
-    if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.gety()) {
-        sceneMinBound = m_Models[pageNumber][modelIndex].file->headerInfo.minBound;
-        sceneMaxBound = m_Models[pageNumber][modelIndex].file->headerInfo.maxBound;
-    }
-
-    if (m_Models[pageNumber][modelIndex].remesh) {
-        using namespace std;
-        using namespace camp;
-
-        if (m_Models[pageNumber][modelIndex].initialized) {
-            m_HeadlessRenderer->cleanupMeshData();
-
-            materialData.clear();
-        }
-
-        utils::stopWatch timer{ };
-
-        bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
-
-        for (auto& object : m_Models[pageNumber][modelIndex].file->objects) {
-            object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
-        }
-
-        Mesh mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
-
-        if (mesh.vertices.empty() || mesh.indices.empty()) {
-            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
-
-            image.fill(Qt::black);
-
-            return image;
-        }
-
-        m_HeadlessRenderer->copyMeshToGPU(mesh);
-
-        m_Models[pageNumber][modelIndex].remesh = false;
-        m_Models[pageNumber][modelIndex].initialized = true;
-    }
-
-    VkSubresourceLayout imageSubresourceLayout;
+    m_Models[pageNumber][modelIndex].remesh = true; // TODO
 
     // Projection
     glm::vec2 canvasSize = {
@@ -131,6 +89,60 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     };
 
     m_Models[pageNumber][modelIndex].setProjection(canvasSize);
+
+    triple sceneMinBound = m_Models[pageNumber][modelIndex].viewParam.minValues;
+    triple sceneMaxBound = m_Models[pageNumber][modelIndex].viewParam.maxValues;
+
+    if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.gety()) {
+        sceneMinBound = m_Models[pageNumber][modelIndex].file->headerInfo.minBound;
+        sceneMaxBound = m_Models[pageNumber][modelIndex].file->headerInfo.maxBound;
+    }
+
+    using namespace std;
+    using namespace camp;
+
+    if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
+        if (m_Models[pageNumber][modelIndex].initialized) {
+            m_HeadlessRenderer->cleanupMeshData();
+
+            materialData.clear();
+        }
+
+        bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
+
+        for (auto& object : m_Models[pageNumber][modelIndex].file->objects) {
+            object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic);
+        }
+    }
+
+    Mesh mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
+
+    if (mesh.vertices.empty() || mesh.indices.empty()) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+
+        image.fill(Qt::black);
+
+        return image;
+    }
+
+    if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
+        m_HeadlessRenderer->copyMeshToGPU(mesh);
+
+        m_Models[pageNumber][modelIndex].remesh = false;
+        m_ReQueueModels = false;
+    }
+
+    m_Models[pageNumber][modelIndex].initialized = true;
+
+    VkSubresourceLayout imageSubresourceLayout;
+
+    static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
+
+    projViewMat = verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix;
+
+    auto valPtr = glm::value_ptr(projViewMat);
+
+    normMat = glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix);
 
     unsigned char* imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, m_Models[pageNumber][modelIndex].viewMatrix, m_Models[pageNumber][modelIndex].projectionMatrix);
 
@@ -249,10 +261,12 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
         };
 
         model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, canvasSize);
+        m_ReQueueModels = true;
     } else if (!controlKey && shiftKey && !altKey) {
         model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     } else if (!controlKey && !shiftKey && altKey) {
         model.dragModePan(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
+        m_ReQueueModels = true;
     } else {
         model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     }

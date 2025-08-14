@@ -37,7 +37,7 @@ std::vector<unsigned int> V3dBezierPatch::getIndices() {
     return std::vector<unsigned int>{ };
 }
 
-void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic) {
+void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
         triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
@@ -64,6 +64,10 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     triple b=sceneMinBound;
     triple B=sceneMaxBound;
+
+    triple Min=b;
+    triple Max=B;
+
     double Zmax=B.getz();
 
     double perspective=orthographic ? 0.0 : 1.0/Zmax;
@@ -75,7 +79,22 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
+    // bool offscreen=bbox2(Min,Max).offscreen(); // TODO
+    //
+    // if(offscreen) { // Fully offscreen
+    //     fullyOnscreen = false;
+    //     vertexData.clear();
+    //     return;
+    // }
+    //
+    // if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+    //     materialData.extendMaterial(vertexData);
+    //     return;
+    // }
+
     S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
+    fullyOnscreen = true;
+    vertexData = S.data;
 }
 
 Mesh V3dBezierPatch::getMesh() {
@@ -93,6 +112,34 @@ Mesh V3dBezierPatch::getMesh() {
     }
 
     return Mesh{ vertices, materialData.indices };
+}
+
+bool V3dBezierPatch::Offscreen() {
+    triple Controls[] = {
+        triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
+        triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
+        triple(controlPoints[2].x, controlPoints[2].y, controlPoints[2].z),
+        triple(controlPoints[3].x, controlPoints[3].y, controlPoints[3].z),
+
+        triple(controlPoints[4].x, controlPoints[4].y, controlPoints[4].z),
+        triple(controlPoints[5].x, controlPoints[5].y, controlPoints[5].z),
+        triple(controlPoints[6].x, controlPoints[6].y, controlPoints[6].z),
+        triple(controlPoints[7].x, controlPoints[7].y, controlPoints[7].z),
+
+        triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
+        triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
+        triple(controlPoints[10].x, controlPoints[10].y, controlPoints[10].z),
+        triple(controlPoints[11].x, controlPoints[11].y, controlPoints[11].z),
+
+        triple(controlPoints[12].x, controlPoints[12].y, controlPoints[12].z),
+        triple(controlPoints[13].x, controlPoints[13].y, controlPoints[13].z),
+        triple(controlPoints[14].x, controlPoints[14].y, controlPoints[14].z),
+        triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
+    };
+
+    bbox2 box(16, Controls);
+
+    return box.offscreen();
 }
 
 V3dBezierTriangle::V3dBezierTriangle(

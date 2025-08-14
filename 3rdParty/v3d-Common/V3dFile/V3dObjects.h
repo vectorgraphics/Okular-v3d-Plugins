@@ -8,6 +8,9 @@
 #include "V3dObject.h"
 #include "xstream.h"
 
+#include "material.h"
+#include "render.h"
+
 enum ObjectTypes {
     MATERIAL = 1,
     TRANSFORM = 2,
@@ -68,8 +71,10 @@ public:
     std::vector<float> getVertexData() override; // TODO remove
     std::vector<unsigned int> getIndices() override;
 
-    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic) override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
     Mesh getMesh() override;
+
+    bool Offscreen() override;
 
     std::array<TRIPLE, 16> controlPoints;
     UINT centerIndex;
@@ -78,6 +83,8 @@ public:
 private:
     std::vector<float> m_Vertices{ };
     std::vector<unsigned int> m_Indices{ };
+
+    camp::VertexBuffer vertexData{ };
 };
 
 class V3dBezierTriangle : public V3dObject {
