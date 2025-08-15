@@ -394,63 +394,55 @@ V3dTriangleGroup::V3dTriangleGroup(
         xdrFile >> materialIndex;
     }
 
-// std::vector<float> V3dTriangleGroup::getVertexData() {
-//     std::vector<float> out;
-//
-//     std::vector<TRIPLE> vertices;
-//     vertices.resize(nP);
-//
-//     for(size_t i = 0; i < nI; ++i) {
-//         std::array<unsigned int, 3> PI = positionIndices[i];
-//         uint32_t PI0 = PI[0];
-//         uint32_t PI1 = PI[1];
-//         uint32_t PI2 = PI[2];
-//         TRIPLE P0 = vertexPositions[PI0];
-//         TRIPLE P1 = vertexPositions[PI1];
-//         TRIPLE P2 = vertexPositions[PI2];
-//
-//         vertices[PI0] = P0;
-//         vertices[PI1] = P1;
-//         vertices[PI2] = P2;
-//     }
-//
-//     for (size_t i = 0; i < vertices.size(); ++i) {
-//         out.push_back(vertices[i].x);
-//         out.push_back(vertices[i].y);
-//         out.push_back(vertices[i].z);
-//
-//         out.push_back(vertexNormalArray[i].x);
-//         out.push_back(vertexNormalArray[i].y);
-//         out.push_back(vertexNormalArray[i].z);
-//     }
-//
-//     return out;
-// }
-//
-// std::vector<unsigned int> V3dTriangleGroup::getIndices() {
-//     std::vector<unsigned int> out;
-//
-//     out.resize(nI * 3);
-//
-//     for(size_t i = 0; i < nI; ++i) {
-//         std::array<unsigned int, 3> PI = positionIndices[i];
-//
-//         uint32_t PI0 = PI[0];
-//         uint32_t PI1 = PI[1];
-//         uint32_t PI2 = PI[2];
-//
-//         size_t i3=3*i;
-//         out[i3 + 0] = PI0;
-//         out[i3 + 1] = PI1;
-//         out[i3 + 2] = PI2;
-//     }
-//
-//     return out;
-// }
-
 void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dTriangleGroup cannot queue" << std::endl;
-    return;
+    std::vector<MaterialVertex> matVertices;
+
+    std::vector<TRIPLE> vertices;
+    vertices.resize(nP);
+
+    for(size_t i = 0; i < nI; ++i) {
+        std::array<unsigned int, 3> PI = positionIndices[i];
+        uint32_t PI0 = PI[0];
+        uint32_t PI1 = PI[1];
+        uint32_t PI2 = PI[2];
+        TRIPLE P0 = vertexPositions[PI0];
+        TRIPLE P1 = vertexPositions[PI1];
+        TRIPLE P2 = vertexPositions[PI2];
+
+        vertices[PI0] = P0;
+        vertices[PI1] = P1;
+        vertices[PI2] = P2;
+    }
+
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        MaterialVertex matVert;
+        matVert.position = vertices[i];
+        matVert.normal = vertexNormalArray[i];
+
+        matVertices.push_back(matVert);
+    }
+
+    std::vector<unsigned int> outIndices;
+
+    outIndices.resize(nI * 3);
+
+    for(size_t i = 0; i < nI; ++i) {
+        std::array<unsigned int, 3> PI = positionIndices[i];
+
+        uint32_t PI0 = PI[0];
+        uint32_t PI1 = PI[1];
+        uint32_t PI2 = PI[2];
+
+        size_t i3=3*i;
+        outIndices[i3 + 0] = PI0;
+        outIndices[i3 + 1] = PI1;
+        outIndices[i3 + 2] = PI2;
+    }
+
+    VertexBuffer buffer;
+    buffer.materialVertices = matVertices;
+    buffer.indices = outIndices;
+    materialData.extendMaterial(buffer);
 }
 
 
