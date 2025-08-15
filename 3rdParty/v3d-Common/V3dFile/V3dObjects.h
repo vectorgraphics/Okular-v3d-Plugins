@@ -8,9 +8,6 @@
 #include "V3dObject.h"
 #include "xstream.h"
 
-#include "material.h"
-#include "render.h"
-
 enum ObjectTypes {
     MATERIAL = 1,
     TRANSFORM = 2,
@@ -68,9 +65,6 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dBezierPatch() override = default;
 
-    std::vector<float> getVertexData() override; // TODO remove
-    std::vector<unsigned int> getIndices() override;
-
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 16> controlPoints;
@@ -80,8 +74,6 @@ public:
 private:
     std::vector<float> m_Vertices{ };
     std::vector<unsigned int> m_Indices{ };
-
-    camp::VertexBuffer vertexData{ };
 };
 
 class V3dBezierTriangle : public V3dObject {
@@ -91,8 +83,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dBezierTriangle() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 10> controlPoints;
     UINT centerIndex;
@@ -106,8 +97,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dBezierPatchWithCornerColors() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 16> controlPoints;
     UINT centerIndex;
@@ -122,8 +112,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dBezierTriangleWithCornerColors() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 10> controlPoints;
     UINT centerIndex;
@@ -138,8 +127,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dStraightPlanarQuad() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 4> vertices;
     UINT centerIndex;
@@ -153,8 +141,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dStraightTriangle() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 3> vertices;
     UINT centerIndex;
@@ -168,8 +155,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dStraightPlanarQuadWithCornerColors() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 4> vertices;
     UINT centerIndex;
@@ -184,8 +170,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dStraightTriangleWithCornerColors() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 3> vertices;
     UINT centerIndex;
@@ -200,8 +185,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dTriangleGroup() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     UINT nI;
     UINT nP;
@@ -228,8 +212,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dSphere() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     TRIPLE center;
     REAL radius;
@@ -244,8 +227,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dHemiSphere() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     TRIPLE center;
     REAL radius;
@@ -262,8 +244,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dDisk() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     TRIPLE center;
     REAL radius;
@@ -280,8 +261,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dCylinder() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     TRIPLE center;
     REAL radius;
@@ -299,8 +279,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dTube() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 4> controlPoints;
     REAL width;
@@ -316,8 +295,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dBezierCurve() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 4> controlPoints;
     UINT centerIndex;
@@ -331,8 +309,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dLineSegment() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     std::array<TRIPLE, 2> endpoints;
     UINT centerIndex;
@@ -346,8 +323,7 @@ public:
         V3D_BOOL doublePrecision);
     ~V3dPixel() override = default;
 
-    std::vector<float> getVertexData() override;
-    std::vector<unsigned int> getIndices() override;
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     TRIPLE position;
     UINT centerIndex;

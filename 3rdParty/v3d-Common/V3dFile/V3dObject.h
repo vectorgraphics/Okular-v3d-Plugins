@@ -7,6 +7,9 @@
 
 #include "triple.h"
 
+#include "material.h"
+#include "render.h"
+
 using namespace camp;
 
 class V3dObject {
@@ -16,10 +19,10 @@ public:
 
     virtual void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic = false) { }
 
-    virtual std::vector<float> getVertexData() = 0;
-    virtual std::vector<unsigned int> getIndices() = 0;
-
     UINT objectType;
 
     bool fullyOnscreen{ false };
+
+protected:
+    camp::VertexBuffer vertexData{ };
 };
