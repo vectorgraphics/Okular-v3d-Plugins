@@ -38,7 +38,7 @@ namespace camp
 {
 class picture;
 
-// Comment out when not debugging:
+// For debugging:
 #if defined(ENABLE_VK_VALIDATION)
 #define VALIDATION
 #endif
@@ -107,7 +107,7 @@ struct SwapChainDetails {
 
   vk::SurfaceFormatKHR chooseSurfaceFormat() const;
   vk::PresentModeKHR choosePresentMode() const;
-  vk::Extent2D chooseExtent() const;
+  vk::Extent2D chooseExtent(size_t width, size_t height) const;
   std::uint32_t chooseImageCount() const;
 };
 #endif
@@ -248,7 +248,7 @@ public:
   bool ibl=false;
   bool offscreen=false;
   bool vkexit=false;
-  bool hidden=false;
+  bool hideWindow=false;
 
   bool vkthread=false;;
   bool initialize=true;
@@ -296,7 +296,7 @@ public:
   std::vector<Material> materials;
   MaterialMap materialMap;
 
-  unsigned int Opaque=0;
+  bool Opaque;
   std::uint32_t pixels;
   bool orthographic;
 
@@ -339,7 +339,9 @@ public:
   void clearCenters();
   void clearMaterials();
 
-  bool redraw=true;
+  bool redraw=false;
+  bool redisplay=false;
+  bool resize=false;
 private:
 #ifdef HAVE_VULKAN
   struct DeviceBuffer {
@@ -372,7 +374,6 @@ private:
   int screenWidth, screenHeight;
   int width, height;
   int oldWidth,oldHeight;
-  bool firstFit=true;
   double Aspect;
   double oWidth, oHeight;
   double lastZoom;
@@ -395,7 +396,6 @@ private:
   bool ViewExport;
   bool antialias = false;
   bool readyAfterExport=false;
-  bool exporting=false;
 
   bool remesh=true;
   bool interlock=false;
@@ -418,6 +418,7 @@ private:
   std::uint32_t maxFragments;
   std::uint32_t maxSize=1;
   bool resetDepth=false;
+  bool vkinitialize=true;
 
   size_t nmaterials=1; // Number of materials currently allocated in memory
 
@@ -660,7 +661,6 @@ private:
 #pragma endregion
 
     void reset() {
-
         materialVertexBuffer.reset();
         colorVertexBuffer.reset();
         triangleVertexBuffer.reset();
@@ -678,7 +678,7 @@ private:
 #endif
 
   void setDimensions(int Width, int Height, double X, double Y);
-  void updateViewmodelData();
+  void updateModelViewData();
   void setProjection();
   void update();
 
@@ -876,6 +876,7 @@ private:
   void drawColors(FrameObject & object);
   void drawTriangles(FrameObject & object);
   void drawTransparent(FrameObject & object);
+  void clearData();
   void partialSums(FrameObject & object, bool timing=false, bool bindDescriptors=false);
   void resizeBlendShader(std::uint32_t maxDepth);
   void resizeFragmentBuffer(FrameObject & object);
@@ -890,6 +891,8 @@ private:
 #endif
 
   void nextFrame();
+  void clearBuffers();
+  void render();
   void display();
   void mainLoop();
   void cleanup();
@@ -906,6 +909,8 @@ private:
   bool waitEvent=true;
   bool initialized=false;
   bool havewindow=false;
+  bool format3dWait=false;
+
   void quit();
 
   double spinStep();

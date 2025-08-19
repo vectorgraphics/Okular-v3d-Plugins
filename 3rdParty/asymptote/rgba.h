@@ -1,6 +1,10 @@
 #pragma once
 #include "xstream.h"
 
+#ifdef HAVE_LIBTIRPC
+#include "xstream.h"
+#endif
+
 namespace prc {
 
 struct RGBAColour

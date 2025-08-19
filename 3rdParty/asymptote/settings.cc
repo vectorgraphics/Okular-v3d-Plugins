@@ -1343,7 +1343,9 @@ void initSettings() {
   addOption(new boolSetting("srgb", 0,
                             "Output 3d renderer in sRGB space", false));
   addOption(new boolSetting("offscreen", 0,
-                            "Use offscreen rendering",false));
+                            "Use offscreen rendering", false));
+  addOption(new IntSetting("device", 0, "n",
+                           "Set Vulkan device", -1));
   addOption(new boolSetting("twosided", 0,
                             "Use two-sided 3D lighting model for rendering",
                             true));
@@ -1532,6 +1534,8 @@ void initSettings() {
 
   addOption(new realSetting("zoomfactor", 0, "factor", "Zoom step factor",
                             1.05));
+  addOption(new realSetting("zoomThreshold", 0, "threshold",
+                            "Zoom remesh threshold", 0.02));
   addOption(new realSetting("zoomPinchFactor", 0, "n",
                             "WebGL zoom pinch sensitivity", 10));
   addOption(new realSetting("zoomPinchCap", 0, "limit",
