@@ -78,7 +78,7 @@ Instead of being an entire standalone plugin, the pdf plugin is a modification t
 
 Start by copying the existing poppler plugin source code folder (located in `build/version/okular/generators/`) into a new folder named `pdf`.
 
-Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(odf)` amongst the other `add_subdirectory` function calls.
+Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(pdf)` amongst the other `add_subdirectory` function calls.
 
 Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise cmake will complain about building two libraries with the same name.
 
