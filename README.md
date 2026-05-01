@@ -24,6 +24,8 @@ In order to build the plugins for all supported versions of Okular, navigate to 
 
 If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
 
+This command can be used to create a distrobox based on the latest version of fedora with all of the needed packages to build to plugins.
+
 `distrobox create --name fedoraLatest --init --image fedora:latest --additional-packages "cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel"`
 
 ## Creating Releases
