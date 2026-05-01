@@ -18,6 +18,7 @@
 
 #include "rgba.h"
 #include "bezierpatch.h"
+#include "renderBase.h"
 
 bool fileExists(const std::string& path) {
     std::ifstream f{ path.c_str() };
@@ -138,11 +139,11 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
 
-    projViewMat = verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix;
+    gl->projViewMat = glm::dmat4{ verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix };
 
-    auto valPtr = glm::value_ptr(projViewMat);
+    auto valPtr = glm::value_ptr(gl->projViewMat);
 
-    normMat = glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix);
+    gl->normMat = glm::dmat4{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
 
     unsigned char* imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, m_Models[pageNumber][modelIndex].viewMatrix, m_Models[pageNumber][modelIndex].projectionMatrix);
 
