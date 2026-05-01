@@ -1,7 +1,0 @@
----
-BasedOnStyle: Google
-Language: JavaScript
-LineEnding: LF
-SpaceBeforeAssignmentOperators: false
-SpaceBeforeCaseColon: false
-ColumnLimit: 88
