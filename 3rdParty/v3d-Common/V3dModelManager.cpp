@@ -102,6 +102,14 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     using namespace std;
     using namespace camp;
 
+    static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
+
+    projViewMat = glm::dmat4{ verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix };
+
+    auto valPtr = glm::value_ptr(projViewMat);
+
+    normMat = glm::dmat4{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
+
     if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
         if (m_Models[pageNumber][modelIndex].initialized) {
             m_HeadlessRenderer->cleanupMeshData();
@@ -136,14 +144,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     m_Models[pageNumber][modelIndex].initialized = true;
 
     VkSubresourceLayout imageSubresourceLayout;
-
-    static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
-
-    gl->projViewMat = glm::dmat4{ verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix };
-
-    auto valPtr = glm::value_ptr(gl->projViewMat);
-
-    gl->normMat = glm::dmat4{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
 
     unsigned char* imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, m_Models[pageNumber][modelIndex].viewMatrix, m_Models[pageNumber][modelIndex].projectionMatrix);
 
