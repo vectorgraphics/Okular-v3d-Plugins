@@ -3,7 +3,7 @@
 # this file.
 
 AC_PREREQ([2.71])
-AC_INIT([Asymptote],[3.06git],[https://github.com/vectorgraphics/asymptote/issues])
+AC_INIT([Asymptote],[3.11git],[https://github.com/vectorgraphics/asymptote/issues])
 VERSION=$PACKAGE_VERSION
 AC_SUBST(VERSION)
 m4_include([ax_pthread.m4])
@@ -183,7 +183,7 @@ AC_DEFUN([DEFINE_LIB],[
 Define to 1 if you have the `$1` library (-l$1).
 ])
 
-ASYGLVERSION=1.02
+ASYGLVERSION=1.03
 
 DEFS=""
 OPTIONS=$OPTIONS"-D_FILE_OFFSET_BITS=64 "
@@ -244,7 +244,7 @@ AC_ARG_WITH(vcpkg-target-triplet,
 if test "x$with_vcpkg" != "xno"; then
    VCPKG_INSTALL_ARGUMENTS="--triplet=$vcpkg_triplet "
    VCPKG_PKG_CONFIG_LOC="vcpkg_installed/$vcpkg_triplet/lib/pkgconfig"
-   INCL=$INCL"-Ivcpkg_installed/$vcpkg_triplet/include "
+   INCL=$INCL" -Ivcpkg_installed/$vcpkg_triplet/include"
    LIBS=$LIBS"-Lvcpkg_installed/$vcpkg_triplet/lib "
 
    VCPKG_LIBS_TO_USE_PKG_CONFIG=""
@@ -327,11 +327,8 @@ AC_SUBST(LSP_ROOT)
 LSPLIBS=
 LSPLIB=
 if test "x$enable_lsp" != "xno" -a "x$enable_threads" != "xno"; then
-  AC_CHECK_LIB([boost_filesystem],[opendir],
-  [AC_CHECK_LIB([boost_thread],[pthread_attr_getdetachstate],
-  [
    LSPLIB=$LSP_ROOT/liblspcpp.a
-   LSPLIBS=$LSPLIBS" -L$LSP_ROOT -L$LSP_ROOT/third_party/uri/src -llspcpp -lnetwork-uri -lboost_filesystem -lboost_thread"
+   LSPLIBS=$LSPLIBS" -L$LSP_ROOT -L$LSP_ROOT/third_party/uri/src -llspcpp -lnetwork-uri"
    LSP_CMAKE_OPTIONS="-DLSPCPP_USE_CPP17=ON "
 
    if test "x$enable_gc" != "xno"; then
@@ -354,9 +351,7 @@ if test "x$enable_lsp" != "xno" -a "x$enable_threads" != "xno"; then
       LSP_CXX_BUILD_FLAGS=$LSP_BUILD_FLAGS"-I$RELATIVE_LSP_VCPKG_ROOT/include -L$RELATIVE_LSP_VCPKG_ROOT/lib "
       LSP_CMAKE_OPTIONS=$LSP_CMAKE_OPTIONS"-DUSE_SYSTEM_RAPIDJSON=True -DCMAKE_PREFIX_PATH=\"$RELATIVE_LSP_VCPKG_ROOT\" "
    fi
-   ENABLE_LSP_MACRO],
-   AC_MSG_NOTICE([*** Could not find libboost_thread: will compile without optional Language Server Protocol. ***]))],
-   AC_MSG_NOTICE([*** Could not find libboost_filesystem: will compile without optional Language Server Protocol. ***]))
+   ENABLE_LSP_MACRO
 fi
 
 AC_ARG_ENABLE(readline,
@@ -421,7 +416,7 @@ AC_DEFUN([CHECK_LIB_STATIC],[
 if test "x$enable_readline" != "xno"; then
 if test "x$with_vcpkg" != "xno"; then  # vcpkg
    ADD_VCPKG_FEATURE(readline)
-   AC_DEFINE(HAVE_NCURSES_CURSES_H)
+   AC_DEFINE(HAVE_NCURSESW_CURSES_H)
    AC_DEFINE(HAVE_LIBCURSES)
    AC_DEFINE(HAVE_LIBREADLINE)
    ADD_VCPKG_LIB_FOR_PKGCONFIG(readline)
@@ -452,7 +447,7 @@ else  # managed by the system
    CHECK_LIB_STATIC(tinfo,tinfo,tgetent,HAVE_LIBTINFO,AC_MSG_NOTICE([perhaps tgetent is in -lncurses]))
 
    PKG_CONFIG(CPPFLAGS,$CPPFLAGS,--cflags,ncurses)
-   AC_CHECK_HEADERS([ncurses/curses.h ncurses.h curses.h],[break])
+   AC_CHECK_HEADERS([ncursesw/curses.h ncurses/curses.h ncurses.h curses.h],[break])
    CHECK_LIB_STATIC(ncurses,ncurses,setupterm,HAVE_LIBCURSES,
                      AC_CHECK_LIB(curses,setupterm))
 fi
@@ -573,7 +568,6 @@ if test "x$with_vcpkg" != "xno"; then  # vcpkg
    ADD_VCPKG_LIB_FOR_PKGCONFIG(gsl)
 else
   PKG_CONFIG(CPPFLAGS,$CPPFLAGS,--cflags,gsl)
-  PKG_CONFIG(LDFLAGS,$LDFLAGS,--libs,gsl)
   AC_CHECK_HEADER(gsl/gsl_sf.h,
   CHECK_LIB_STATIC(gsl,gsl,gsl_sf_debye_6,HAVE_LIBGSL,
            AC_MSG_NOTICE([*** Could not find libgsl: will compile without optional special functions. ***])),
@@ -593,38 +587,56 @@ else
          HAVE_LIBGLM,1,
          DEFINE([the <glm/glm.hpp> header]))
       ],
-      AC_MSG_NOTICE([*** Could not find glm header files: will compile without WebGL or Vulkan support ***])
+      AC_MSG_NOTICE([*** Could not find glm header files: will compile without WebGL or OpenGL/Vulkan support ***])
    )
 fi
 
-# ----------- tinyexr
 TINYEXR_ROOT=tinyexr
-INCL=$INCL"-I$TINYEXR_ROOT "
+INCL=$INCL" -I$TINYEXR_ROOT"
 AC_SUBST(TINYEXR_ROOT)
 
-# ----------- vulkan
+# ------------------- GLFW -----------------
+
+if test "x$enable_vulkan" != "xno" -o "x$enable_gl" != "xno"; then
+if test "x$with_vcpkg" != "xno"; then
+   # Don't use pkg-config for glfw3; its .pc file may include vulkan as a dependency,
+   # but we load the Vulkan renderer dynamically at runtime via dlopen.
+   AC_DEFINE(HAVE_LIBGLFW,1,DEFINE_LIB([GLFW]))
+   LIBS=$LIBS"-lglfw "
+   case "$OSTYPE" in
+        darwin*) ;;
+        *) LIBS=$LIBS"-ldl " ;;
+   esac
+else
+   AC_CHECK_LIB([glfw], [glfwShowWindow],
+                [AC_DEFINE(HAVE_LIBGLFW,1,DEFINE_LIB([GLFW]))
+                 LIBS=$LIBS"-lglfw "],
+                AC_MSG_NOTICE([*** Could not find libglfw: will compile without Vulkan or OpenGL support ***]))
+fi
+fi
+
+# ------------------- Vulkan -----------------
+
 AC_ARG_ENABLE(vulkan,
 [AS_HELP_STRING(--enable-vulkan[[[=yes]]],enable Vulkan Library)])
 
 VMA_REPO_ROOT=VulkanMemoryAllocator
 VMA_IMPL_FILES=""
 if test "x$enable_vulkan" != "xno"; then
-INCL="-I$VMA_REPO_ROOT/include "$INCL"-Ithirdparty_impl/vk-mem-allocator_impl/include "
+INCL=" -I$VMA_REPO_ROOT/include "$INCL" -Ithirdparty_impl/vk-mem-allocator_impl/include "
 VMA_IMPL_FILES=$VMA_IMPL_FILES" vma_cxx vma_impl"
 
+ASY_VULKAN_LIBS=""
 if test "x$with_vcpkg" != "xno"; then  # managed by vcpkg
    ADD_VCPKG_FEATURE(vulkan)
    AC_DEFINE(HAVE_LIBVULKAN,1,[Vulkan is enabled])
-   ADD_VCPKG_LIB_FOR_PKGCONFIG(glfw3)
-   LIBS=$LIBS"-lvulkan -lMachineIndependent -lOSDependent -lGenericCodeGen -lSPIRV -lglslang "
+   ASY_VULKAN_LIBS="-lvulkan -lMachineIndependent -lOSDependent -lGenericCodeGen -lSPIRV -lglslang"
 else  # managed by the system
    AC_CHECK_HEADERS([ncurses/curses.h ncurses.h curses.h],[break])
 
 case "$OSTYPE" in
      *)
-         AC_CHECK_LIB([gccpp],[GC_throw_bad_alloc])
-          AC_CHECK_LIB([glfw], [glfwShowWindow],
-          [
+          AC_CHECK_LIB([gccpp],[GC_throw_bad_alloc])
           AC_CHECK_LIB([vulkan], [vkCreateInstance],
           [
           LIBS_SAVE=$LIBS
@@ -636,24 +648,25 @@ case "$OSTYPE" in
                  VULKAN_LIBS="-lMachineIndependent -lOSDependent -lGenericCodeGen "
                ;;
           esac
-          LIBS=$LIBS"-lglfw -lvulkan "$VULKAN_LIBS"-lSPIRV "
+          ASY_VULKAN_LIBS="-lvulkan $VULKAN_LIBS-lSPIRV"
           AC_CHECK_LIB([glslang],[glslang_initialize_process],
           [
           AC_DEFINE(HAVE_LIBVULKAN,1,
           DEFINE_LIB([vulkan]))
-          LIBS=$LIBS"-lglslang -lSPIRV-Tools-opt -lSPIRV-Tools "
+          ASY_VULKAN_LIBS="$ASY_VULKAN_LIBS -lglslang -lSPIRV-Tools-opt -lSPIRV-Tools"
           ],
 
           [
-          LIBS=$LIBS"-lOGLCompiler "
+          ASY_VULKAN_LIBS="$ASY_VULKAN_LIBS -lOGLCompiler"
           AC_CHECK_LIB([glslang],[glslang_finalize_process],
           [
           AC_DEFINE(HAVE_LIBVULKAN,1,
           DEFINE_LIB([vulkan]))
-          LIBS=$LIBS"-lglslang "
+          ASY_VULKAN_LIBS="$ASY_VULKAN_LIBS -lglslang"
           ],
           [
           AC_MSG_NOTICE([*** Could not find libglslang: will compile without Vulkan support ***])
+          ASY_VULKAN_LIBS=""
           LIBS=$LIBS_SAVE
           ]
           )
@@ -661,12 +674,84 @@ case "$OSTYPE" in
           )
           ],
           AC_MSG_NOTICE([*** Could not find libvulkan: will compile without Vulkan support ***]))
-          ],
-          AC_MSG_NOTICE([*** Could not find libglfw: will compile without Vulkan support ***]))
 esac
 fi
 fi
 
+# ------------------- OpenGL (fallback) -----------------
+
+AC_ARG_ENABLE(gl,
+[AS_HELP_STRING(--enable-gl[[[=yes]]],enable OpenGL Library)])
+
+if test "x$with_vcpkg" != "xno"; then
+   AC_DEFINE(HAVE_SSBO,1)  # SSBO/Compute shader check should be done at runtime, not at compilation
+   AC_DEFINE(HAVE_COMPUTE_SHADER,1)
+else
+   AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+      [#include <GL/gl.h>]
+      [#if !defined(GL_VERSION_4_3) && !defined(GL_ARB_shader_storage_buffer_object)]
+      [#error]
+      [#endif ]
+      )],
+      AC_DEFINE(HAVE_SSBO,1,DEFINE([GLSL shader storage buffer objects])))
+
+   AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+      [#include <GL/gl.h>]
+      [#if !defined(GL_VERSION_4_3) && !defined(GL_ARB_compute_shader)]
+      [#error]
+      [#endif ]
+      )],
+      AC_DEFINE(HAVE_COMPUTE_SHADER,1,DEFINE([GLSL compute shaders])))
+fi
+
+# -------------- offscreen rendering
+
+AC_ARG_ENABLE(offscreen,
+[AS_HELP_STRING(--enable-offscreen[[[=no]]],use OSMesa library to implement offscreen rendering)])
+
+ASY_GL_LIBS=""
+
+if test "x$enable_gl" != "xno"; then
+if test "x$with_vcpkg" != "xno"; then  # managed by vcpkg
+   ADD_VCPKG_FEATURE(opengl)
+   AC_DEFINE(HAVE_LIBGL,1,[libgl is enabled])
+   INCL=$INCL" -Ibackports/glew/include"
+   GLEW="glew.o "
+   ASY_GL_LIBS="-lGL "
+else  # managed by the system
+   AC_CHECK_HEADERS([ncurses/curses.h ncurses.h curses.h],[break])
+
+case "$OSTYPE" in
+     darwin*)
+              AC_CHECK_LIB([gccpp],[GC_throw_bad_alloc])
+              AC_CHECK_HEADER(OpenGL/gl.h,
+                             [AC_DEFINE(HAVE_LIBGL,1,
+                             DEFINE([<gl.h> header]))
+                              ASY_GL_LIBS="-framework OpenGL -framework Cocoa "
+                              INCL=$INCL" -Ibackports/glew/include"
+                              GLEW="glew.o "],
+                                 AC_MSG_NOTICE([*** Could not find OpenGL: will compile without OpenGL support ***]))
+        ;;
+     *)
+         # Use AC_LINK_IFELSE instead of AC_CHECK_LIB to avoid adding -lGL to LIBS.
+         # The OpenGL library will only be linked into libasyopengl.so, not the main binary.
+         LIBS_SAVE=$LIBS
+         LIBS="$LIBS -lGL"
+         AC_LINK_IFELSE([AC_LANG_CALL([], [glDepthMask])],
+                                 [AC_DEFINE(HAVE_LIBGL,1,
+                             DEFINE_LIB([GL]))
+                             ASY_GL_LIBS="-lGL "
+                             GLEW="glew.o "
+                             INCL=$INCL" -Ibackports/glew/include"],
+                                   AC_MSG_NOTICE([*** Could not find libGL: will compile without OpenGL support ***]))
+         LIBS=$LIBS_SAVE
+esac
+   if test "x$enable_offscreen" = "xyes"; then
+           AC_CHECK_LIB([OSMesa],OSMesaCreateContext,,
+                        AC_MSG_NOTICE([*** Could not find libOSMesa: will compile without offscreen rendering support ***]))
+   fi
+fi
+fi
 
 # ------------------- VCPKG INSTALL
 
@@ -676,7 +761,7 @@ $vcpkg_exec install $VCPKG_INSTALL_ARGUMENTS
 
 LIBS=$LIBS"$(PKG_CONFIG_PATH=$VCPKG_PKG_CONFIG_LOC pkg-config --libs $VCPKG_LIBS_TO_USE_PKG_CONFIG) "
 CFLAGS=$CFLAGS" $(PKG_CONFIG_PATH=$VCPKG_PKG_CONFIG_LOC pkg-config --cflags-only-other $VCPKG_LIBS_TO_USE_PKG_CONFIG)"
-INCL=$INCL"$(PKG_CONFIG_PATH=$VCPKG_PKG_CONFIG_LOC pkg-config --cflags-only-I $VCPKG_LIBS_TO_USE_PKG_CONFIG) "
+INCL=$INCL" $(PKG_CONFIG_PATH=$VCPKG_PKG_CONFIG_LOC pkg-config --cflags-only-I $VCPKG_LIBS_TO_USE_PKG_CONFIG)"
 fi
 
 # ----------------- xdr ------------------------
@@ -706,7 +791,6 @@ fi
 CPPFLAGS=$CPPFLAGS" $INCL"
 CXX_STANDARD=$cxxstd
 
-AC_SUBST(getopt)
 AC_SUBST(ASYGLVERSION)
 AC_SUBST(GCOPTIONS)
 AC_SUBST(GCLIB)
@@ -719,6 +803,9 @@ AC_SUBST(DEFS)
 AC_SUBST(OPTIONS)
 AC_SUBST(GLEW)
 AC_SUBST(VMA_IMPL_FILES)
+AC_SUBST(ASY_VULKAN_LIBS)
+AC_SUBST(ASY_GL_LIBS)
+
 # we are on C++ >= 11, so unordered map is a guarantee
 AC_DEFINE(HAVE_UNORDERED_MAP,1,[Unordered map is present])
 

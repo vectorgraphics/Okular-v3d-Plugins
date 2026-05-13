@@ -5,8 +5,8 @@
  */
 
 #pragma once
+#include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
-#include <stdexcept>
 
 namespace vma
 {
@@ -59,6 +59,13 @@ public:
   {
     return reinterpret_cast<T*>(copyPtr);
   }
+
+  // Invalidate the mapped memory to ensure we get the latest data from GPU
+  void invalidate() const
+  {
+    vmaInvalidateAllocation(sourceBuffer->getAllocator(), sourceBuffer->getAllocation(), 0, VK_WHOLE_SIZE);
+  }
+
 private:
   UniqueBuffer const* sourceBuffer;
   void* copyPtr=nullptr;
@@ -77,7 +84,7 @@ public:
 
   UniqueImage(UniqueImage&& other) noexcept;
   UniqueImage& operator=(UniqueImage&& other) noexcept;
-  
+
   [[nodiscard]]
   VkImage getImage() const;
 
@@ -107,7 +114,7 @@ public:
   VmaAllocator getAllocator() const;
 
   [[nodiscard]]
-  UniqueBuffer createBuffer(VkBufferCreateInfo const& bufferCreateInfo, VmaAllocationCreateInfo const& allocInfo);
+  UniqueBuffer createBuffer(VkBufferCreateInfo const& bufferCreateInfo, VmaAllocationCreateInfo const& allocInfo, VkDeviceSize alignment = 16);
 
   [[nodiscard]]
   UniqueImage createImage(VkImageCreateInfo const& imgCreateInfo, VmaAllocationCreateInfo const& allocInfo);

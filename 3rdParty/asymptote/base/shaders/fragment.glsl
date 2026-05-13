@@ -69,21 +69,32 @@ layout(binding=9, std430) buffer indexBuffer
 #define INDEX(pixel) pixel
 #endif
 
-layout(location = 0) in vec3 position;
+#ifdef COLOR
+layout(location = 3) in vec4 inColor;
+#endif
+
+#ifdef NORMAL
 layout(location = 1) in vec3 viewPosition;
 layout(location = 2) in vec3 norm;
-layout(location = 3) in vec4 inColor;
+#endif
+
+layout(location = 0) in vec3 position;
+
 layout(location = 4) flat in int materialIndex;
 
 layout(push_constant) uniform PushConstants
 {
-	uvec4 constants;
-  vec4 background;
+  uvec4 constants;
   // constants[0] = nlights
   // constants[1] = width;
+  vec4 background;
 } push;
 
+#ifdef TRANSPARENT
+vec4 outColor;
+#else
 layout(location = 0) out vec4 outColor;
+#endif
 
 vec3 Emissive;
 vec3 Diffuse;
@@ -299,9 +310,9 @@ void main() {
   outColor=linearColor;
 #endif
 
-#ifndef WIDTH // TODO DO NOT DO THE DEPTH COMPARISON WHEN NO TRANSPARENT OBJECTS!
-  uint pixel=uint(gl_FragCoord.y)*push.constants[1]+uint(gl_FragCoord.x);
+#ifndef WIDTH
 #if defined(TRANSPARENT) || (!defined(HAVE_INTERLOCK) && !defined(OPAQUE))
+  uint pixel=uint(gl_FragCoord.y)*push.constants[1]+uint(gl_FragCoord.x);
   uint element=INDEX(pixel);
   uint listIndex=atomicAdd(offset[element],-1u)-1u;
   fragment[listIndex]=linearColor;
@@ -311,6 +322,7 @@ void main() {
 #endif /*WIREFRAME*/
 #else
 #if defined(HAVE_INTERLOCK) && !defined(OPAQUE)
+  uint pixel=uint(gl_FragCoord.y)*push.constants[1]+uint(gl_FragCoord.x);
   beginInvocationInterlockARB();
   if(opaqueDepth[pixel] == 0.0 || gl_FragCoord.z < opaqueDepth[pixel])
     {

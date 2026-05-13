@@ -15,7 +15,7 @@
 #include <cmath>
 #include <cstring>
 
-#include <glm/glm.hpp>
+#include "glmCommon.h"
 
 #include "common.h"
 #include "angle.h"
@@ -274,12 +274,14 @@ public:
     return angle(x,y,warn);
   }
 
-  friend triple unit(const triple& v)
+  friend triple unit(const triple& v, const triple& v0)
   {
     double scale=v.length();
-    if(scale == 0.0) return v;
-    scale=1.0/scale;
-    return triple(v.x*scale,v.y*scale,v.z*scale);
+    if(std::fpclassify(scale) == FP_NORMAL) {
+      scale=1.0/scale;
+      return triple(v.x*scale,v.y*scale,v.z*scale);
+    } else
+      return v0;
   }
 
   friend double dot(const triple& u, const triple& v)
@@ -348,6 +350,9 @@ public:
 #endif
 
 };
+
+// Default-argument wrapper for MSVC ADL compatibility.
+inline triple unit(const triple& v, const triple& v0 = triple(0.0, 0.0, 0.0));
 
 triple expi(double theta, double phi);
 

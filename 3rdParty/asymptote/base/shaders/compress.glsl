@@ -1,4 +1,3 @@
-
 layout(binding=3, std430) buffer countBuffer
 {
   uint maxSize;
@@ -17,8 +16,10 @@ layout(binding=10, std430) buffer elementBuffer
 
 layout(push_constant) uniform PushConstants
 {
-	uvec4 constants;
-  // constants[1] = width
+  uvec4 constants;
+  // constants[0] = nlights
+  // constants[1] = width;
+  vec4 background;
 } push;
 
 void main()

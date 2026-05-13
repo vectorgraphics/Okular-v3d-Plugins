@@ -21,6 +21,7 @@
 #include <vma_cxx.h>
 
 #include <glslang/Public/ShaderLang.h>
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #endif
 
@@ -29,71 +30,16 @@
 #include "triple.h"
 #include "seconds.h"
 #include "statistics.h"
-#include "ThreadSafeQueue.h"
-#include "vkRenderMessages.h"
 
 #include "render.h"
+#include "renderBase.h"
+#include "glfw.h"
 
 namespace camp
 {
 class picture;
 
-// For debugging:
-#if defined(ENABLE_VK_VALIDATION)
-#define VALIDATION
-#endif
-
-#define EMPTY_VIEW 0, nullptr
-#define SINGLETON_VIEW(x) 1, &(x)
-#define VEC_VIEW(x) static_cast<uint32_t>((x).size()), (x).data()
-#define STD_ARR_VIEW(x) static_cast<uint32_t>((x).size()), (x).data()
-#define ARR_VIEW(x) static_cast<uint32_t>(sizeof(x) / sizeof((x)[0])), x
-#define RAW_VIEW(x) static_cast<uint32_t>(sizeof(x)), x
-#define ST_VIEW(s) static_cast<uint32_t>(sizeof(s)), &s
-
-template<class T>
-inline T ceilquotient(T a, T b)
-{
-  return (a + b - 1) / b;
-}
-
-inline void store(float* f, double* C)
-{
-  f[0] = C[0];
-  f[1] = C[1];
-  f[2] = C[2];
-}
-
-inline void store(float* control, const triple& v)
-{
-  control[0] = v.getx();
-  control[1] = v.gety();
-  control[2] = v.getz();
-}
-
-inline void store(float* control, const triple& v, double weight)
-{
-  control[0] = v.getx() * weight;
-  control[1] = v.gety() * weight;
-  control[2] = v.getz() * weight;
-  control[3] = weight;
-}
-
 std::vector<char> readFile(const std::string& filename);
-
-enum DrawMode: int
-{
-   DRAWMODE_NORMAL,
-   DRAWMODE_OUTLINE,
-   DRAWMODE_WIREFRAME,
-   DRAWMODE_MAX
-};
-
-struct Light
-{
-  glm::vec4 direction;
-  glm::vec4 color;
-};
 
 #ifdef HAVE_VULKAN
 struct SwapChainDetails {
@@ -112,6 +58,7 @@ struct SwapChainDetails {
 };
 #endif
 
+#ifdef HAVE_VULKAN
 struct QueueFamilyIndices {
   uint32_t transferQueueFamily;
   uint32_t renderQueueFamily;
@@ -123,9 +70,10 @@ struct QueueFamilyIndices {
 };
 
 struct UniformBufferObject {
-  glm::mat4 projViewMat { };
-  glm::mat4 viewMat { };
-  glm::mat4 normMat { };
+  glm::mat4 projViewMat;
+  glm::mat4 viewMat;
+  // GLSL mat3 in std140 = 3 columns of vec4 (48 bytes)
+  glm::vec4 normMat[3];
 };
 
 struct PushConstants
@@ -137,278 +85,97 @@ struct PushConstants
     // constants[1] = width
 };
 
-struct Arcball {
-  double angle;
-  triple axis;
-
-  Arcball(double x0, double y0, double x, double y)
-  {
-    triple v0 = norm(x0, y0);
-    triple v1 = norm(x, y);
-    double Dot = dot(v0, v1);
-    angle = Dot > 1.0 ? 0.0 : Dot < -1.0 ? M_PI
-                                         : acos(Dot);
-    axis = unit(cross(v0, v1));
-  }
-
-  triple norm(double x, double y)
-  {
-    double norm = hypot(x, y);
-    if (norm > 1.0) {
-      double denom = 1.0 / norm;
-      x *= denom;
-      y *= denom;
-    }
-    return triple(x, y, sqrt(max(1.0 - x * x - y * y, 0.0)));
-  }
+struct ComputePushConstants {
+    uint32_t blockSize;
+    uint32_t final;
 };
 
-struct projection
-{
-public:
-  bool orthographic;
-  camp::triple camera;
-  camp::triple up;
-  camp::triple target;
-  double zoom;
-  double angle;
-  camp::pair viewportshift;
+extern glm::dmat4 projViewMat;  // Deprecated - use getProjViewMat() instead
+extern glm::dmat4 normMat;      // Deprecated - use getNormMat() instead
 
-  projection(bool orthographic=false, camp::triple camera=0.0,
-             camp::triple up=0.0, camp::triple target=0.0,
-             double zoom=0.0, double angle=0.0,
-             camp::pair viewportshift=0.0) :
-    orthographic(orthographic), camera(camera), up(up), target(target),
-    zoom(zoom), angle(angle), viewportshift(viewportshift) {}
-};
+// Accessor functions to avoid synchronization with vk instance
+const glm::dmat4& getProjViewMat();
+const glm::dmat3& getNormMat();
 
-#ifdef HAVE_VULKAN
-constexpr
-std::array<const char*, 4> deviceExtensions
-{
-  VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
-  VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
-  VK_KHR_MULTIVIEW_EXTENSION_NAME,
-  VK_KHR_MAINTENANCE2_EXTENSION_NAME
-};
-
-constexpr auto VB_USAGE_FLAGS = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer;
-constexpr auto IB_USAGE_FLAGS = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer;
-#endif
-
-extern glm::dmat4 projViewMat;
-extern glm::dmat4 normMat;
-
-class AsyVkRender
+class AsyVkRender : public AsyRender, public RenderCallbacks
 {
 public:
 
   AsyVkRender() = default;
   ~AsyVkRender();
 
-  /** Argument for AsyVkRender::vkrender function */
-  struct VkrenderFunctionArgs: public gc
-  {
-    string prefix;
-    picture const* pic;
-    string format;
-    double width;
-    double height;
-    double angle;
-    double zoom;
-    triple m;
-    triple M;
-    pair shift;
-    pair margin;
+  // Implementation of base class pure virtual (actual rendering implementation)
+  void render(RenderFunctionArgs const& args) override;
 
-    double* t;
-    double* tup;
-    double* background;
-
-    size_t nlightsin;
-
-    triple* lights;
-    double* diffuse;
-    double* specular;
-
-    bool view;
-    int oldpid=0;
-  };
-
-  void vkrender(VkrenderFunctionArgs const& args);
-
-  double getRenderResolution(triple Min) const;
+  // RenderCallbacks interface implementation (GLFW callbacks)
+  void onMouseButton(int button, int action, int mods) override;
+  void onFramebufferResize(int width, int height) override;
+  void onScroll(double xoffset, double yoffset) override;
+  void onCursorPos(double xpos, double ypos) override;
+  void onKey(int key, int scancode, int action, int mods) override;
+  void onWindowFocus(int focused) override;
+  void onClose() override;
 
   bool framebufferResized=false;
   bool recreatePipeline=false;
   bool recreateBlendPipeline=false;
   bool shouldUpdateBuffers=true;
   bool newUniformBuffer=true;
-  bool queueExport=false;
-  bool ibl=false;
-  bool offscreen=false;
+  // Note: ibl is now in base class AsyRender
   bool vkexit=false;
-  bool hideWindow=false;
-
-  bool vkthread=false;;
-  bool initialize=true;
-  bool copied=false;
 
   int maxFramesInFlight;
-  size_t framecount;
-
-  DrawMode mode = DRAWMODE_NORMAL;
-  std::string title = "";
-
-  /**
-   * @remark Main thread is the consumer, other thread is the sender of messages;
-   */
-   ThreadSafeQueue<VulkanRendererMessage> messageQueue;
-
-#ifdef HAVE_PTHREAD
-  pthread_t mainthread;
-
-  pthread_cond_t initSignal = PTHREAD_COND_INITIALIZER;
-  pthread_mutex_t initLock = PTHREAD_MUTEX_INITIALIZER;
-
-  pthread_cond_t readySignal = PTHREAD_COND_INITIALIZER;
-  pthread_mutex_t readyLock = PTHREAD_MUTEX_INITIALIZER;
-
-  void endwait(pthread_cond_t& signal, pthread_mutex_t& lock)
-  {
-    pthread_mutex_lock(&lock);
-    pthread_cond_signal(&signal);
-    pthread_mutex_unlock(&lock);
-  }
-  void wait(pthread_cond_t& signal, pthread_mutex_t& lock)
-  {
-    pthread_mutex_lock(&lock);
-    pthread_cond_signal(&signal);
-    pthread_cond_wait(&signal,&lock);
-    pthread_mutex_unlock(&lock);
-  }
-#endif
 
 #ifdef HAVE_VULKAN
   vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1;
 #endif
 
-  std::vector<Material> materials;
-  MaterialMap materialMap;
-
-  bool Opaque;
   std::uint32_t pixels;
-  bool orthographic;
-
-  glm::dmat4 rotateMat;
-  glm::dmat4 projMat;
-  glm::dmat4 viewMat;
-
-  double xmin, xmax;
-  double ymin, ymax;
-
-  double Xmin, Xmax;
-  double Ymin, Ymax;
-  double Zmin, Zmax;
-
-  int fullWidth, fullHeight;
-  double X,Y;
-  double Angle;
-  double Zoom0;
-  pair Shift;
-  pair Margin;
-  double ArcballFactor;
-
-  camp::triple* Lights;
-  double* LightsDiffuse;
-  size_t nlights;
-  std::array<float, 4> Background;
 
   const double* dprojView;
   const double* dView;
-
-  double T[16];
-  double Tup[16];
-
-  void updateProjection();
-  void frustum(double left, double right, double bottom,
-               double top, double nearVal, double farVal);
-  void ortho(double left, double right, double bottom,
-             double top, double nearVal, double farVal);
-
-  void clearCenters();
-  void clearMaterials();
-
-  bool redraw=false;
-  bool redisplay=false;
-  bool resize=false;
 private:
 #ifdef HAVE_VULKAN
-  struct DeviceBuffer {
-    vk::BufferUsageFlags usage;
-    VkMemoryPropertyFlagBits properties;
-    std::size_t nobjects;
-    vk::DeviceSize stgBufferSize = 0;
-    vma::cxx::UniqueBuffer _buffer;
-    vma::cxx::UniqueBuffer _stgBuffer;
-
-    DeviceBuffer(vk::BufferUsageFlags usage, VkMemoryPropertyFlagBits properties=VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        : usage(usage), properties(properties) {}
-
-    void reset() {
-      _buffer = vma::cxx::UniqueBuffer();
-    }
+  static constexpr std::array<const char*, 4> deviceExtensions = {
+    VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
+    VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
+    VK_KHR_MULTIVIEW_EXTENSION_NAME,
+    VK_KHR_MAINTENANCE2_EXTENSION_NAME
   };
+
+  static constexpr auto VB_USAGE_FLAGS = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer;
+  static constexpr auto IB_USAGE_FLAGS = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer;
+
+  // Per-frame persistent GPU buffer pair. Each frame has its own device buffers
+  // (to avoid races with multiple frames in flight), but they persist across
+  // frame cycles -- allocated once, reused with vkCmdCopyBuffer every upload.
+  struct FrameBufferPair {
+    vma::cxx::UniqueBuffer vertexBuffer;
+    vma::cxx::UniqueBuffer indexBuffer;
+    vma::cxx::UniqueBuffer vertexStagingBuffer;
+    vma::cxx::UniqueBuffer indexStagingBuffer;
+    vk::DeviceSize vertexBufferSize = 0;
+    vk::DeviceSize indexBufferSize = 0;
+    vk::DeviceSize vertexStgSize = 0;
+    vk::DeviceSize indexStgSize = 0;
+    size_t nobjects = 0;
+  };
+
 #endif
 
-  const double pi=acos(-1.0);
-  const double degrees=180.0/pi;
-  const double radians=1.0/degrees;
-
-  const picture* pic = nullptr;
-
-  double H;
-  double Xfactor, Yfactor;
-  double cx, cy;
-
-  int screenWidth, screenHeight;
-  int width, height;
-  int oldWidth,oldHeight;
-  double Aspect;
-  double oWidth, oHeight;
-  double lastZoom;
-  int Fitscreen=1;
-  int Oldpid;
-
-  utils::stopWatch spinTimer;
-  utils::stopWatch fpsTimer;
-  utils::stopWatch frameTimer;
-  utils::statistics fpsStats;
-  std::function<void()> currentIdleFunc = nullptr;
-  bool Xspin = false;
-  bool Yspin = false;
-  bool Zspin = false;
-  bool Animate = false;
-  string Format;
-  bool Step = false;
-  bool View = false;
-  string Prefix;
-  bool ViewExport;
-  bool antialias = false;
-  bool readyAfterExport=false;
-
-  bool remesh=true;
-  bool interlock=false;
   bool GPUcompress=false;
   bool fxaa=false;
   bool srgb=false;
+
+  vk::UniqueSemaphore renderTimelineSemaphore;
+  uint64_t currentTimelineValue = 0;
+  vk::UniqueSemaphore createTimelineSemaphore(uint64_t initialValue = 0);
+  std::vector<vk::Semaphore> signalSemaphores;
 
 #if defined(DEBUG)
   bool hasDebugMarker=false;
 #endif
 
-  std::int32_t gs2;
-  std::int32_t gs;
   std::uint32_t g;
   std::uint32_t localSize;
   std::uint32_t blockSize;
@@ -424,12 +191,8 @@ private:
 
 #ifdef HAVE_VULKAN
 
-  GLFWwindow* window=nullptr;
   vk::UniqueInstance instance;
 
-#if defined(VALIDATION)
-  vk::UniqueDebugUtilsMessengerEXT debugMessenger;
-#endif
   std::vector<const char*> validationLayers {};
   vk::UniqueSurfaceKHR surface;
 
@@ -448,6 +211,7 @@ private:
   vk::UniqueCommandBuffer exportCommandBuffer;
   vk::UniqueFence exportFence;
   vk::Format backbufferImageFormat=vk::Format::eB8G8R8A8Unorm;
+  vk::Format postProcFormat;
   vk::Extent2D backbufferExtent;
   vma::cxx::UniqueImage defaultBackbufferImg;
   std::vector<vk::Image> backbufferImages;
@@ -496,34 +260,32 @@ private:
     PIPELINE_COMPRESS,
     PIPELINE_DONTCARE
   };
+  std::vector<std::string> countShaderOptions {
+  };
   std::vector<std::string> materialShaderOptions {
-    "MATERIAL",
     "NORMAL"
   };
   std::vector<std::string> colorShaderOptions {
-    "MATERIAL",
     "COLOR",
     "NORMAL"
   };
   std::vector<std::string> triangleShaderOptions {
-    "MATERIAL",
     "COLOR",
     "NORMAL",
     "GENERAL"
   };
   std::vector<std::string> pointShaderOptions {
-    "MATERIAL",
     "NOLIGHTS",
     "WIDTH"
   };
   std::vector<std::string> transparentShaderOptions {
-    "MATERIAL",
     "COLOR",
     "NORMAL",
     "GENERAL",
     "TRANSPARENT"
   };
 
+  vk::UniqueDebugUtilsMessengerEXT debugUtilsMsg;
   std::array<vk::UniquePipeline, PIPELINE_MAX> materialPipelines;
   std::array<vk::UniquePipeline, PIPELINE_MAX> colorPipelines;
   std::array<vk::UniquePipeline, PIPELINE_MAX> transparentPipelines;
@@ -536,48 +298,47 @@ private:
   vk::UniqueDescriptorPool computeDescriptorPool;
   vk::UniqueDescriptorSetLayout computeDescriptorSetLayout;
   vk::UniqueDescriptorSet computeDescriptorSet;
-  vk::UniquePipelineLayout sum1PipelineLayout;
+  vk::UniquePipelineLayout sumPipelineLayout;
   vk::UniquePipeline sum1Pipeline;
-  vk::UniquePipelineLayout sum2PipelineLayout;
   vk::UniquePipeline sum2Pipeline;
-  vk::UniquePipelineLayout sum3PipelineLayout;
   vk::UniquePipeline sum3Pipeline;
 
   vma::cxx::UniqueBuffer materialBf;
   vma::cxx::UniqueBuffer lightBf;
 
-  std::size_t countBufferSize;
+  size_t countBufferSize;
   vma::cxx::UniqueBuffer countBf;
-  std::unique_ptr<vma::cxx::MemoryMapperLock> countBfMappedMem = nullptr;
 
-  std::size_t globalSize;
+  size_t globalSize;
   vma::cxx::UniqueBuffer globalSumBf;
 
-  std::size_t offsetBufferSize;
+  size_t offsetBufferSize;
   vma::cxx::UniqueBuffer offsetBf;
-  vma::cxx::UniqueBuffer offsetStageBf;
-  std::unique_ptr<vma::cxx::MemoryMapperLock> offsetStageBfMappedMem = nullptr;
 
-  std::size_t feedbackBufferSize;
+  size_t feedbackBufferSize;
   vma::cxx::UniqueBuffer feedbackBf;
 
-  std::size_t fragmentBufferSize;
+  size_t fragmentBufferSize;
   vma::cxx::UniqueBuffer fragmentBf;
 
-  std::size_t depthBufferSize;
+  size_t depthBufferSize;
   vma::cxx::UniqueBuffer depthBf;
 
-  std::size_t opaqueBufferSize;
+  size_t opaqueBufferSize;
   vma::cxx::UniqueBuffer opaqueBf;
 
-  std::size_t opaqueDepthBufferSize;
+  size_t opaqueDepthBufferSize;
   vma::cxx::UniqueBuffer opaqueDepthBf;
 
-  std::size_t indexBufferSize;
+  size_t indexBufferSize;
   vma::cxx::UniqueBuffer indexBf;
 
-  std::size_t elementBufferSize;
+  size_t elementBufferSize;
   vma::cxx::UniqueBuffer elementBf;
+  std::unique_ptr<vma::cxx::MemoryMapperLock> elemBfMappedMem = nullptr;
+  std::unique_ptr<vma::cxx::MemoryMapperLock> feedbackMappedPtr = nullptr;
+
+  size_t transparencyCapacityPixels=0;
 
   vma::cxx::UniqueImage irradianceImg;
   vk::UniqueImageView irradianceView;
@@ -615,90 +376,62 @@ private:
       CMD_MAX
     };
 
+    uint64_t timelineValue = 0;
+    uint64_t computeTimelineValue = 0;
     vk::UniqueSemaphore imageAvailableSemaphore;
     vk::UniqueSemaphore inCountBufferCopy;
+    vk::UniqueSemaphore transferDoneSemaphore;
     vk::UniqueFence inFlightFence;
     vk::UniqueFence inComputeFence;
     vk::UniqueEvent compressionFinishedEvent;
     vk::UniqueEvent sumFinishedEvent;
     vk::UniqueEvent startTimedSumsEvent;
     vk::UniqueEvent timedSumsFinishedEvent;
+    vk::UniqueSemaphore renderFinishedSemaphore;
 
     vk::UniqueCommandBuffer commandBuffer;
     vk::UniqueCommandBuffer countCommandBuffer;
     vk::UniqueCommandBuffer computeCommandBuffer;
     vk::UniqueCommandBuffer partialSumsCommandBuffer;
     vk::UniqueCommandBuffer copyCountCommandBuffer;
+    vk::UniqueFence transferFence;
+    bool transferHasPendingWork = false;
 
     vk::UniqueDescriptorSet descriptorSet;
 
     vma::cxx::UniqueBuffer uboBf;
     std::unique_ptr<vma::cxx::MemoryMapperLock> uboMappedMemory;
 
-    vk::UniqueBuffer ssbo;
-    vk::UniqueDeviceMemory ssboMemory;
+    FrameBufferPair materialBuffers;
+    FrameBufferPair colorBuffers;
+    FrameBufferPair triangleBuffers;
+    FrameBufferPair transparentBuffers;
+    FrameBufferPair lineBuffers;
+    FrameBufferPair pointBuffers;
 
-    DeviceBuffer materialVertexBuffer = DeviceBuffer(VB_USAGE_FLAGS);
-    DeviceBuffer materialIndexBuffer = DeviceBuffer(IB_USAGE_FLAGS);
-
-    DeviceBuffer colorVertexBuffer = DeviceBuffer(VB_USAGE_FLAGS);
-    DeviceBuffer colorIndexBuffer = DeviceBuffer(IB_USAGE_FLAGS);
-
-    DeviceBuffer triangleVertexBuffer = DeviceBuffer(VB_USAGE_FLAGS);
-    DeviceBuffer triangleIndexBuffer = DeviceBuffer(IB_USAGE_FLAGS);
-
-    DeviceBuffer transparentVertexBuffer = DeviceBuffer(VB_USAGE_FLAGS);
-    DeviceBuffer transparentIndexBuffer = DeviceBuffer(IB_USAGE_FLAGS);
-
-    DeviceBuffer lineVertexBuffer = DeviceBuffer(VB_USAGE_FLAGS);
-    DeviceBuffer lineIndexBuffer = DeviceBuffer(IB_USAGE_FLAGS);
-
-    DeviceBuffer pointVertexBuffer = DeviceBuffer(VB_USAGE_FLAGS);
-    DeviceBuffer pointIndexBuffer = DeviceBuffer(IB_USAGE_FLAGS);
 #pragma region post-process compute stuff
     std::vector<vk::UniqueImage> resolvedColorImages;
     std::vector<vk::ImageView> resolveColorImgViews;
 #pragma endregion
-
-    void reset() {
-        materialVertexBuffer.reset();
-        colorVertexBuffer.reset();
-        triangleVertexBuffer.reset();
-        transparentVertexBuffer.reset();
-        lineVertexBuffer.reset();
-        pointVertexBuffer.reset();
-    }
   };
 
   uint32_t currentFrame = 0;
   vk::CommandBuffer currentCommandBuffer;
   std::vector<FrameObject> frameObjects;
-  std::string lastAction = "";
-
 #endif
 
-  void setDimensions(int Width, int Height, double X, double Y);
-  void updateModelViewData();
-  void setProjection();
-  void update();
+protected:
+  void updateModelViewData() override;
+  void setProjection() override;
 
-  static void updateHandler(int);
-
-  static std::string getAction(int button, int mod);
+public:
+  void updateHandler(int=0) override;
 
 #ifdef HAVE_VULKAN
-  static void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods);
-  static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
-  static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
-  static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
-  static void keyCallback(GLFWwindow * window, int key, int scancode, int action, int mods);
-
   void initWindow();
   void initVulkan();
 
-#if defined(VALIDATION)
   void createDebugMessenger();
-#endif
 
   std::set<std::string> getInstanceExtensions();
   std::set<std::string> getDeviceExtensions(vk::PhysicalDevice& device);
@@ -721,6 +454,8 @@ private:
 			                       vk::PipelineStageFlags srcStageMask,
 			                       vk::PipelineStageFlags dstStageMask,
 			                       vk::ImageSubresourceRange subresourceRange);
+  void transitionFXAAImages();
+
   void createExportResources();
   void createSwapChain();
   void createOffscreenBuffers();
@@ -734,17 +469,15 @@ private:
   void endSingleCommands(vk::CommandBuffer cmd);
   PushConstants buildPushConstants();
   vk::CommandBuffer & getFrameCommandBuffer();
+
+  // Timeline semaphore helper functions
+  void waitForTimelineSemaphore(vk::Semaphore semaphore, uint64_t value, uint64_t timeout = UINT64_MAX);
   vk::CommandBuffer & getFrameComputeCommandBuffer();
-  vk::UniquePipeline & getPipelineType(std::array<vk::UniquePipeline, PIPELINE_MAX> & pipelines, bool count=false);
+  vk::UniquePipeline & getPipelineType(std::array<vk::UniquePipeline, PIPELINE_MAX> & pipelines);
   void beginFrameCommands(vk::CommandBuffer cmd);
   void beginCountFrameRender(int imageIndex);
   void beginGraphicsFrameRender(int imageIndex);
-  void resetFrameCopyData();
-  void drawBuffer(DeviceBuffer & vertexBuffer,
-                  DeviceBuffer & indexBuffer,
-                  VertexBuffer * data,
-                  vk::UniquePipeline & pipeline,
-                  bool incrementRenderCount=true);
+   void drawBuffer(FrameBufferPair& bufpair, VertexBuffer * data, vk::Pipeline pipeline);
   void postProcessImage(vk::CommandBuffer& cmdBuffer, uint32_t const& frameIndex);
   void copyToSwapchainImg(vk::CommandBuffer& cmdBuffer, uint32_t const& frameIndex);
   void endFrameRender();
@@ -793,6 +526,7 @@ private:
           VmaMemoryUsage const& memoryUsage=VMA_MEMORY_USAGE_AUTO,
           const char* bufferName = nullptr);
   void copyBufferToBuffer(const vk::Buffer& srcBuffer, const vk::Buffer& dstBuffer, const vk::DeviceSize size);
+  static void recordBufferCopy(vk::CommandBuffer cmd, const vk::Buffer& srcBuffer, const vk::Buffer& dstBuffer, const vk::DeviceSize size);
   void copyToBuffer(
           const vk::Buffer& buffer,
           const void* data,
@@ -821,7 +555,10 @@ private:
   void transitionImageLayout(vk::ImageLayout from, vk::ImageLayout to, vk::Image img);
   void copyDataToImage(const void *data, vk::DeviceSize size, vk::Image img,
                        std::uint32_t w, std::uint32_t h, vk::Offset3D const & offset={});
-  void setDeviceBufferData(DeviceBuffer& buffer, const void* data, vk::DeviceSize size, std::size_t nobjects=0);
+  void uploadPersistentBuffer(FrameBufferPair& bufpair, const void* data,
+                              vk::DeviceSize size, size_t nobjects,
+                              vk::BufferUsageFlags usage, VkMemoryPropertyFlagBits properties,
+                              bool isVertex);
 
   void createDescriptorSetLayout();
   void createComputeDescriptorSetLayout();
@@ -852,17 +589,22 @@ private:
   template<typename V>
   void createGraphicsPipeline(PipelineType type, vk::UniquePipeline & graphicsPipeline, vk::PrimitiveTopology topology,
                               vk::PolygonMode fillMode, std::vector<std::string> options,
+                              std::string const & name,
                               std::string const & vertexShader,
                               std::string const & fragmentShader,
                               int graphicsSubpass, bool enableDepthWrite=true,
                               bool transparent=false, bool disableMultisample=false);
-  void createGraphicsPipelines();
   void createBlendPipeline();
   void createComputePipeline(
     vk::UniquePipelineLayout & layout,
     vk::UniquePipeline & pipeline,
     std::string const& shaderFile,
     std::vector<vk::DescriptorSetLayout> const& descSetLayout
+  );
+  void createComputePipelineOnly(
+    vk::PipelineLayout layout,
+    vk::UniquePipeline & pipeline,
+    std::string const& shaderFile
   );
   void createComputePipelines();
 
@@ -876,8 +618,7 @@ private:
   void drawColors(FrameObject & object);
   void drawTriangles(FrameObject & object);
   void drawTransparent(FrameObject & object);
-  void clearData();
-  void partialSums(FrameObject & object, bool timing=false, bool bindDescriptors=false);
+  void partialSums(FrameObject & object, bool timing=false);
   void resizeBlendShader(std::uint32_t maxDepth);
   void resizeFragmentBuffer(FrameObject & object);
   void compressCount(FrameObject & object);
@@ -885,68 +626,63 @@ private:
   void blendFrame(int imageIndex);
   void preDrawBuffers(FrameObject & object, int imageIndex);
   void drawBuffers(FrameObject & object, int imageIndex);
-  void drawFrame();
+  void beginTransferRecording(FrameObject & object);
+  void endAndSubmitTransfers(FrameObject & object, vk::Queue queue);
+  void drawFrame() override;
+  void swapBuffers() override;
+  void showWindow() override;
   void recreateSwapChain();
+  void initializeSwapChainIfNeeded();
   vk::UniqueShaderModule createShaderModule(EShLanguage lang, std::string const & filename, std::vector<std::string> const & options);
 #endif
 
-  void nextFrame();
-  void clearBuffers();
-  void render();
-  void display();
-  void mainLoop();
+  GLFWwindow* getRenderWindow() const;
   void cleanup();
-  void processMessages(VulkanRendererMessage const& msg);
-
-  void idleFunc(std::function<void()> f);
-  void idle();
 
   // user controls
-  static void exportHandler(int=0);
-  void Export(int imageIndex);
-  bool readyForExport=false;
+  void exportHandler(int=0) override;
+  void Export(int imageIndex=0) override;
   bool readyForUpdate=false;
-  bool waitEvent=true;
-  bool initialized=false;
-  bool havewindow=false;
-  bool format3dWait=false;
+  // Note: initialized and format3dWait are now in base class AsyRender
 
-  void quit();
+  struct PipelineConfig {
+    vk::PrimitiveTopology topology;
+    vk::PolygonMode fillMode;
+    std::vector<std::string>& shaderOptions;
+    std::string namePrefix;
+    std::string vertexShader;
+    std::string fragmentShader;
+    int graphicsSubpass;
+    bool enableDepthWrite;
+    bool transparent;
+    bool disableMultisample;
+  };
 
-  double spinStep();
-  void rotateX(double step);
-  void rotateY(double step);
-  void rotateZ(double step);
-  void xspin();
-  void yspin();
-  void zspin();
-  void spinx();
-  void spiny();
-  void spinz();
+  template<typename V>
+  void createGraphicsPipeline(PipelineType type, vk::UniquePipeline& graphicsPipeline, const PipelineConfig& config);
+  void createGraphicsPipelines();
 
-  void animate();
-  void expand();
-  void shrink();
-  projection camera(bool user=true);
-  void showCamera();
-  void shift(double dx, double dy);
-  void pan(double dx, double dy);
-  void capzoom();
-  void zoom(double dx, double dy);
-  void capsize(int& w, int& h);
-  void windowposition(int& x, int& y, int width=-1, int height=-1);
-  void setsize(int w, int h, bool reposition=true);
-  void fullscreen(bool reposition=true);
-  void reshape0(int width, int height);
-  void setosize();
-  void fitscreen(bool reposition=true);
-  void toggleFitScreen();
-  void home(bool webgl=false);
-  void cycleMode();
+  template<typename V>
+  void createPipelineSet(
+    std::array<vk::UniquePipeline, PIPELINE_MAX>& pipelines,
+    const PipelineConfig& config,
+    PipelineType start = PIPELINE_OPAQUE,
+    PipelineType end = PIPELINE_MAX
+  );
 
-  friend struct SwapChainDetails;
+  // Graphics library cleanup
+  void finalizeProcess() override;
+
+  /** Returns the GLFW window pointer (does the static_cast from void* once) */
+  GLFWwindow* getGLFWWindow() const { return static_cast<GLFWwindow*>(glfwWindow); }
+
+  // Vulkan-specific overrides that add to base class behavior
+  virtual void reshape(int width, int height) override;
+  virtual void cycleMode() override;
+
+  friend void glfwInitWindow(AsyRender*, int, int, const std::string&);
+  friend void glfwCleanupWindow(AsyVkRender*);
 };
-
-extern AsyVkRender* vk;
+#endif // HAVE_VULKAN
 
 } // namespace camp

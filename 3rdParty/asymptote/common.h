@@ -48,18 +48,39 @@ typedef SSIZE_T ssize_t;
 #  include <boost/stacktrace.hpp>
 #endif
 
-#ifndef OMIT_OPTIONAL
-#include "optional.hpp"
-using nonstd::optional;
-using nonstd::nullopt;
-using nonstd::make_optional;
+#include <optional>
+using std::optional;
+using std::nullopt;
+using std::make_optional;
+
+
+#if __cplusplus < 202002L
+#  include "backports/span/span.hpp"
+using nonstd::span;
+#else
+#  include <span>
+using std::span;
 #endif
 
 using std::make_pair;
 
-#if !defined(FOR_SHARED) && defined(HAVE_LIBVULKAN) && defined(HAVE_LIBGLM)
- #define HAVE_VULKAN
- #endif
+#if !defined(FOR_SHARED) && defined(HAVE_LIBGLM) && \
+  defined(HAVE_LIBGLFW) && (defined(HAVE_LIBVULKAN) || defined(HAVE_LIBGL) || defined(HAVE_LIBOSMESA))
+#define HAVE_RENDERER
+#endif
+
+#if !defined(FOR_SHARED) && defined(HAVE_LIBVULKAN) && \
+  defined(HAVE_LIBGLM) && defined(HAVE_LIBGLFW)
+#define HAVE_VULKAN
+#endif
+
+#if !defined(FOR_SHARED) && (defined(HAVE_LIBGL) || defined(HAVE_LIBOSMESA)) && \
+  defined(HAVE_LIBGLM) && defined(HAVE_LIBGLFW)
+#define HAVE_GL
+#endif
+
+// Runtime-determined: set by rendererloader.cc after probing for Vulkan.
+extern bool vulkan;
 
 #if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDIT)
 #define HAVE_READLINE

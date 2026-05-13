@@ -24,7 +24,7 @@ BISON ?= bison
 
 # Libraries needed to make asymptote.so.
 # We have to remove OpenGL, threading, GC, etc from this.
-SHAREDLIBS = $(filter-out -lglut -GL -pthread $(GCLIBS), $(LIBS))
+SHAREDLIBS = $(filter-out -lglut -lglfw -GL -pthread $(GCLIBS), $(LIBS))
 
 vpath %.cc prc
 vpath %.cc thirdparty_impl/tinyexr_impl/src
@@ -34,7 +34,7 @@ vpath %.py GUI
 
 CAMP = camperror path drawpath drawlabel picture psfile texfile util settings \
        guide flatguide knot drawfill path3 drawpath3 drawsurface \
-       beziercurve bezierpatch pen pipestream
+       beziercurve bezierpatch sortTriangles pen pipestream
 
 RUNTIME_FILES = runtime runbacktrace runpicture runlabel runhistory runarray \
 	runfile runsystem runpair runtriple runpath runpath3d runstring \
@@ -49,17 +49,23 @@ TINYEXR_FILES = tinyexr_impl
 
 VMA_IMPL_FILES = @VMA_IMPL_FILES@
 
+# Vulkan renderer objects - built into a shared library, not linked into the main binary.
+VULKAN_OBJS = $(VMA_IMPL_FILES) vkrender vkdispatchstorage vkutils vulkanshim
+
+# OpenGL renderer objects - built into a shared library, not linked into the main binary.
+OPENGL_OBJS = glrender GLTextures openglshim shaders glew tr tr tr
+
 COREFILES = $(CAMP) $(SYMBOL_FILES) $(PRC) $(TINYEXR_FILES) \
 	env genv stm dec errormsg \
     callable name symbol entry exp newexp stack exithandlers camp.tab lex.yy \
 	access virtualfieldaccess absyn record interact fileio \
 	fftw++asy parallel simpson coder coenv impdatum locate asyparser program application \
 	varinit fundec refaccess envcompleter asyprocess constructor array memory \
-	Delaunay predicates jsfile v3dfile \
+	Delaunay predicates glfw renderBase jsfile v3dfile \
 	EXRFiles lspserv symbolmaps win32helpers win32pipestream \
 	win32xdr xstream \
-	$(VMA_IMPL_FILES) vkrender vkdispatchstorage vkutils \
-	lspdec lspexp lspfundec lspstm
+	lspdec lspexp lspfundec lspstm \
+	hashing random rendererloader
 
 FILES = $(COREFILES) main
 
@@ -105,6 +111,7 @@ CXX = @CXX@
 CC = @CC@
 MAKEDEPEND = $(OPTS) -O0 -M -MG -DDEPEND
 LEX = @LEX@
+GLEWOPTS = $(DEFS) @CPPFLAGS@ $(CFLAGS) -DGLEW_NO_GLU -DGLEW_BUILD -O1 -fPIC
 
 prefix = @prefix@
 exec_prefix = @exec_prefix@
@@ -126,17 +133,42 @@ INSTALL = @INSTALL@
 REVISION = "const char *REVISION="
 last = $(shell head -1 revision.cc | sed -e 's/.*\"\(.*\)\";/\1/')
 usinggit = $(shell if test -d ".git"; then echo yes; fi)
+revision = ""
 ifeq ($(usinggit),yes)
 	revision = $(shell LC_ALL="C" git describe --long | \
 	sed -e 's/git-\([0-9]*\)-g.*/-\1/' | sed -e 's/-0-g.*//')
-else
+endif
+ifeq ($(revision),"")
 	revision = @VERSION@
 endif
 
 export prefix docdir exampledir mandir infodir INSTALL MAKE DESTDIR TEXI2DVI
 
-asy: base/version.asy $(FILES:=.o) $(XNAME) revision.o @LSPLIB@
-	$(CXX) $(OPTS) -o $(NAME) $(FILES:=.o) revision.o $(LIBS)
+asy: base/version.asy $(FILES:=.o) $(XNAME) revision.o $(GCLIB) @LSPLIB@ libasyvulkan.so libasyopengl.so
+	$(CXX) $(OPTS) -rdynamic -o $(NAME) $(FILES:=.o) revision.o $(LIBS)
+
+# Build the Vulkan renderer as a shared library loaded at runtime via dlopen.
+VULKAN_PIC_OBJS = $(addprefix vkpic/,$(VULKAN_OBJS:=.o))
+libasyvulkan.so: $(VULKAN_PIC_OBJS)
+	$(CXX) $(OPTS) -shared -o $@ $^ @ASY_VULKAN_LIBS@ -lglfw -lGL
+
+vkpic/%.o: %.cc
+	@mkdir -p vkpic
+	$(CXX) $(OPTS) -fPIC -o $@ -c $<
+
+# Build the OpenGL renderer as a shared library loaded at runtime via dlopen.
+OPENGL_PIC_OBJS = $(addprefix glpic/,$(OPENGL_OBJS:=.o))
+libasyopengl.so: $(OPENGL_PIC_OBJS)
+	$(CXX) $(OPTS) -shared -o $@ $^ @ASY_GL_LIBS@ -lglfw
+
+glpic/%.o: %.cc
+	@mkdir -p glpic
+	$(CXX) $(OPTS) -fPIC -o $@ -c $<
+
+# glew.c is a C file, needs special handling for the OpenGL shared library.
+glpic/glew.o: glew.c config.h
+	@mkdir -p glpic
+	$(CC) $(GLEWOPTS) -o $@ -c $<
 
 $(XNAME): $(PYFILES)
 	$(SILENT_MAKE)ln -sf GUI/xasy.py $(XNAME)
@@ -165,7 +197,7 @@ doc/version.texi: version.txt
 	echo @set Datadir @datadir@ >> $@
 	echo @set Docdir @docdir@ >> $@
 
-asymptote.so: $(COREFILES:=.pic.o)
+asymptote.so: $(COREFILES:=.pic.o) glew.o
 	$(CXX) $(OPTS) -shared -o asymptote.so revision.o $(COREFILES:=.pic.o) $(SHAREDLIBS)
 
 $(LSP_ROOT)/liblspcpp.a:
@@ -269,7 +301,6 @@ asy-keywords.el: asy base/v3dtypes.asy base/v3dheadertypes.asy asy-list.py
 	  grep -v ^plain.asy$ | grep -v ^plain_ | grep -v ^three_ | \
 	  xargs ../$(ASY) -l >> ../asy.list; \
 	done
-	revision=`cat version.txt`
 	$(PYTHON) ./asy-list.py --asy-list-file asy.list --revision $(revision) --output-file $@
 
 install-notexhash: asy-keywords.el install-asy install-man
@@ -285,7 +316,8 @@ install-texhash: install-asy
 
 install-asy: asy sty $(PYFILES)
 	${INSTALL} -d $(bindir) $(asydir) $(exampledir) $(animationsdir)
-	${INSTALL} -d $(shaderdir) $(webgldir) \
+	${INSTALL} -d $(asydir)/collections
+	${INSTALL} -d $(shaderdir) $(shaderdir)/GL $(webgldir) \
 		$(GUIdir) $(GUIdir)/configs \
 		$(GUIdir)/res $(GUIdir)/res/icons \
 		$(GUIdir)/xasyicons $(GUIdir)/xasyqtui $(GUIdir)/xasyversion
@@ -294,7 +326,9 @@ install-asy: asy sty $(PYFILES)
 	${INSTALL} -p -m 755 $(NAME) $(bindir)
 	${INSTALL} -p -m 644 base/*.asy $(addprefix base/,$(EXTRA)) \
 		asy-keywords.el $(asydir)
+	${INSTALL} -p -m 644 base/collections/*.asy $(asydir)/collections
 	${INSTALL} -p -m 644 base/shaders/*.glsl $(shaderdir)
+	${INSTALL} -p -m 644 base/shaders/GL/*.glsl $(shaderdir)/GL
 	${INSTALL} -p -m 644 base/webgl/asygl.js \
 		$(webgldir)
 	${INSTALL} -p -m 644 GUI/*.py $(GUIdir)
@@ -348,6 +382,8 @@ uninstall-asy:
 	-rmdir $(shaderdir)
 	-cd $(webgldir) && rm -f *.html *.js
 	-rmdir $(webgldir)
+	-cd $(asydir)/collections && rm -f *.asy
+	-rmdir $(asydir)/collections
 	-cd $(asydir) && rm -f asy-keywords.el *.asy $(EXTRA)
 	-rmdir $(asydir)
 	-cd $(latexdir) && rm -f $(LATEXFILES)
@@ -359,47 +395,58 @@ uninstall-asy:
 uninstall-man:
 	cd doc && $(MAKE) uninstall
 
-uninstall-docdir:
+# uninstall-man removes files from $(docdir) itself; uninstall-asy removes
+# $(exampledir) and $(animationsdir) which are subdirectories of $(docdir).
+# Both must finish before we can rmdir $(docdir).
+uninstall-docdir: uninstall-man uninstall-asy
 	-rmdir $(docdir)
 
 clean:	FORCE
-	-rm -f asy asymptote.so *.pic.o *.o *.d *.raw.i *mon.out $(CLEAN)
+	-rm -f asy asymptote.so libasyvulkan.so libasyopengl.so *.pic.o *.o *.d *.raw.i *mon.out $(CLEAN)
+	-rm -rf vkpic glpic
 	-cd LspCpp && $(MAKE) distclean
-	-cd LspCpp && rm -rf liblspcpp.a Makefile CMakeFiles third_party/uri/src/CMakeFiles
 	-cd tinyexr && $(MAKE) clean
+	-cd doc && $(MAKE) clean
+	-cd tests && $(MAKE) clean
 
 gc-clean: FORCE clean
 	-$(MAKE) -C $(GC) clean
 
-cleaner: FORCE clean
+cleaner0: FORCE clean
 	-rm -rf __pycache__
 	-rm -rf GUI/__pycache__
 	-rm -rf GUI/configs/__pycache__
-	-rm -rf GUI/xasyicons GUI/xasyqtui GUI/xasyversion
+	-rm -f GUI/{xasyversion,xasyicons,xasyqtui}/__init__.py
 	-$(MAKE) -C $(GC) distclean
 	-$(MAKE) -C libatomic_ops distclean
-	-cd $(GC) && rm -rf libatomic_ops .deps cord/.deps \
+	-cd $(GC) && rm -rf libatomic_ops autom4te.cache .deps cord/.deps \
 		cord/tests/.deps extra/.deps tests/.deps
 
-	-rm -f Makefile config.h config.log config.status \
-		errors.temp
-	-rm -rf LspCpp/CMakeCache.txt
-	cd doc && $(MAKE) clean
-	cd tests && $(MAKE) distclean
+	-cd libatomic_ops && rm -rf autom4te.cache
+	-rm -f config.h config.log config.status
+	-rm -rf autom4te.cache LspCpp/CMakeCache.txt
+	-rm -f Makefile
+
+cleaner: FORCE cleaner0
+	-cd tests && $(MAKE) cleaner
+	-cd doc && $(MAKE) cleaner
+
+cleanest: FORCE
+	-rm -rf GUI/xasyicons GUI/xasyqtui GUI/xasyversion
+	-cd $(GC) && rm -rf ltmain.sh missing \
+		test-driver configure m4/l*.m4
+	-cd libatomic_ops && rm -rf ltmain.sh missing \
+		test-driver configure m4/l*.m4
+	-cd GUI && $(PYTHON) buildtool.py clean
+	-rm -rf $(DIST)
+	-rm -rf vcpkg_installed
+	-$(MAKE) cleaner0
+	-cd doc && $(MAKE) cleanest
+	-cd tests && $(MAKE) cleanest
+	-rm -f configure config.h.in
 
 distclean: FORCE cleaner
-	cd doc && $(MAKE) distclean
-
-cleanest: FORCE maintainer-clean
-maintainer-clean: FORCE distclean
-	-rm -f configure config.h.in
-	-cd $(GC) && rm -rf ltmain.sh missing \
-		test-driver configure autom4te.cache m4/l*.m4
-	-cd libatomic_ops && rm -rf ltmain.sh missing \
-		test-driver configure autom4te.cache m4/l*.m4
-	-cd GUI && $(PYTHON) buildtool.py clean
-	-rm -rf autom4te.cache $(DIST)
-	-rm -rf vcpkg_installed
+maintainer-clean: FORCE cleanest
 
 test: asy FORCE
 	./wce
@@ -410,6 +457,9 @@ check: test
 check-all: asy FORCE
 	./wce
 	$(MAKE) -C tests all
+
+glew.o: glew.c config.h
+	$(CC) $(GLEWOPTS) -o $@ -c $<
 
 .SUFFIXES: .c .cc .o .d .ui .py
 %.o: %.cc $(GENERATEDENUMS:=.h) $(RUNTIME_FILES:=.cc)

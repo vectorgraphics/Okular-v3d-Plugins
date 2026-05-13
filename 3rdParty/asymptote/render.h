@@ -11,21 +11,25 @@
 #include <unordered_map>
 #include <vector>
 #include <array>
-#include <map>
 
 #include "glmCommon.h"
 #include "material.h"
 #include "triple.h"
 
+constexpr size_t Nbuffer = 10000;  // Initial size of 2D dynamic buffers
+constexpr size_t nbuffer = 1000;   // Initial size of 0D & 1D dynamic buffers
+
+#ifdef HAVE_LIBVULKAN
+#include "vk.h"
+#endif
+
 namespace camp
 {
-
-class Material;
 
 static const double pixelResolution=1.0; // Adaptive rendering constant.
 extern size_t materialIndex;
 
-typedef std::map<Material, size_t> MaterialMap;
+typedef std::map<const Material, size_t> MaterialMap;
 
 template<class T>
 inline void extendOffset(std::vector<T>& a, const std::vector<T>& b, T offset)
@@ -49,18 +53,25 @@ struct MaterialVertex
   glm::vec3 normal;
   glm::i32 material;
 
-#ifdef HAVE_VULKAN
+#ifdef HAVE_LIBVULKAN
   static vk::VertexInputBindingDescription getBindingDescription()
   {
     return vk::VertexInputBindingDescription(0, sizeof(MaterialVertex), vk::VertexInputRate::eVertex);
   }
 
-  static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions()
+  static std::vector<vk::VertexInputAttributeDescription> getAttributeDescriptions(bool count = false)
   {
-    return std::array<vk::VertexInputAttributeDescription, 3>{
-            vk::VertexInputAttributeDescription(POSITION_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(MaterialVertex, position)),
-            vk::VertexInputAttributeDescription(NORMAL_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(MaterialVertex, normal)),
-            vk::VertexInputAttributeDescription(MATERIAL_LOCATION, 0, vk::Format::eR32Sint, offsetof(MaterialVertex, material))};
+    std::vector<vk::VertexInputAttributeDescription> attributeDescriptions;
+    attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(POSITION_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(MaterialVertex, position)));
+
+    if (!count) {
+      attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(NORMAL_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(MaterialVertex, normal)));
+      attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(MATERIAL_LOCATION, 0, vk::Format::eR32Sint, offsetof(MaterialVertex, material)));
+    }
+    return attributeDescriptions;
   }
 #endif
 };
@@ -72,19 +83,27 @@ struct ColorVertex
   glm::i32 material;
   glm::vec4 color;
 
-#ifdef HAVE_VULKAN
+#ifdef HAVE_LIBVULKAN
   static vk::VertexInputBindingDescription getBindingDescription()
   {
     return vk::VertexInputBindingDescription(0, sizeof(ColorVertex), vk::VertexInputRate::eVertex);
   }
 
-  static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions()
+  static std::vector<vk::VertexInputAttributeDescription> getAttributeDescriptions(bool count = false)
   {
-    return std::array<vk::VertexInputAttributeDescription, 4>{
-            vk::VertexInputAttributeDescription(POSITION_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(ColorVertex, position)),
-            vk::VertexInputAttributeDescription(NORMAL_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(ColorVertex, normal)),
-            vk::VertexInputAttributeDescription(MATERIAL_LOCATION, 0, vk::Format::eR32Sint, offsetof(ColorVertex, material)),
-            vk::VertexInputAttributeDescription(COLOR_LOCATION, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(ColorVertex, color))};
+    std::vector<vk::VertexInputAttributeDescription> attributeDescriptions;
+    attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(POSITION_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(ColorVertex, position)));
+
+    if (!count) {
+      attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(NORMAL_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(ColorVertex, normal)));
+      attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(MATERIAL_LOCATION, 0, vk::Format::eR32Sint, offsetof(ColorVertex, material)));
+      attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(COLOR_LOCATION, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(ColorVertex, color)));
+    }
+    return attributeDescriptions;
   }
 #endif
 };
@@ -95,18 +114,27 @@ struct PointVertex
   glm::f32 width;
   glm::i32 material;
 
-#ifdef HAVE_VULKAN
+#ifdef HAVE_LIBVULKAN
   static vk::VertexInputBindingDescription getBindingDescription()
   {
     return vk::VertexInputBindingDescription(0, sizeof(PointVertex), vk::VertexInputRate::eVertex);
   }
 
-  static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions()
+  static std::vector<vk::VertexInputAttributeDescription> getAttributeDescriptions(bool count = false)
   {
-    return std::array<vk::VertexInputAttributeDescription, 3>{
-            vk::VertexInputAttributeDescription(POSITION_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(PointVertex, position)),
-            vk::VertexInputAttributeDescription(WIDTH_LOCATION, 0, vk::Format::eR32Sfloat, offsetof(PointVertex, width)),
-            vk::VertexInputAttributeDescription(MATERIAL_LOCATION, 0, vk::Format::eR32Sint, offsetof(PointVertex, material))};
+    std::vector<vk::VertexInputAttributeDescription> attributeDescriptions;
+    attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(POSITION_LOCATION, 0, vk::Format::eR32G32B32Sfloat, offsetof(PointVertex, position)));
+
+    // Always include width for points
+    attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(WIDTH_LOCATION, 0, vk::Format::eR32Sfloat, offsetof(PointVertex, width)));
+
+    if (!count) {
+      attributeDescriptions.push_back(
+            vk::VertexInputAttributeDescription(MATERIAL_LOCATION, 0, vk::Format::eR32Sint, offsetof(PointVertex, material)));
+    }
+    return attributeDescriptions;
   }
 #endif
 };
@@ -117,8 +145,15 @@ struct VertexBuffer {
   std::vector<PointVertex> pointVertices;
   std::vector<std::uint32_t> indices;
 
-  int renderCount=0;  // Are all patches in this buffer fully rendered?
-  bool copiedThisFrame=false;
+  int renderCount=0;  // Number of frames this data has been drawn on
+
+  VertexBuffer()
+  {
+    materialVertices.reserve(Nbuffer);
+    colorVertices.reserve(nbuffer);
+    pointVertices.reserve(nbuffer);
+    indices.reserve(Nbuffer);
+  }
 
   void clear()
   {
@@ -176,8 +211,10 @@ extern VertexBuffer transparentData; // transparent patches & triangles
 extern VertexBuffer pointData;       // pixels
 extern VertexBuffer lineData;        // material Bezier curves
 
-extern glm::dmat4 projViewMat;
-extern glm::dmat4 normMat;
+#ifdef HAVE_LIBGLM
+// Accessor functions for matrices (to avoid synchronization)
+const glm::dmat4& getProjViewMat();
+const glm::dmat3& getNormMat();
 
 inline triple billboardTransform(const triple& center, const triple& v)
 {
@@ -189,11 +226,13 @@ inline triple billboardTransform(const triple& center, const triple& v)
   double y = v.gety() - cy;
   double z = v.getz() - cz;
 
+  const glm::dmat3& normMat = getNormMat();
   const double* BBT = glm::value_ptr(normMat);
 
-  return triple(x * BBT[0] + y * BBT[4] + z * BBT[8] + cx,
-                x * BBT[1] + y * BBT[5] + z * BBT[9] + cy,
-                x * BBT[2] + y * BBT[6] + z * BBT[10] + cz);
+  return triple(x * BBT[0] + y * BBT[3] + z * BBT[6] + cx,
+                x * BBT[1] + y * BBT[4] + z * BBT[7] + cy,
+                x * BBT[2] + y * BBT[5] + z * BBT[8] + cz);
 }
+#endif
 
 } // namespace camp

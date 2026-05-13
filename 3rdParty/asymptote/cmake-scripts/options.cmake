@@ -80,7 +80,6 @@ option(ENABLE_THREADING "enable threading support" true)
 option(ENABLE_GSL "Enable GSL support" true)
 option(ENABLE_EIGEN3 "Enable eigen3 support" true)
 option(ENABLE_FFTW3 "Enable fftw3 support" true)
-option(ENABLE_VULKAN "Whether to enable vulkan or not." true)
 
 if (CMAKE_BUILD_TYPE IN_LIST cmake_release_build_types)
     set(default_vk_validation_opt false)
@@ -293,4 +292,15 @@ option(
         "Allow installation to go through, even if not every component is buildable.
         CMake will produce a warning instead of a fatal error."
         false
+)
+
+
+# asygl
+
+option(
+        USE_PREBUILT_WEBGL_LIB
+        "Use prebuilt asygl library corresponding to asygl-version (asygl-<version>.js in base/webgl directory).
+        If this option is turned off, one will need to manually build gl.js in webgl directory to complete the build
+        process."
+        true
 )

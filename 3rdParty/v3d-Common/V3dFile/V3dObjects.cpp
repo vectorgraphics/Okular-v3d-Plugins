@@ -10,11 +10,6 @@
 using namespace std;
 using namespace camp;
 
-namespace camp {
-    glm::dmat4 projViewMat;
-    glm::dmat4 normMat;
-}
-
 V3dBezierPatch::V3dBezierPatch(
     xdr::ixstream& xdrFile, 
     V3D_BOOL doublePrecision)
@@ -68,21 +63,21 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    // triple Min=b; // TODO
-    // triple Max=B;
-    //
-    // bool offscreen=bbox2(Min,Max).offscreen();
-    //
-    // if(offscreen) { // Fully offscreen
-    //     fullyOnscreen = false;
-    //     vertexData.clear();
-    //     return;
-    // }
-    //
-    // if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
-    //     materialData.extendMaterial(vertexData);
-    //     return;
-    // }
+    triple Min=b;
+    triple Max=B;
+    
+    bool offscreen=bbox2(Min,Max).offscreen();
+
+    if(offscreen) { // Fully offscreen
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+    
+    if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+        materialData.extendMaterial(vertexData);
+        return;
+    }
 
     S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
     fullyOnscreen = true;

@@ -19,6 +19,18 @@
 #include "rgba.h"
 #include "bezierpatch.h"
 
+namespace camp {
+    glm::dmat4 projViewMat{ 1.0 };
+    glm::dmat4 normMat{ 1.0 };
+
+    const glm::dmat4& getProjViewMat()
+    {
+        // static glm::dmat4 dummy;
+        return projViewMat;
+    }
+    const glm::dmat3& getNormMat()     { return normMat; }
+}
+
 bool fileExists(const std::string& path) {
     std::ifstream f{ path.c_str() };
     return f.good();
@@ -101,6 +113,14 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     using namespace std;
     using namespace camp;
 
+    static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
+
+    projViewMat = glm::dmat4{ verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix };
+
+    auto valPtr = glm::value_ptr(projViewMat);
+
+    normMat = glm::dmat4{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
+
     if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
         if (m_Models[pageNumber][modelIndex].initialized) {
             m_HeadlessRenderer->cleanupMeshData();
@@ -135,14 +155,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     m_Models[pageNumber][modelIndex].initialized = true;
 
     VkSubresourceLayout imageSubresourceLayout;
-
-    static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
-
-    projViewMat = verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix;
-
-    auto valPtr = glm::value_ptr(projViewMat);
-
-    normMat = glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix);
 
     unsigned char* imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, m_Models[pageNumber][modelIndex].viewMatrix, m_Models[pageNumber][modelIndex].projectionMatrix);
 
