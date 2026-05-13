@@ -7,6 +7,18 @@ set(CMAKE_REQUIRED_LIBRARIES Poppler::Qt6 Qt6::Core Qt6::Gui)
 
 include_directories(
    ${CMAKE_CURRENT_SOURCE_DIR}/../..
+
+   # ========== begin v3d ==========
+   "../../../../../3rdParty/v3d-Common/"
+   "../../core/"
+   "/usr/include/tirpc"
+
+   "../../../../../3rdParty/gzip-hpp/include"
+   "../../../../../3rdParty/asymptote"
+   "../../../../../3rdParty/asymptote/prc/include"
+   "../../../../../3rdParty/asymptote/backports/optional/include"
+   "../../../../../3rdParty/asymptote/LspCpp/include"
+   # ========== end v3d ==========
 )
 
 ########### next target ###############
@@ -18,6 +30,24 @@ set(okularGenerator_poppler_PART_SRCS
    pdfsignatureutils.cpp
    pdfsettingswidget.cpp
    imagescaling.cpp
+
+   # ========== begin v3d ==========
+   ../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
+   ../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
+   ../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
+   ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
+   ../../../../../3rdParty/v3d-Common/V3dModel.cpp
+   ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
+   ../../../../../3rdParty/asymptote/xstream.cc
+   ../../../../../3rdParty/asymptote/bezierpatch.cc
+   # ========== end v3d ==========
 )
 
 ki18n_wrap_ui(okularGenerator_poppler_PART_SRCS
@@ -28,7 +58,11 @@ kconfig_add_kcfg_files(okularGenerator_poppler_PART_SRCS GENERATE_MOC conf/pdfse
 
 okular_add_generator(okularGenerator_poppler ${okularGenerator_poppler_PART_SRCS})
 
-target_link_libraries(okularGenerator_poppler okularcore KF6::I18n KF6::Completion KF6::KIOWidgets Poppler::Qt6 Qt6::Xml)
+target_link_libraries(okularGenerator_poppler okularcore KF6::I18n KF6::Completion KF6::KIOWidgets Poppler::Qt6 Qt6::Xml
+# ========== begin v3d ==========
+vulkan tirpc z
+# ========== end v3d ==========
+)
 
 ########### autotests ###############
 
@@ -38,6 +72,10 @@ if(BUILD_TESTING)
         LINK_LIBRARIES Qt6::Test Qt6::Gui
     )
 endif()
+
+# ========== begin v3d ==========
+add_compile_definitions(HAVE_LIBTIRPC HAVE_LIBGLM)
+# ========== end v3d ==========
 
 ########### install files ###############
 if (BUILD_DESKTOP)

@@ -12,9 +12,10 @@ endfunction()
 # let's enable the generators properly configured
 
 add_subdirectory(v3d)
+add_subdirectory(pdf)
 
 if(Poppler_Qt6_FOUND)
-  add_subdirectory(poppler)
+  # add_subdirectory(poppler)
 endif(Poppler_Qt6_FOUND)
 
 if(LIBSPECTRE_FOUND)

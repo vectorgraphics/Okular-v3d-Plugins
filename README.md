@@ -86,7 +86,7 @@ Then in the CMakeLists.txt file located in `build/version/okular/generators/` ad
 
 Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise cmake will complain about building two libraries with the same name.
 
-Then a few files need to be modified, Here they will all be surounded by comments indicating that they are custom code in order to make them easier to find.
+Then a few files need to be modified, Here they will all be surrounded by comments indicating that they are custom code in order to make them easier to find.
 
 Look at existing versions of the plugin and Ctrl-F for `begin v3d` to help with placement.
 #### generator_pdf.h
@@ -206,7 +206,7 @@ if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
 // ========== end v3d ==========
 ```
 
-* In the function `Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QVector<Okular::Page *> &pagesVector, const QString &password)` insert the following at the top of the function:
+* In the function `Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QList<Okular::Page *> &pagesVector, const QString &password)` insert the following at the top of the function:
 ```
 // ========== begin v3d ==========
 if (document() != nullptr) {
@@ -222,28 +222,35 @@ Located in `build/version/okular/generators/pdf/`
 ```
 # ========== begin v3d ==========
 "../../../../../3rdParty/v3d-Common/"
-"../../../../../3rdParty/gzip-hpp/include"
 "../../core/"
 "/usr/include/tirpc"
+
+"../../../../../3rdParty/gzip-hpp/include"
+"../../../../../3rdParty/asymptote"
+"../../../../../3rdParty/asymptote/prc/include"
+"../../../../../3rdParty/asymptote/backports/optional/include"
+"../../../../../3rdParty/asymptote/LspCpp/include"
 # ========== end v3d ==========
 ```
 
 * Insert the following inside of the `set(okularGenerator_poppler_PART_SRCS` function below what is already there:
 ```
 # ========== begin v3d ==========
-../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
-../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
-../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
-../../../../../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
-../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
-../../../../../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
-../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
-../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
-../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
-../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
-../../../../../3rdParty/v3d-Common/V3dModel.cpp
-../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
-../../../../../3rdParty/v3d-Common/3rdParty/xstream.cc
+    ../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
+    ../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
+    ../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
+    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
+    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
+    ../../../../../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
+    ../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
+    ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
+    ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
+    ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
+    ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
+    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
+    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
+    ../../../../../3rdParty/asymptote/xstream.cc
+    ../../../../../3rdParty/asymptote/bezierpatch.cc 
 # ========== end v3d ==========
 ```
 
@@ -258,7 +265,7 @@ vulkan tirpc z
 * Insert the following just above the install files secition
 ```
 # ========== begin v3d ==========
-add_compile_definitions(HAVE_LIBTIRPC)
+add_compile_definitions(HAVE_LIBTIRPC HAVE_LIBGLM)
 # ========== end v3d ==========
 ```
 
