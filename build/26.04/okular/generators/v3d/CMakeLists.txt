@@ -39,7 +39,6 @@ set(
     ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
     ../../../../../3rdParty/asymptote/xstream.cc
     ../../../../../3rdParty/asymptote/bezierpatch.cc
-    ../../../../../3rdParty/asymptote/renderBase.cc
 )
 
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})

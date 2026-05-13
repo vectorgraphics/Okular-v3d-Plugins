@@ -18,7 +18,18 @@
 
 #include "rgba.h"
 #include "bezierpatch.h"
-#include "renderBase.h"
+
+namespace camp {
+    glm::dmat4 projViewMat{ 1.0 };
+    glm::dmat4 normMat{ 1.0 };
+
+    const glm::dmat4& getProjViewMat()
+    {
+        // static glm::dmat4 dummy;
+        return projViewMat;
+    }
+    const glm::dmat3& getNormMat()     { return normMat; }
+}
 
 bool fileExists(const std::string& path) {
     std::ifstream f{ path.c_str() };
