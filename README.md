@@ -78,7 +78,7 @@ Then in the CMakeLists.txt file located in `build/version/okular/generators/` ad
 Finally, navigate back to the build script you cloned earlier (located in `build/version/`) and run it to build the plugin.
 
 ### pdf
-Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be insterted in specific locations.
+Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be inserted in specific locations.
 
 Start by copying the existing poppler plugin source code folder (located in `build/version/okular/generators/`) into a new folder named `pdf`.
 
