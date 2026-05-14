@@ -15,7 +15,7 @@
 
 #include "seconds.h"
 
-// #define VULKAN_DEBUG 1
+#define VULKAN_DEBUG 1
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
@@ -907,7 +907,7 @@ void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
 	m_IndexCount = mesh.indices.size();
 }
 
-unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj) {
+unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj, const std::vector<V3dMaterial>& materials) {
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
@@ -915,15 +915,21 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 	// TODO potentially move
 	std::vector<GPUMaterial> mats(1);
 
-	mats[0].diffuse   = glm::vec4(0.0f, 0.0f, 0.82f, 1.0f);
-	mats[0].emissive  = glm::vec4(0.0f);
-	mats[0].specular  = glm::vec4(0.5f);
+	mats[0].diffuse.r  = materials[0].diffuse.b;
+	mats[0].diffuse.g  = materials[0].diffuse.g;
+	mats[0].diffuse.b  = materials[0].diffuse.r;
+	mats[0].diffuse.a  = materials[0].diffuse.a;
+
+	mats[0].emissive   = materials[0].emissive;
+	mats[0].specular   = materials[0].specular;
 	mats[0].parameters = glm::vec4(
-		0.2f,   // roughness
-		1.0f,   // metallic
-		0.03f,  // fresnel
+		materials[0].shininess,   // roughness
+		materials[0].metallic,    // metallic
+		materials[0].fresnel0,    // fresnel
 		0.0f
 	);
+
+	std::cout << "Diffuse: r: " << materials[0].diffuse.r << ", g: " << materials[0].diffuse.g << ", b: " << materials[0].diffuse.b << std::endl;
 
 	createMaterialBuffer(mats);
 

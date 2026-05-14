@@ -156,7 +156,13 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     VkSubresourceLayout imageSubresourceLayout;
 
-    unsigned char* imageData = m_HeadlessRenderer->render(glm::ivec2{ imageWidth, imageHeight }, &imageSubresourceLayout, m_Models[pageNumber][modelIndex].viewMatrix, m_Models[pageNumber][modelIndex].projectionMatrix);
+    unsigned char* imageData = m_HeadlessRenderer->render(
+        glm::ivec2{ imageWidth, imageHeight }, 
+        &imageSubresourceLayout, 
+        m_Models[pageNumber][modelIndex].viewMatrix, 
+        m_Models[pageNumber][modelIndex].projectionMatrix,
+        m_Models[pageNumber][modelIndex].file->materials
+    );
 
     unsigned char* imgDataTmp = imageData;
 

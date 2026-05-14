@@ -18,7 +18,7 @@
 #include "../3rdParty/VulkanTools/VulkanTools.h"
 
 #include "../V3dFile/Mesh.h"
-
+#include "../V3dFile/V3dObjects.h"
 #define DEBUG (!NDEBUG)
 
 #define BUFFER_ELEMENTS 32
@@ -129,7 +129,7 @@ private:
 public:
 	void copyMeshToGPU(const Mesh& mesh);
 
-	unsigned char* render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj);
+	unsigned char* render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj, const std::vector<V3dMaterial>& materials);
 
 	void cleanupMeshData();
 
