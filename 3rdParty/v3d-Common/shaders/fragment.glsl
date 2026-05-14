@@ -233,14 +233,8 @@ void main() {
   lightDir = normalize(lightDir);
   light.direction = vec4(lightDir.xyz, 1.0);
   light.direction = -light.direction;
-//   Material mat;
-  Material mat;
-  mat.diffuse = vec4(0.35, 0.67, 0.82, 1.0);
-  mat.emissive = vec4(0.0, 0.0, 0.0, 1.0);
-  mat.specular = vec4(0.5, 0.5, 0.5, 1.0);
-  mat.parameters[0] = 0.2;
-  mat.parameters[1] = 0.3;
-  mat.parameters[2] = 0.03;
+
+  Material mat = materials[0];
 
 // #ifdef GENERAL
 //   mat = materials[abs(materialIndex) - 1];

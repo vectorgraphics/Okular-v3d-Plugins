@@ -33,6 +33,14 @@ struct UniformBufferObject {
 	glm::mat4 normMat { };
 };
 
+struct GPUMaterial
+{
+    glm::vec4 diffuse;
+    glm::vec4 emissive;
+    glm::vec4 specular;
+    glm::vec4 parameters;
+};
+
 class HeadlessRenderer
 {
 public:
@@ -62,6 +70,9 @@ public:
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
 	void* uniformBufferMapped{ nullptr };
+
+	VkBuffer materialBuffer;
+	VkDeviceMemory materialBufferMemory;
 
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
@@ -100,6 +111,7 @@ private:
 	void copyVertexDataToGPU(const std::vector<float>& vertices);
 	void copyIndexDataToGPU(const std::vector<unsigned int>& indices);
 	void createUniformBuffer();
+	void createMaterialBuffer(const std::vector<GPUMaterial>& materials);
 	void createDescriptorPool();
 	void createDescirptorSets();
 	void createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);

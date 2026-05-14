@@ -347,18 +347,38 @@ void HeadlessRenderer::createUniformBuffer() {
 	vkMapMemory(device, uniformBufferMemory, 0, uniformBufferSize, 0, (void**)&uniformBufferMapped);
 }
 
+void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& materials)
+{
+    VkDeviceSize size =sizeof(GPUMaterial) * materials.size();
+
+    auto result = createBuffer(
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &materialBuffer,
+        &materialBufferMemory,
+        size,
+        (void*)materials.data()
+    );
+
+	VK_CHECK_RESULT(result);
+}
+
 void HeadlessRenderer::createDescriptorPool() {
-	VkDescriptorPoolSize poolSize{ };
-	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSize.descriptorCount = maxFramesInFlight;
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
 
-	VkDescriptorPoolCreateInfo poolInfo{ };
-	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 1;
-	poolInfo.pPoolSizes = &poolSize;
-	poolInfo.maxSets = maxFramesInFlight;
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = maxFramesInFlight;
 
-	VK_CHECK_RESULT(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool));
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[1].descriptorCount = maxFramesInFlight;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    poolInfo.maxSets = maxFramesInFlight;
+
+    VK_CHECK_RESULT(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool));
 }
 
 void HeadlessRenderer::createDescirptorSets() {
@@ -387,7 +407,33 @@ void HeadlessRenderer::createDescirptorSets() {
 		descriptorWrite.descriptorCount = 1;
 		descriptorWrite.pBufferInfo = &bufferInfo;
 
-		vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+		VkDescriptorBufferInfo materialBufferInfo{};
+		materialBufferInfo.buffer = materialBuffer;
+		materialBufferInfo.offset = 0;
+		materialBufferInfo.range = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet materialWrite{};
+		materialWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		materialWrite.dstSet = descriptorSets[i];
+		materialWrite.dstBinding = 1;
+		materialWrite.dstArrayElement = 0;
+		materialWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		materialWrite.descriptorCount = 1;
+		materialWrite.pBufferInfo = &materialBufferInfo;
+
+		// vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+		std::array<VkWriteDescriptorSet, 2> writes = {
+			descriptorWrite,
+			materialWrite
+		};
+
+		vkUpdateDescriptorSets(
+			device,
+			static_cast<uint32_t>(writes.size()),
+			writes.data(),
+			0,
+			nullptr
+		);
 	}
 }
 
@@ -534,11 +580,24 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 	uboLayoutBinding.descriptorCount = 1;
 	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	std::vector<VkDescriptorSetLayoutBinding> uboSetLayoutBindings = {};
-	uboSetLayoutBindings.push_back(uboLayoutBinding);
+	// std::vector<VkDescriptorSetLayoutBinding> uboSetLayoutBindings = {};
+	// uboSetLayoutBindings.push_back(uboLayoutBinding);
 
+	VkDescriptorSetLayoutBinding materialBinding{};
+	materialBinding.binding = 1;
+	materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	materialBinding.descriptorCount = 1;
+	materialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	std::vector<VkDescriptorSetLayoutBinding> bindings = {
+		uboLayoutBinding,
+		materialBinding
+	};
+
+	// VkDescriptorSetLayoutCreateInfo descriptorLayout =
+	// vks::initializers::descriptorSetLayoutCreateInfo(uboSetLayoutBindings);
 	VkDescriptorSetLayoutCreateInfo descriptorLayout =
-	vks::initializers::descriptorSetLayoutCreateInfo(uboSetLayoutBindings);
+    vks::initializers::descriptorSetLayoutCreateInfo(bindings);
 	VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
 }
 
@@ -852,6 +911,22 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
+
+	// TODO potentially move
+	std::vector<GPUMaterial> mats(1);
+
+	mats[0].diffuse   = glm::vec4(0.0f, 0.0f, 0.82f, 1.0f);
+	mats[0].emissive  = glm::vec4(0.0f);
+	mats[0].specular  = glm::vec4(0.5f);
+	mats[0].parameters = glm::vec4(
+		0.2f,   // roughness
+		1.0f,   // metallic
+		0.03f,  // fresnel
+		0.0f
+	);
+
+	createMaterialBuffer(mats);
+
 
 	if (currentTargetSize != targetSize) {
 		if (initialized) {
