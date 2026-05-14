@@ -929,8 +929,6 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 		0.0f
 	);
 
-	std::cout << "Diffuse: r: " << materials[0].diffuse.r << ", g: " << materials[0].diffuse.g << ", b: " << materials[0].diffuse.b << std::endl;
-
 	createMaterialBuffer(mats);
 
 
