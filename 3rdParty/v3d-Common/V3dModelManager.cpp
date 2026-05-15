@@ -161,7 +161,8 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         &imageSubresourceLayout, 
         m_Models[pageNumber][modelIndex].viewMatrix, 
         m_Models[pageNumber][modelIndex].projectionMatrix,
-        m_Models[pageNumber][modelIndex].file->materials
+        m_Models[pageNumber][modelIndex].file->materials,
+        std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light }
     );
 
     unsigned char* imgDataTmp = imageData;

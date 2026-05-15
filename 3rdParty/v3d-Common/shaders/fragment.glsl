@@ -227,13 +227,8 @@ void main() {
   uint nlights = push.constants[0];
 
   nlights = 1;
-  Light light;
-  light.color = vec4(1.0, 1.0, 1.0, 1.0);
-  vec3 lightDir = vec3(-1.0, -1.0, -1.0);
-  lightDir = normalize(lightDir);
-  light.direction = vec4(lightDir.xyz, 1.0);
-  light.direction = -light.direction;
 
+  Light light = lights[0];
   Material mat = materials[0];
 
 // #ifdef GENERAL

@@ -19,6 +19,8 @@
 
 #include "../V3dFile/Mesh.h"
 #include "../V3dFile/V3dObjects.h"
+#include "../V3dFile/V3dHeaderInfo.h"
+
 #define DEBUG (!NDEBUG)
 
 #define BUFFER_ELEMENTS 32
@@ -39,6 +41,12 @@ struct GPUMaterial
     glm::vec4 emissive;
     glm::vec4 specular;
     glm::vec4 parameters;
+};
+
+struct GPULight
+{
+  	glm::vec4 direction;
+  	glm::vec4 color;
 };
 
 class HeadlessRenderer
@@ -73,6 +81,9 @@ public:
 
 	VkBuffer materialBuffer;
 	VkDeviceMemory materialBufferMemory;
+
+	VkBuffer lightBuffer;
+	VkDeviceMemory lightBufferMemory;
 
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
@@ -112,6 +123,7 @@ private:
 	void copyIndexDataToGPU(const std::vector<unsigned int>& indices);
 	void createUniformBuffer();
 	void createMaterialBuffer(const std::vector<GPUMaterial>& materials);
+	void createLightBuffer(const std::vector<GPULight>& lights);
 	void createDescriptorPool();
 	void createDescirptorSets();
 	void createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
@@ -129,7 +141,14 @@ private:
 public:
 	void copyMeshToGPU(const Mesh& mesh);
 
-	unsigned char* render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj, const std::vector<V3dMaterial>& materials);
+	unsigned char* render(
+		glm::ivec2 targetSize, 
+		VkSubresourceLayout* imageSubresourceLayout, 
+		const glm::mat4& view, 
+		const glm::mat4& proj, 
+		const std::vector<V3dMaterial>& materials,
+		const std::vector<V3dHeaderInfo::Light>& lights
+	);
 
 	void cleanupMeshData();
 

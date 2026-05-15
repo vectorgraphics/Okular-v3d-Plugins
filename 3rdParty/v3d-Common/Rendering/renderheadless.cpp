@@ -52,6 +52,12 @@ HeadlessRenderer::~HeadlessRenderer() {
 		vkDestroyBuffer(device, uniformBuffer, nullptr);
 		vkFreeMemory(device, uniformBufferMemory, nullptr);
 
+		vkDestroyBuffer(device, materialBuffer, nullptr);
+		vkFreeMemory(device, materialBufferMemory, nullptr);
+
+		vkDestroyBuffer(device, lightBuffer, nullptr);
+		vkFreeMemory(device, lightBufferMemory, nullptr);
+
 		vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
@@ -347,9 +353,8 @@ void HeadlessRenderer::createUniformBuffer() {
 	vkMapMemory(device, uniformBufferMemory, 0, uniformBufferSize, 0, (void**)&uniformBufferMapped);
 }
 
-void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& materials)
-{
-    VkDeviceSize size =sizeof(GPUMaterial) * materials.size();
+void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& materials) {
+    VkDeviceSize size = sizeof(GPUMaterial) * materials.size();
 
     auto result = createBuffer(
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -363,14 +368,32 @@ void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& mate
 	VK_CHECK_RESULT(result);
 }
 
+void HeadlessRenderer::createLightBuffer(const std::vector<GPULight>& lights) {
+    VkDeviceSize size = sizeof(GPULight) * lights.size();
+
+    auto result = createBuffer(
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &lightBuffer,
+        &lightBufferMemory,
+        size,
+        (void*)lights.data()
+    );
+
+	VK_CHECK_RESULT(result);
+}
+
 void HeadlessRenderer::createDescriptorPool() {
-    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    std::array<VkDescriptorPoolSize, 3> poolSizes{};
 
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = maxFramesInFlight;
 
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = maxFramesInFlight;
+
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[2].descriptorCount = maxFramesInFlight;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -421,10 +444,25 @@ void HeadlessRenderer::createDescirptorSets() {
 		materialWrite.descriptorCount = 1;
 		materialWrite.pBufferInfo = &materialBufferInfo;
 
+		VkDescriptorBufferInfo lightBufferInfo{};
+		lightBufferInfo.buffer = lightBuffer;
+		lightBufferInfo.offset = 0;
+		lightBufferInfo.range = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet lightWrite{};
+		lightWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		lightWrite.dstSet = descriptorSets[i];
+		lightWrite.dstBinding = 2;
+		lightWrite.dstArrayElement = 0;
+		lightWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		lightWrite.descriptorCount = 1;
+		lightWrite.pBufferInfo = &lightBufferInfo;
+
 		// vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
-		std::array<VkWriteDescriptorSet, 2> writes = {
+		std::array<VkWriteDescriptorSet, 3> writes = {
 			descriptorWrite,
-			materialWrite
+			materialWrite,
+			lightWrite
 		};
 
 		vkUpdateDescriptorSets(
@@ -580,22 +618,24 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 	uboLayoutBinding.descriptorCount = 1;
 	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	// std::vector<VkDescriptorSetLayoutBinding> uboSetLayoutBindings = {};
-	// uboSetLayoutBindings.push_back(uboLayoutBinding);
-
 	VkDescriptorSetLayoutBinding materialBinding{};
 	materialBinding.binding = 1;
 	materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	materialBinding.descriptorCount = 1;
 	materialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+	VkDescriptorSetLayoutBinding lightBinding{};
+	lightBinding.binding = 2;
+	lightBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	lightBinding.descriptorCount = 1;
+	lightBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
 	std::vector<VkDescriptorSetLayoutBinding> bindings = {
 		uboLayoutBinding,
-		materialBinding
+		materialBinding,
+		lightBinding
 	};
 
-	// VkDescriptorSetLayoutCreateInfo descriptorLayout =
-	// vks::initializers::descriptorSetLayoutCreateInfo(uboSetLayoutBindings);
 	VkDescriptorSetLayoutCreateInfo descriptorLayout =
     vks::initializers::descriptorSetLayoutCreateInfo(bindings);
 	VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
@@ -907,30 +947,10 @@ void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
 	m_IndexCount = mesh.indices.size();
 }
 
-unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj, const std::vector<V3dMaterial>& materials) {
+unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj, const std::vector<V3dMaterial>& materials, const std::vector<V3dHeaderInfo::Light>& lights) {
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
-
-	// TODO potentially move
-	std::vector<GPUMaterial> mats(1);
-
-	mats[0].diffuse.r  = materials[0].diffuse.b;
-	mats[0].diffuse.g  = materials[0].diffuse.g;
-	mats[0].diffuse.b  = materials[0].diffuse.r;
-	mats[0].diffuse.a  = materials[0].diffuse.a;
-
-	mats[0].emissive   = materials[0].emissive;
-	mats[0].specular   = materials[0].specular;
-	mats[0].parameters = glm::vec4(
-		materials[0].shininess,   // roughness
-		materials[0].metallic,    // metallic
-		materials[0].fresnel0,    // fresnel
-		0.0f
-	);
-
-	createMaterialBuffer(mats);
-
 
 	if (currentTargetSize != targetSize) {
 		if (initialized) {
@@ -938,6 +958,12 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 
 			vkDestroyBuffer(device, uniformBuffer, nullptr);
 			vkFreeMemory(device, uniformBufferMemory, nullptr);
+
+			vkDestroyBuffer(device, materialBuffer, nullptr);
+			vkFreeMemory(device, materialBufferMemory, nullptr);
+
+			vkDestroyBuffer(device, lightBuffer, nullptr);
+			vkFreeMemory(device, lightBufferMemory, nullptr);
 
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 			vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
@@ -959,6 +985,32 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 		createGraphicsPipeline();
 
 		createUniformBuffer();
+		// TODO potentially move
+		std::vector<GPUMaterial> mats(1);
+
+		// TODO check order of rgb
+		mats[0].diffuse.r  = materials[0].diffuse.b;
+		mats[0].diffuse.g  = materials[0].diffuse.g;
+		mats[0].diffuse.b  = materials[0].diffuse.r;
+		mats[0].diffuse.a  = materials[0].diffuse.a;
+
+		mats[0].emissive   = materials[0].emissive;
+		mats[0].specular   = materials[0].specular;
+		mats[0].parameters = glm::vec4(
+			materials[0].shininess,   // roughness
+			materials[0].metallic,    // metallic
+			materials[0].fresnel0,    // fresnel
+			0.0f
+		);
+
+		createMaterialBuffer(mats);
+
+		std::vector<GPULight> gpuLights(1);
+		gpuLights[0].direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
+		gpuLights[0].color = glm::vec4{ lights[0].color.b, lights[0].color.g, lights[0].color.r, 1.0f };
+
+		createLightBuffer(gpuLights);
+
 		createDescriptorPool();
 		createDescirptorSets();
 
