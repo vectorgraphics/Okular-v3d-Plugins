@@ -35,7 +35,7 @@ V3dFile::V3dFile(const std::string& fileName) {
 }
 
 V3dFile::V3dFile(xdr::memixstream& xdrFile) {
-   load(xdrFile);
+    load(xdrFile);
 }
 
 void V3dFile::load(xdr::ixstream& xdrFile) {
