@@ -6,6 +6,7 @@
 
 #include "rgba.h"
 #include "bezierpatch.h"
+#include "beziercurve.h"
 
 using namespace std;
 using namespace camp;
@@ -603,23 +604,61 @@ void V3dTube::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, t
 }
 
 
-V3dBezierCurve::V3dBezierCurve(
-    xdr::ixstream& xdrFile, 
-    V3D_BOOL doublePrecision)
+V3dBezierCurve::V3dBezierCurve(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision)
     : V3dObject{ ObjectTypes::CURVE } { 
-        for (UINT i = 0; i < 4; ++i) {
-            controlPoints[i].x = readReal(xdrFile, doublePrecision);
-            controlPoints[i].y = readReal(xdrFile, doublePrecision);
-            controlPoints[i].z = readReal(xdrFile, doublePrecision);
-        }    
+    for (UINT i = 0; i < 4; ++i) {
+        controlPoints[i].x = readReal(xdrFile, doublePrecision);
+        controlPoints[i].y = readReal(xdrFile, doublePrecision);
+        controlPoints[i].z = readReal(xdrFile, doublePrecision);
+    }    
 
-        xdrFile >> centerIndex;
-        xdrFile >> materialIndex;
-    }
+    xdrFile >> centerIndex;
+    xdrFile >> materialIndex;
+}
 
 void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dBezierCurve cannot queue" << std::endl;
-    return;
+    triple Controls[] = {
+        triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
+        triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
+        triple(controlPoints[2].x, controlPoints[2].y, controlPoints[2].z),
+        triple(controlPoints[3].x, controlPoints[3].y, controlPoints[3].z)
+    };
+
+    BezierCurve S;
+
+    triple b=sceneMinBound;
+    triple B=sceneMaxBound;
+
+    double Zmax=B.getz();
+
+    double perspective=orthographic ? 0.0 : 1.0/Zmax;
+    double s=perspective ? b.getz()*perspective : 1.0; // Move to glrender
+    double size2=hypot(imageWidth,imageHeight);
+
+    bool transparent=false;
+    bool straight=false;
+
+    const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
+
+    triple Min=b;
+    triple Max=B;
+    
+    bool offscreen=bbox2(Min,Max).offscreen();
+
+    if(offscreen) { // Fully offscreen
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+    
+    if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+        materialData.extendMaterial(vertexData);
+        return;
+    }
+
+    S.queue(Controls,straight,size3.length()/size2);
+    fullyOnscreen = true;
+    vertexData = S.data;
 }
 
 

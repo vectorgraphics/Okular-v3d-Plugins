@@ -47,6 +47,7 @@ set(okularGenerator_poppler_PART_SRCS
    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
    ../../../../../3rdParty/asymptote/xstream.cc
    ../../../../../3rdParty/asymptote/bezierpatch.cc
+   ../../../../../3rdParty/asymptote/beziercurve.cc
    # ========== end v3d ==========
 )
 
@@ -74,7 +75,11 @@ if(BUILD_TESTING)
 endif()
 
 # ========== begin v3d ==========
-add_compile_definitions(HAVE_LIBTIRPC HAVE_LIBGLM)
+add_compile_definitions(
+   HAVE_LIBTIRPC 
+   HAVE_LIBGLM
+   HAVE_RENDERER
+)
 # ========== end v3d ==========
 
 ########### install files ###############

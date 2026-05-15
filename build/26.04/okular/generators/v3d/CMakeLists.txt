@@ -39,6 +39,7 @@ set(
     ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
     ../../../../../3rdParty/asymptote/xstream.cc
     ../../../../../3rdParty/asymptote/bezierpatch.cc
+    ../../../../../3rdParty/asymptote/beziercurve.cc
 )
 
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})
@@ -48,6 +49,7 @@ target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan tirpc glfw
 add_compile_definitions(
     HAVE_LIBTIRPC
     HAVE_LIBGLM
+    HAVE_RENDERER
 )
 
 target_compile_options(okularGenerator_v3d PUBLIC -fexceptions)
