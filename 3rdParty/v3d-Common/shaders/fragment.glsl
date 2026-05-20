@@ -302,7 +302,7 @@ void main() {
 // #if defined(ENABLE_FXAA) || defined(OUTPUT_AS_SRGB)
   // outColor is our output vector, so save what we have as linear color
   vec3 outColorInPerceptualSpace=linearToPerceptual(linearColor.rgb);
-  outColor=vec4(outColorInPerceptualSpace,linearColor.a);
+  // outColor=vec4(outColorInPerceptualSpace,linearColor.a);
 // #else
 //   outColor=linearColor;
 // #endif
