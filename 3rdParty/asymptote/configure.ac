@@ -3,7 +3,7 @@
 # this file.
 
 AC_PREREQ([2.71])
-AC_INIT([Asymptote],[3.11git],[https://github.com/vectorgraphics/asymptote/issues])
+AC_INIT([Asymptote],[3.12git],[https://github.com/vectorgraphics/asymptote/issues])
 VERSION=$PACKAGE_VERSION
 AC_SUBST(VERSION)
 m4_include([ax_pthread.m4])
@@ -589,6 +589,18 @@ AC_SUBST(VMA_IMPL_FILES)
 AC_SUBST(ASY_VULKAN_LIBS)
 AC_SUBST(ASY_GL_LIBS)
 AC_SUBST(SHIM_LDFLAGS)
+
+# Determine which shim shared libraries (loaded via dlopen at runtime) to
+# build and link the asy binary against. Empty when both renderers are
+# disabled so the main binary does not depend on libglfw, libGL, or libvulkan.
+SHIMLIBS=""
+if test "x$enable_vulkan" != "xno"; then
+    SHIMLIBS="$SHIMLIBS libasyvulkan.so"
+fi
+if test "x$enable_gl" != "xno"; then
+    SHIMLIBS="$SHIMLIBS libasyopengl.so"
+fi
+AC_SUBST(SHIMLIBS)
 
 # we are on C++ >= 11, so unordered map is a guarantee
 AC_DEFINE(HAVE_UNORDERED_MAP,1,[Unordered map is present])
