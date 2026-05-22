@@ -63,6 +63,7 @@ public:
     V3dBezierPatch(
         xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
+    V3dBezierPatch(std::array<TRIPLE, 16> controlPoints, UINT centerIndex, UINT materialIndex);
     ~V3dBezierPatch() override = default;
 
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
@@ -81,6 +82,7 @@ public:
     V3dBezierTriangle(
         xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
+    V3dBezierTriangle(std::array<TRIPLE, 10> controlPoints, UINT centerIndex, UINT materialIndex);
     ~V3dBezierTriangle() override = default;
 
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;

@@ -25,6 +25,13 @@ V3dBezierPatch::V3dBezierPatch(
         xdrFile >> materialIndex;
     }
 
+V3dBezierPatch::V3dBezierPatch(std::array<TRIPLE, 16> controlPoints, UINT centerIndex, UINT materialIndex) 
+    : V3dObject{ ObjectTypes::BEZIER_PATCH }
+    , controlPoints{ controlPoints }
+    , centerIndex{ centerIndex }
+    , materialIndex{ materialIndex } { }
+
+
 void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
@@ -98,6 +105,12 @@ V3dBezierTriangle::V3dBezierTriangle(
         xdrFile >> centerIndex;
         xdrFile >> materialIndex;
     }
+
+V3dBezierTriangle::V3dBezierTriangle(std::array<TRIPLE, 10> controlPoints, UINT centerIndex, UINT materialIndex) 
+    : V3dObject{ ObjectTypes::BEZIER_TRIANGLE }
+    , controlPoints{ controlPoints }
+    , centerIndex{ centerIndex }
+    , materialIndex{ materialIndex } { }
 
 void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     triple Controls[] = {
@@ -489,6 +502,54 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
 }
 
 
+class Align {
+private:
+    triple center;
+
+    double ct = 0.0;
+    double st = 0.0;
+    double cp = 0.0;
+    double sp = 0.0;
+
+public:
+    Align(const triple& center, const triple* dir = nullptr)
+        : center(center)
+    {
+        if(dir) {
+            double theta = (*dir).getx();
+            double phi   = (*dir).gety();
+
+            ct = std::cos(theta);
+            st = std::sin(theta);
+
+            cp = std::cos(phi);
+            sp = std::sin(phi);
+        }
+    }
+
+    triple T0(const triple& v) const {
+        return triple(
+            v.getx() + center.getx(),
+            v.gety() + center.gety(),
+            v.getz() + center.getz()
+        );
+    }
+
+    triple T(const triple& v) const {
+        double x = v.getx();
+        double Y = v.gety();
+        double z = v.getz();
+
+        double X = x * ct + z * st;
+
+        return triple(
+            X * cp - Y * sp + center.getx(),
+            X * sp + Y * cp + center.gety(),
+            -x * st + z * ct + center.getz()
+        );
+    }
+};
+
 V3dSphere::V3dSphere(
     xdr::ixstream& xdrFile, 
     V3D_BOOL doublePrecision)
@@ -503,9 +564,127 @@ V3dSphere::V3dSphere(
         xdrFile >> materialIndex;
     }
 
+void sphere(
+    triple center,
+    double r,
+    triple* dir,
+    int imageWidth, 
+    int imageHeight, 
+    triple sceneMinBound, 
+    triple sceneMaxBound, 
+    bool remesh, 
+    bool orthographic,
+    UINT centerIndex,
+    UINT materialIndex
+) {
+    double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
+    double b = 0.524670512339254;
+    double c = 0.595936986722291;
+    double d = 0.954967051233925;
+    double e = 0.0820155480083437;
+    double f = 0.996685028842544;
+    double g = 0.0549670512339254;
+    double h = 0.998880711874577;
+    double i = 0.0405017186586849;
+
+    std::array<triple, 16> patchOctant = {
+        triple(1, 0, 0),
+        triple(1, 0, b),
+        triple(c, 0, d),
+        triple(e, 0, f),
+
+        triple(1, a, 0),
+        triple(1, a, b),
+        triple(c, a * c, d),
+        triple(e, a * e, f),
+
+        triple(a, 1, 0),
+        triple(a, 1, b),
+        triple(a * c, c, d),
+        triple(a * e, e, f),
+
+        triple(0, 1, 0),
+        triple(0, 1, b),
+        triple(0, c, d),
+        triple(0, e, f)
+    };
+
+    std::array<triple, 10> triangleOctant {
+        triple(e, 0, f),
+        triple(e, a * e, f),
+        triple(g, 0, h),
+        triple(a * e, e, f),
+
+        triple(i, i, 1),
+        triple(0.05 * a, 0, 1),
+        triple(0, e, f),
+        triple(0, g, h),
+
+        triple(0, 0.05 * a, 1),
+        triple(0, 0, 1)
+    };
+
+    double rx, ry, rz;
+
+    Align A(center, dir);
+
+    int s;
+    double z;
+    std::function<triple(const triple&)> t;
+
+    if(dir) {
+        s = 1;
+        z = 0;
+        t = [&](const TRIPLE& v) { return A.T(v); };
+    } else {
+        s = -1;
+        z = -r;
+        t = [&](const TRIPLE& v) { return A.T0(v); };
+    }
+
+    auto TPatch = [&](const std::array<triple, 16>& V) {
+        std::array<TRIPLE, 16> p{ };
+
+        for(size_t i = 0; i < V.size(); ++i) {
+            const TRIPLE& v = V[i];
+            p[i] = t(TRIPLE(rx * v.x, ry * v.y, rz * v.z));
+        }
+
+        return p;
+    };
+
+    auto TTriangle = [&](const std::array<triple, 10>& V) {
+        std::array<TRIPLE, 10> p{ };
+
+        for(size_t i = 0; i < V.size(); ++i) {
+            const TRIPLE& v = V[i];
+            p[i] = t(TRIPLE(rx * v.x, ry * v.y, rz * v.z));
+        }
+
+        return p;
+    };
+
+    for(int ix = -1; ix <= 1; ix += 2) {
+        rx = ix * r;
+        for(int iy = -1; iy <= 1; iy += 2) {
+            ry = iy * r;
+            for(int iz = s; iz <= 1; iz += 2) {
+                rz = iz * r;
+                V3dBezierPatch patch{ TPatch(patchOctant), centerIndex, materialIndex };
+                patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+
+                V3dBezierTriangle triangle{ TTriangle(triangleOctant), centerIndex, materialIndex };
+                triangle.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+            }
+        }
+    }
+}
+
 void V3dSphere::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dSphere cannot queue" << std::endl;
-    return;
+    triple* dir = nullptr;
+    double r = radius;
+    
+    sphere(center, r, dir, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, centerIndex, materialIndex);
 }
 
 
