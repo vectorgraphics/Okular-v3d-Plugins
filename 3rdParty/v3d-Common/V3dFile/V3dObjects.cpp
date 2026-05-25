@@ -707,8 +707,22 @@ V3dHemiSphere::V3dHemiSphere(
     }
 
 void V3dHemiSphere::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dHemiSphere cannot queue" << std::endl;
-    return;
+    glm::vec3 glmDir;
+
+    glmDir.x = glm::cos(polarAngle) * glm::cos(azimuthalAngle);
+    glmDir.y = glm::sin(polarAngle);
+    glmDir.z = glm::cos(polarAngle) * glm::sin(azimuthalAngle);
+
+    glmDir = glm::normalize(glmDir);
+
+    glm::mat4 rot = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::vec4 newDir = rot * glm::vec4(glmDir, 1.0f);
+
+    triple direction{ newDir.x, newDir.y, newDir.z };
+    // triple direction{ 0.0, 1.0, 0.0 };
+    double r = radius;
+    
+    sphere(center, r, &direction, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, centerIndex, materialIndex);
 }
 
 
