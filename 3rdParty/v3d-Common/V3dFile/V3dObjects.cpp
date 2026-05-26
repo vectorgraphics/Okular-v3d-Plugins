@@ -713,6 +713,60 @@ void V3dHemiSphere::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBo
     sphere(center, r, &direction, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, centerIndex, materialIndex);
 }
 
+void disk(
+    triple center,
+    double r,
+    UINT centerIndex,
+    UINT materialIndex,
+    triple* dir,
+    bool core,
+    int imageWidth, 
+    int imageHeight, 
+    triple sceneMinBound, 
+    triple sceneMaxBound, 
+    bool remesh,
+    bool orthographic
+) {
+    double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
+    double b=1.0-2.0*a/3.0;
+
+    std::array<triple, 16> unitdisk={
+        triple{1,0,0},
+        triple{1,-a,0},
+        triple{a,-1,0},
+        triple{0,-1,0},
+
+        triple{1,a,0},
+        triple{b,0,0},
+        triple{0,-b,0},
+        triple{-a,-1,0},
+
+        triple{a,1,0},
+        triple{0,b,0},
+        triple{-b,0,0},
+        triple{-1,-a,0},
+
+        triple{0,1,0},
+        triple{-a,1,0},
+        triple{-1,a,0},
+        triple{-1,0,0}
+    };
+
+    Align A{center,dir};
+
+    auto TPatch = [&](const std::array<triple, 16>& V) {
+        std::array<glm::vec3, 16> p{ };
+        for(int i=0; i < V.size(); ++i) {
+            const glm::vec3& v=V[i];
+            p[i]=A.T(glm::vec3{r*v.x, r*v.y, 0.0});
+        }
+        return p;
+    };
+
+    V3dBezierPatch patch{ TPatch(unitdisk), centerIndex, materialIndex };
+    patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+}
+
 
 V3dDisk::V3dDisk(
     xdr::ixstream& xdrFile, 
@@ -732,8 +786,9 @@ V3dDisk::V3dDisk(
     }
 
 void V3dDisk::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dDisk cannot queue" << std::endl;
-    return;
+    triple direction{ polarAngle, azimuthalAngle, 0.0 };
+
+    disk(center, radius, centerIndex, materialIndex, &direction, false, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
 }
 
 void cylinder(
