@@ -707,19 +707,7 @@ V3dHemiSphere::V3dHemiSphere(
     }
 
 void V3dHemiSphere::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    glm::vec3 glmDir;
-
-    glmDir.x = glm::cos(polarAngle) * glm::cos(azimuthalAngle);
-    glmDir.y = glm::sin(polarAngle);
-    glmDir.z = glm::cos(polarAngle) * glm::sin(azimuthalAngle);
-
-    glmDir = glm::normalize(glmDir);
-
-    glm::mat4 rot = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-    glm::vec4 newDir = rot * glm::vec4(glmDir, 1.0f);
-
-    triple direction{ newDir.x, newDir.y, newDir.z };
-    // triple direction{ 0.0, 1.0, 0.0 };
+    triple direction{ polarAngle, azimuthalAngle, 0.0 };
     double r = radius;
     
     sphere(center, r, &direction, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, centerIndex, materialIndex);
@@ -748,6 +736,82 @@ void V3dDisk::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, t
     return;
 }
 
+void cylinder(
+    triple center,
+    double r,
+    double h,
+    UINT centerIndex,
+    UINT materialIndex,
+    triple* dir,
+    bool core,
+    int imageWidth, 
+    int imageHeight, 
+    triple sceneMinBound, 
+    triple sceneMaxBound, 
+    bool remesh, 
+    bool orthographic
+) {
+    double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
+
+    std::array<triple, 16> unitcylinder = {
+        triple{1,0,0},
+        triple{1,0,1/3},
+        triple{1,0,2/3},
+        triple{1,0,1},
+
+        triple{1,a,0},
+        triple{1,a,1/3},
+        triple{1,a,2/3},
+        triple{1,a,1},
+
+        triple{a,1,0},
+        triple{a,1,1/3},
+        triple{a,1,2/3},
+        triple{a,1,1},
+
+        triple{0,1,0},
+        triple{0,1,1/3},
+        triple{0,1,2/3},
+        triple{0,1,1}
+    };
+
+    double rx,ry,rz;
+    Align A{center,dir};
+
+    std::function<triple(const triple&)> t = [&](const triple& v) { return A.T(v); };
+
+    for(int i=-1; i <= 1; i += 2) {
+        rx=i*r;
+        for(int j=-1; j <= 1; j += 2) {
+            ry=j*r;
+            auto TPatch = [&](const std::array<triple, 16>& V) {
+                std::array<glm::vec3, 16> p{ };
+
+                for(size_t i = 0; i < V.size(); ++i) {
+                    const glm::vec3& v = V[i];
+                    p[i] = t(glm::vec3(rx * v.x, ry * v.y, h * v.z));
+                }
+
+                return p;
+            };
+
+            V3dBezierPatch patch{ TPatch(unitcylinder), centerIndex, materialIndex };
+            patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+        }
+    }
+
+    if(core) {
+        triple Center=A.T(triple{0,0,h});
+        std::array<glm::vec3, 4> curveControlPoints = {
+            glm::vec3{ center.getx(), center.gety(), center.getz() },
+            glm::vec3{ Center.getx(), Center.gety(), Center.getz() }
+        };
+
+        V3dBezierCurve curve{ curveControlPoints, centerIndex, materialIndex };
+        curve.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+    }
+}
+
 
 V3dCylinder::V3dCylinder(
     xdr::ixstream& xdrFile, 
@@ -769,8 +833,10 @@ V3dCylinder::V3dCylinder(
     }
 
 void V3dCylinder::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dCylinder cannot queue" << std::endl;
-    return;
+    double r = radius;
+    triple direction{ polarAngle, azimuthalAngle, 0.0 };
+
+    cylinder(center, radius, height, centerIndex, materialIndex, &direction, false, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
 }
 
 
@@ -807,6 +873,14 @@ V3dBezierCurve::V3dBezierCurve(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision)
 
     xdrFile >> centerIndex;
     xdrFile >> materialIndex;
+}
+
+V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerIndex, UINT materialIndex) 
+    : V3dObject{ ObjectTypes::CURVE } 
+    , controlPoints{ controlPoints }
+    , centerIndex{ centerIndex }
+    , materialIndex{ materialIndex } {
+
 }
 
 void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {

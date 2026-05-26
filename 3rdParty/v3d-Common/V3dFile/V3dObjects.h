@@ -295,6 +295,7 @@ public:
     V3dBezierCurve(
         xdr::ixstream& xdrFile, 
         V3D_BOOL doublePrecision);
+    V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerIndex, UINT materialIndex);
     ~V3dBezierCurve() override = default;
 
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
