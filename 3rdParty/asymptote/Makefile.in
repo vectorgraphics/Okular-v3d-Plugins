@@ -71,7 +71,7 @@ COREFILES = $(CAMP) $(SYMBOL_FILES) $(PRC) $(TINYEXR_FILES) \
 	EXRFiles lspserv symbolmaps win32helpers win32pipestream \
 	win32xdr xstream \
 	lspdec lspexp lspfundec lspstm \
-	hashing random rendererloader webglrender
+	hashing random rendererloader norender
 
 FILES = $(COREFILES) main
 
@@ -151,7 +151,7 @@ ifeq ($(usinggit),yes)
 	revision = $(shell LC_ALL="C" git describe --long | \
 	sed -e 's/git-\([0-9]*\)-g.*/-\1/' | sed -e 's/-0-g.*//')
 endif
-ifeq ($(revision),"")
+ifeq ($(revision),)
 	revision = @VERSION@
 endif
 
