@@ -11,7 +11,7 @@ layout(location=0) in vec3 inPosition;
 layout(location=1) in vec3 inNormal;
 // #endif
 // #ifdef MATERIAL
-// layout(location=2) in int inMaterial;
+layout(location=2) in int inMaterial;
 // #endif
 // #ifdef COLOR
 // layout(location=3) in vec4 inColor;

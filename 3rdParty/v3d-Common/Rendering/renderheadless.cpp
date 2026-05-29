@@ -704,13 +704,16 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	// Vertex bindings an attributes
 	// Binding description
 	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
-		vks::initializers::vertexInputBindingDescription(0, (3 * sizeof(float)) + (3 * sizeof(float)), VK_VERTEX_INPUT_RATE_VERTEX),
+		vks::initializers::vertexInputBindingDescription(0, (3 * sizeof(float)) + (3 * sizeof(float))
+		+ (1 * sizeof(int))
+		, VK_VERTEX_INPUT_RATE_VERTEX),
 	};
 
 	// Attribute descriptions
 	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
 		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 					// Position
-		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3)		// Normal
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),		// Normal
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32G32B32_SINT, sizeof(float) * 6)		// Material Index
 	};
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
@@ -1034,6 +1037,7 @@ unsigned char* HeadlessRenderer::render(
 	ubo.viewMat = view;
 	ubo.normMat = glm::inverse(view);
 
+	// TODO switch to "or" instead of "and"
 	if (cachedUbo.projViewMat != ubo.projViewMat && cachedUbo.viewMat != ubo.viewMat && cachedUbo.normMat != ubo.normMat) {
 		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
 	}

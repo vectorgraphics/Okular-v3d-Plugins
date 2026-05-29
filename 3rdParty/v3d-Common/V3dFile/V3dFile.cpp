@@ -333,6 +333,8 @@ Mesh V3dFile::GetMesh() {
         vertices.push_back(materialVertex.normal.x);
         vertices.push_back(materialVertex.normal.y);
         vertices.push_back(materialVertex.normal.z);
+
+        vertices.push_back(materialVertex.material);
     }
 
     if (materialData.indices.empty() || vertices.empty()) {
