@@ -947,7 +947,14 @@ void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
 	m_IndexCount = mesh.indices.size();
 }
 
-unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, const glm::mat4& view, const glm::mat4& proj, const std::vector<V3dMaterial>& materials, const std::vector<V3dHeaderInfo::Light>& lights) {
+unsigned char* HeadlessRenderer::render(
+	glm::ivec2 targetSize, 
+	VkSubresourceLayout* imageSubresourceLayout, 
+	const glm::mat4& view, 
+	const glm::mat4& proj, 
+	const std::vector<V3dMaterial>& materials, 
+	const std::vector<V3dHeaderInfo::Light>& lights
+) {
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
@@ -986,22 +993,25 @@ unsigned char* HeadlessRenderer::render(glm::ivec2 targetSize, VkSubresourceLayo
 
 		createUniformBuffer();
 		// TODO potentially move
-		std::vector<GPUMaterial> mats(1);
+		std::vector<GPUMaterial> mats(materials.size());
+		int i = 0;
+		for (auto& mat : materials) {
+			// TODO check order of rgb
+			mats[i].diffuse.r  = mat.diffuse.b;
+			mats[i].diffuse.g  = mat.diffuse.g;
+			mats[i].diffuse.b  = mat.diffuse.r;
+			mats[i].diffuse.a  = mat.diffuse.a;
 
-		// TODO check order of rgb
-		mats[0].diffuse.r  = materials[0].diffuse.b;
-		mats[0].diffuse.g  = materials[0].diffuse.g;
-		mats[0].diffuse.b  = materials[0].diffuse.r;
-		mats[0].diffuse.a  = materials[0].diffuse.a;
-
-		mats[0].emissive   = materials[0].emissive;
-		mats[0].specular   = materials[0].specular;
-		mats[0].parameters = glm::vec4(
-			materials[0].shininess,   // roughness
-			materials[0].metallic,    // metallic
-			materials[0].fresnel0,    // fresnel
-			0.0f
-		);
+			mats[i].emissive   = mat.emissive;
+			mats[i].specular   = mat.specular;
+			mats[i].parameters = glm::vec4(
+				mat.shininess,   // roughness
+				mat.metallic,    // metallic
+				mat.fresnel0,    // fresnel
+				0.0f
+			);
+			++i;
+		}
 
 		createMaterialBuffer(mats);
 
