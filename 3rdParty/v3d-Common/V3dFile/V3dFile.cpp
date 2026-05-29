@@ -12,7 +12,7 @@
 #include "rgba.h"
 #include "bezierpatch.h"
 
-// #define printObjectTypes
+#define printObjectTypes
 
 #ifdef printObjectTypes
     #define PRINT_OBJECT_TYPE(t) std::cout << #t << std::endl

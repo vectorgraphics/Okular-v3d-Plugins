@@ -894,6 +894,203 @@ void V3dCylinder::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBoun
     cylinder(center, radius, height, centerIndex, materialIndex, &direction, false, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
 }
 
+class Rmf {
+public:
+    triple r;
+    triple s;
+    triple p;
+    triple t;
+
+    Rmf(triple p = triple{}, triple r = triple{}, triple t = triple{}) 
+        : p{ p }, r{ r }, t{ t } {
+        s = cross(t, r);
+    }
+};
+
+std::vector<Rmf> rmf(triple z0,triple c0,triple c1,triple z1,std::vector<double> t) {
+    // Return a unit vector perpendicular to a given unit vector v.
+    auto perp = [&](triple v){
+        triple u=cross(v,triple{0.0,1.0,0.0});
+        double norm=std::numeric_limits<double>::epsilon()*abs2(v);
+        if(abs2(u) > norm) return unit(u);
+        u=cross(v,triple{0,0,1});
+        return (abs2(u) > norm) ? unit(u) : triple{1,0,0};
+    };
+
+    double norm=std::numeric_limits<double>::epsilon()*glm::max(glm::max(glm::max(abs2(z0),abs2(c0)),abs2(c1)),abs2(z1));
+
+    // Special case of dir for t in (0,1].
+    auto d = [&](double t) {
+        if(t == 1) {
+            triple dir{z1.getx()-c1.getx(),
+                    z1.gety()-c1.gety(),
+                    z1.getz()-c1.getz()};
+            if(abs2(dir) > norm) return unit(dir);
+            dir=triple{2*c1.getx()-c0.getx()-z1.getx(),
+                2*c1.gety()-c0.gety()-z1.gety(),
+                2*c1.getz()-c0.getz()-z1.getz()};
+            if(abs2(dir) > norm) return unit(dir);
+            return triple{z1.getx()-z0.getx()+3*(c0.getx()-c1.getx()),
+                    z1.gety()-z0.gety()+3*(c0.gety()-c1.gety()),
+                    z1.getz()-z0.getz()+3*(c0.getz()-c1.getz())};
+        }
+        triple a{z1.getx()-z0.getx()+3*(c0.getx()-c1.getx()),
+            z1.gety()-z0.gety()+3*(c0.gety()-c1.gety()),
+            z1.getz()-z0.getz()+3*(c0.getz()-c1.getz())};
+        triple b{2*(z0.getx()+c1.getx())-4*c0.getx(),
+            2*(z0.gety()+c1.gety())-4*c0.gety(),
+            2*(z0.getz()+c1.getz())-4*c0.getz()};
+        triple c{c0.getx()-z0.getx(),c0.gety()-z0.gety(),c0.getz()-z0.getz()};
+        double t2=t*t;
+        triple dir{a.getx()*t2+b.getx()*t+c.getx(),
+                a.gety()*t2+b.gety()*t+c.gety(),
+                a.getz()*t2+b.getz()*t+c.getz()};
+        if(abs2(dir) > norm) return unit(dir);
+        t2=2*t;
+        dir=triple{a.getx()*t2+b.getx(),
+            a.gety()*t2+b.gety(),
+            a.getz()*t2+b.getz()};
+        if(abs2(dir) > norm) return unit(dir);
+        return unit(a);
+    };
+
+    std::vector<Rmf> R{t.size()};
+    triple T{c0.getx()-z0.getx(),
+            c0.gety()-z0.gety(),
+            c0.getz()-z0.getz()};
+    if(abs2(T) < norm) {
+        T=triple{z0.getx()-2*c0.getx()+c1.getx(),
+        z0.gety()-2*c0.gety()+c1.gety(),
+        z0.getz()-2*c0.getz()+c1.getz()};
+        if(abs2(T) < norm)
+        T=triple{z1.getx()-z0.getx()+3*(c0.getx()-c1.getx()),
+            z1.gety()-z0.gety()+3*(c0.gety()-c1.gety()),
+            z1.getz()-z0.getz()+3*(c0.getz()-c1.getz())};
+    }
+    T=unit(T);
+    triple Tp=perp(T);
+    R[0]=Rmf{z0,Tp,T};
+    for(int i=1; i < t.size(); ++i) {
+        Rmf Ri=R[i-1];
+        double s=t[i];
+        double onemt=1-s;
+        double onemt2=onemt*onemt;
+        double onemt3=onemt2*onemt;
+        double s3=3*s;
+        onemt2 *= s3;
+        onemt *= s3*s;
+        double t3=s*s*s;
+        triple p{
+            onemt3*z0.getx()+onemt2*c0.getx()+onemt*c1.getx()+t3*z1.getx(),
+            onemt3*z0.gety()+onemt2*c0.gety()+onemt*c1.gety()+t3*z1.gety(),
+            onemt3*z0.getz()+onemt2*c0.getz()+onemt*c1.getz()+t3*z1.getz()};
+        triple v1{p.getx()-Ri.p.getx(),p.gety()-Ri.p.gety(),p.getz()-Ri.p.getz()};
+        if(v1.getx() != 0 || v1.gety() != 0 || v1.getz() != 0) {
+            triple r=Ri.r;
+            triple u1=unit(v1);
+            triple ti=Ri.t;
+            double dotu1ti=dot(u1,ti);
+            triple tp=triple{ti.getx()-2*dotu1ti*u1.getx(),
+                    ti.gety()-2*dotu1ti*u1.gety(),
+                    ti.getz()-2*dotu1ti*u1.getz()};
+            ti=d(s);
+            double dotu1r2=2*dot(u1,r);
+            triple rp{r.getx()-dotu1r2*u1.getx(),r.gety()-dotu1r2*u1.gety(),r.getz()-dotu1r2*u1.getz()};
+            triple u2=unit(triple{ti.getx()-tp.getx(),ti.gety()-tp.gety(),ti.getz()-tp.getz()});
+            double dotu2rp2=2*dot(u2,rp);
+            rp=triple{rp.getx()-dotu2rp2*u2.getx(),rp.gety()-dotu2rp2*u2.gety(),rp.getz()-dotu2rp2*u2.getz()};
+            R[i]=Rmf{p,unit(rp),unit(ti)};
+        } else
+            R[i]=R[i-1];
+    }
+    return R;
+}
+
+// draw a tube of width w using control points v
+void tube(
+    std::array<triple, 4> v,
+    double w,
+    UINT centerIndex,
+    UINT materialIndex,
+    bool core,
+    int imageWidth, 
+    int imageHeight, 
+    triple sceneMinBound, 
+    triple sceneMaxBound, 
+    bool remesh, 
+    bool orthographic
+) {
+
+    std::vector<Rmf> r=rmf(v[0],v[1],v[2],v[3],std::vector<double>{0.0,1.0/3.0,2.0/3.0,1.0});
+
+    double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
+    double aw=a*w;
+    std::array<triple, 4> arc={triple{w,0,0},triple{w,aw,0},triple{aw,w,0},triple{0,w,0}};
+
+    auto f = [&](double a,double b,double c,double d) {
+        std::array<triple, 16> s={};
+        for(int i=0; i < 4; ++i) {
+            Rmf R{r[i]};
+
+            double R0=R.r.getx(), R1=R.s.getx();
+            double T0=R0*a+R1*b;
+            double T1=R0*c+R1*d;
+
+            R0=R.r.gety(); R1=R.s.gety();
+            double T4=R0*a+R1*b;
+            double T5=R0*c+R1*d;
+
+            R0=R.r.getz(); R1=R.s.getz();
+            double T8=R0*a+R1*b;
+            double T9=R0*c+R1*d;
+
+            triple w=v[i];
+            double w0=w.getx(), w1=w.gety(), w2=w.getz();
+            for(int j=0; j < 4; ++j) {
+                triple u=arc[j];
+                double x=u.getx(), y=u.gety();
+                s[4*i+j]=triple{T0*x+T1*y+w0,
+                        T4*x+T5*y+w1,
+                        T8*x+T9*y+w2};
+            }
+        }
+        // P.push(new BezierPatch(s,CenterIndex,MaterialIndex));
+
+        auto Convert = [&](std::array<triple, 16> controlPoints) {
+            std::array<TRIPLE, 16> newControlPoints;
+            for (int i = 0; i < 16; ++i) {
+                newControlPoints[i] = TRIPLE{ 
+                    controlPoints[i].getx(),
+                    controlPoints[i].gety(),
+                    controlPoints[i].getz()
+                };
+            }
+
+            return newControlPoints;
+        };
+
+        V3dBezierPatch patch{ Convert(s), centerIndex, materialIndex };
+        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+
+    };
+
+    f(1.0,0.0,0.0,1.0);
+    f(0.0,-1.0,1.0,0.0);
+    f(-1.0,0.0,0.0,-1.0);
+    f(0.0,1.0,-1.0,0.0);
+
+    if(core) {
+        std::array<glm::vec3, 4> curveControlPoints = {
+            glm::vec3{ v[0].getx(), v[0].gety(), v[0].getz() },
+            glm::vec3{ v[1].getx(), v[1].gety(), v[1].getz() },
+            glm::vec3{ v[2].getx(), v[2].gety(), v[2].getz() },
+            glm::vec3{ v[3].getx(), v[3].gety(), v[3].getz() }
+        };
+
+        V3dBezierCurve curve{ curveControlPoints, centerIndex, materialIndex };
+        curve.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+    }
+}
 
 V3dTube::V3dTube(
     xdr::ixstream& xdrFile, 
@@ -913,8 +1110,14 @@ V3dTube::V3dTube(
     }
 
 void V3dTube::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    std::cout << "V3dTube cannot queue" << std::endl;
-    return;
+    std::array<triple, 4> v = {
+        triple{ controlPoints[0].x, controlPoints[0].y, controlPoints[0].z },
+        triple{ controlPoints[1].x, controlPoints[1].y, controlPoints[1].z },
+        triple{ controlPoints[2].x, controlPoints[2].y, controlPoints[2].z },
+        triple{ controlPoints[3].x, controlPoints[3].y, controlPoints[3].z },
+    };
+
+    tube(v, width, centerIndex, materialIndex, core, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
 }
 
 
