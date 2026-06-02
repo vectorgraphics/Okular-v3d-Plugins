@@ -3,6 +3,6 @@
 #include <vector>
 
 struct Mesh {
-    std::vector<float> vertices{ };
+    std::vector<unsigned char> vertices{ };
     std::vector<unsigned int> indices{ };
 };

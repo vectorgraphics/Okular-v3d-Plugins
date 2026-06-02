@@ -253,8 +253,8 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 	VK_CHECK_RESULT(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
 }
 
-void HeadlessRenderer::copyVertexDataToGPU(const std::vector<float>& vertices) {
-	const VkDeviceSize vertexBufferSize = vertices.size() * sizeof(float);
+void HeadlessRenderer::copyDataToGPU(const std::vector<unsigned char>& data, VkBuffer& buffer, VkDeviceMemory& deviceMemory) {
+	const VkDeviceSize dataSize = data.size() * sizeof(unsigned char);
 
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingMemory;
@@ -270,23 +270,22 @@ void HeadlessRenderer::copyVertexDataToGPU(const std::vector<float>& vertices) {
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		&stagingBuffer,
 		&stagingMemory,
-		vertexBufferSize,
-		(void*)vertices.data()
+		dataSize,
+		(void*)data.data()
 	);
 
-	meshInitialized = true;
 	createBuffer(
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		&vertexBuffer,
-		&vertexMemory,
-		vertexBufferSize
+		&buffer,
+		&deviceMemory,
+		dataSize
 	);
 
 	VK_CHECK_RESULT(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
 	VkBufferCopy copyRegion = {};
-	copyRegion.size = vertexBufferSize;
-	vkCmdCopyBuffer(copyCmd, stagingBuffer, vertexBuffer, 1, &copyRegion);
+	copyRegion.size = dataSize;
+	vkCmdCopyBuffer(copyCmd, stagingBuffer, buffer, 1, &copyRegion);
 	VK_CHECK_RESULT(vkEndCommandBuffer(copyCmd));
 
 	submitWork(copyCmd, queue);
@@ -294,6 +293,7 @@ void HeadlessRenderer::copyVertexDataToGPU(const std::vector<float>& vertices) {
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingMemory, nullptr);	
 }
+
 
 void HeadlessRenderer::copyIndexDataToGPU(const std::vector<unsigned int>& indices) {
 	const VkDeviceSize indexBufferSize = indices.size() * sizeof(unsigned int);
@@ -711,7 +711,7 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
 		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 					// Position
 		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),	// Normal
-		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32G32B32_SINT, sizeof(float) * 6)		// Material Index
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float) * 6)		// Material Index
 	};
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
@@ -942,7 +942,7 @@ void HeadlessRenderer::cleanup() {
 }
 
 void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
-	copyVertexDataToGPU(mesh.vertices);
+	copyDataToGPU(mesh.vertices, vertexBuffer, vertexMemory);
 	copyIndexDataToGPU(mesh.indices);
 
 	m_IndexCount = mesh.indices.size();

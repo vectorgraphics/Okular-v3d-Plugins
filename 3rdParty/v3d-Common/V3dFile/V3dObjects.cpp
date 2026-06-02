@@ -33,6 +33,8 @@ V3dBezierPatch::V3dBezierPatch(std::array<TRIPLE, 16> controlPoints, UINT center
 
 
 void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
         triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
@@ -113,6 +115,8 @@ V3dBezierTriangle::V3dBezierTriangle(std::array<TRIPLE, 10> controlPoints, UINT 
     , materialIndex{ materialIndex } { }
 
 void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
         triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
@@ -187,6 +191,8 @@ V3dBezierPatchWithCornerColors::V3dBezierPatchWithCornerColors(
     }
 
 void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dBezierPatchWithCornerColors cannot queue" << std::endl;
     return;
 }
@@ -214,6 +220,8 @@ V3dBezierTriangleWithCornerColors::V3dBezierTriangleWithCornerColors(
     }
 
 void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dBezierTriangleWithCornerColors cannot queue" << std::endl;
     return;
 }
@@ -268,6 +276,8 @@ V3dStraightPlanarQuad::V3dStraightPlanarQuad(
 // }
 
 void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dStraightPlanarQuad cannot queue" << std::endl;
     return;
 }
@@ -321,6 +331,8 @@ V3dStraightTriangle::V3dStraightTriangle(
 // }
 
 void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dStraightTriangle cannot queue" << std::endl;
     return;
 }
@@ -348,6 +360,8 @@ V3dStraightPlanarQuadWithCornerColors::V3dStraightPlanarQuadWithCornerColors(
     }
 
 void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dStraightPlanarQuadWithCornerColors cannot queue" << std::endl;
     return;
 }
@@ -375,6 +389,8 @@ V3dStraightTriangleWithCornerColors::V3dStraightTriangleWithCornerColors(
     }
 
 void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dStraightTriangleWithCornerColors cannot queue" << std::endl;
     return;
 }
@@ -451,6 +467,8 @@ V3dTriangleGroup::V3dTriangleGroup(
     }
 
 void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::vector<MaterialVertex> matVertices;
 
     std::vector<TRIPLE> vertices;
@@ -681,6 +699,8 @@ void sphere(
 }
 
 void V3dSphere::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     triple* dir = nullptr;
     double r = radius;
     
@@ -707,6 +727,8 @@ V3dHemiSphere::V3dHemiSphere(
     }
 
 void V3dHemiSphere::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     triple direction{ polarAngle, azimuthalAngle, 0.0 };
     double r = radius;
     
@@ -786,6 +808,8 @@ V3dDisk::V3dDisk(
     }
 
 void V3dDisk::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     triple direction{ polarAngle, azimuthalAngle, 0.0 };
 
     disk(center, radius, centerIndex, materialIndex, &direction, false, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
@@ -888,6 +912,8 @@ V3dCylinder::V3dCylinder(
     }
 
 void V3dCylinder::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     double r = radius;
     triple direction{ polarAngle, azimuthalAngle, 0.0 };
 
@@ -1110,6 +1136,8 @@ V3dTube::V3dTube(
     }
 
 void V3dTube::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::array<triple, 4> v = {
         triple{ controlPoints[0].x, controlPoints[0].y, controlPoints[0].z },
         triple{ controlPoints[1].x, controlPoints[1].y, controlPoints[1].z },
@@ -1142,6 +1170,8 @@ V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerI
 }
 
 void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     triple Controls[] = {
         triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
         triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
@@ -1202,6 +1232,8 @@ V3dLineSegment::V3dLineSegment(
     }
 
 void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dLineSegment cannot queue" << std::endl;
     return;
 }
@@ -1220,6 +1252,8 @@ V3dPixel::V3dPixel(
     }
 
 void V3dPixel::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+    camp::materialIndex = materialIndex;
+
     std::cout << "V3dPixel cannot queue" << std::endl;
     return;
 }

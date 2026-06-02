@@ -119,7 +119,7 @@ private:
 	void createPhysicalDevice();
 	VkDeviceQueueCreateInfo requestGraphicsQueue();
 	void createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateInfo);
-	void copyVertexDataToGPU(const std::vector<float>& vertices);
+	void copyDataToGPU(const std::vector<unsigned char>& data, VkBuffer& buffer, VkDeviceMemory& deviceMemory);
 	void copyIndexDataToGPU(const std::vector<unsigned int>& indices);
 	void createUniformBuffer();
 	void createMaterialBuffer(const std::vector<GPUMaterial>& materials);

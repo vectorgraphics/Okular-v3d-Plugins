@@ -39,7 +39,7 @@ void main()
 // #endif
 
 // #ifdef MATERIAL
-//   materialIndex=inMaterial;
+  materialIndex=inMaterial;
 // #endif
 // #ifdef COLOR
 //   color=inColor;

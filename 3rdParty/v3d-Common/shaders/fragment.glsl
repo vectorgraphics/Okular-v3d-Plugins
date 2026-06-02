@@ -229,7 +229,8 @@ void main() {
   nlights = 1;
 
   Light light = lights[0];
-  Material mat = materials[0];
+
+  Material mat = materials[materialIndex];
 
 // #ifdef GENERAL
 //   mat = materials[abs(materialIndex) - 1];

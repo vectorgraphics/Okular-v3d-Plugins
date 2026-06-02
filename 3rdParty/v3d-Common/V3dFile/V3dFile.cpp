@@ -323,25 +323,15 @@ Mesh V3dFile::GetMesh() {
     using namespace std;
     using namespace camp;
 
-    std::vector<float> vertices{ };
+    std::vector<unsigned char> vertices{ };
 
-    for (auto& materialVertex : materialData.materialVertices) {
-        vertices.push_back(materialVertex.position.x);
-        vertices.push_back(materialVertex.position.y);
-        vertices.push_back(materialVertex.position.z);
-
-        vertices.push_back(materialVertex.normal.x);
-        vertices.push_back(materialVertex.normal.y);
-        vertices.push_back(materialVertex.normal.z);
-
-        vertices.push_back(materialVertex.material);
-    }
+    vertices.resize(materialData.materialVertices.size() * (sizeof(float) * 6 + sizeof(int) * 1));
+    
+    std::memcpy((void*)vertices.data(), (void*)materialData.materialVertices.data(), vertices.size());
 
     if (materialData.indices.empty() || vertices.empty()) {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
 
-    std::vector<unsigned int> indices = materialData.indices;
-
-    return Mesh{ vertices, indices };
+    return Mesh{ vertices, materialData.indices };
 }
