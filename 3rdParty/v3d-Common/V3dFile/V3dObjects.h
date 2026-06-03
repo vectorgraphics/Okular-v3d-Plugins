@@ -272,6 +272,7 @@ public:
     UINT materialIndex;
     REAL polarAngle;
     REAL azimuthalAngle;
+    V3D_BOOL core;
 };
 
 class V3dTube : public V3dObject {

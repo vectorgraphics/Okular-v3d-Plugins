@@ -576,7 +576,7 @@ V3dSphere::V3dSphere(
         center.y = readReal(xdrFile, doublePrecision);
         center.z = readReal(xdrFile, doublePrecision);
 
-        xdrFile >> radius;
+        radius = readReal(xdrFile, doublePrecision);
 
         xdrFile >> centerIndex;
         xdrFile >> materialIndex;
@@ -909,6 +909,8 @@ V3dCylinder::V3dCylinder(
 
         polarAngle = readReal(xdrFile, doublePrecision);
         azimuthalAngle = readReal(xdrFile, doublePrecision);
+
+        xdrFile >> core;
     }
 
 void V3dCylinder::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
@@ -917,7 +919,7 @@ void V3dCylinder::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBoun
     double r = radius;
     triple direction{ polarAngle, azimuthalAngle, 0.0 };
 
-    cylinder(center, radius, height, centerIndex, materialIndex, &direction, false, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+    cylinder(center, radius, height, centerIndex, materialIndex, &direction, core, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
 }
 
 class Rmf {
