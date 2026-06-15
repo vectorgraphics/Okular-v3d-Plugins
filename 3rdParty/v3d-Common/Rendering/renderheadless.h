@@ -20,6 +20,7 @@
 #include "../V3dFile/Mesh.h"
 #include "../V3dFile/V3dObjects.h"
 #include "../V3dFile/V3dHeaderInfo.h"
+#include "Public/ShaderLang.h"
 
 #define DEBUG (!NDEBUG)
 
@@ -127,6 +128,7 @@ private:
 	void createDescriptorPool();
 	void createDescirptorSets();
 	void createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
+	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createDescriptorSetLayout();
 	void createGraphicsPipeline();

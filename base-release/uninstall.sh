@@ -14,15 +14,15 @@ rm ${UBUNTU}okularGenerator_v3d.so 2> /dev/null || \
 rm ${ARCH}okularGenerator_v3d.so 2> /dev/null || \
 echo "Could not find okularGenerator_v3d.so, was the plugin ever installed?"
 
-rm ${FEDORA}fragment.spv 2> /dev/null || \
-rm ${UBUNTU}fragment.spv 2> /dev/null || \
-rm ${ARCH}fragment.spv 2> /dev/null || \
-echo "Could not find fragment.spv, was the plugin ever installed?"
+rm ${FEDORA}fragment.glsl 2> /dev/null || \
+rm ${UBUNTU}fragment.glsl 2> /dev/null || \
+rm ${ARCH}fragment.glsl 2> /dev/null || \
+echo "Could not find fragment.glsl, was the plugin ever installed?"
 
-rm ${FEDORA}vertex.spv 2> /dev/null || \
-rm ${UBUNTU}vertex.spv 2> /dev/null || \
-rm ${ARCH}vertex.spv 2> /dev/null || \
-echo "Could not find vertex.spv, was the plugin ever installed?"
+rm ${FEDORA}vertex.glsl 2> /dev/null || \
+rm ${UBUNTU}vertex.glsl 2> /dev/null || \
+rm ${ARCH}vertex.glsl 2> /dev/null || \
+echo "Could not find vertex.glsl, was the plugin ever installed?"
 
 rm /usr/share/mime/packages/v3d-mime.xml 2> /dev/null || \
 echo "Could not find v3d-mime.xml, was the plugin ever installed?"

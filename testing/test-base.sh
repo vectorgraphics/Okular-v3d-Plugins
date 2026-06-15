@@ -71,16 +71,16 @@ testFunc() {
         rm -f ./home/okularGenerator_v3d.so
         rm -f ./home/okularGenerator_poppler.so
 
-        rm -f ./home/vertex.spv
-        rm -f ./home/fragment.spv
+        rm -f ./home/vertex.glsl
+        rm -f ./home/fragment.glsl
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_v3d.so ./home/
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/vertex.spv ./home/
+        cp ../../3rdParty/v3d-Common/shaders/vertex.glsl ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/fragment.spv ./home/
+        cp ../../3rdParty/v3d-Common/shaders/fragment.glsl ./home/
 
         cp -r ../../base-release/* ./home/
 
@@ -98,16 +98,16 @@ testFunc() {
         rm -f ./home/okularGenerator_v3d.so
         rm -f ./home/okularGenerator_poppler.so
 
-        rm -f ./home/vertex.spv
-        rm -f ./home/fragment.spv
+        rm -f ./home/vertex.glsl
+        rm -f ./home/fragment.glsl
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_v3d.so ./home/
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/vertex.spv ./home/
+        cp ../../3rdParty/v3d-Common/shaders/vertex.glsl ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/fragment.spv ./home/
+        cp ../../3rdParty/v3d-Common/shaders/fragment.glsl ./home/
 
         cp -r ../../base-release/* ./home/
 

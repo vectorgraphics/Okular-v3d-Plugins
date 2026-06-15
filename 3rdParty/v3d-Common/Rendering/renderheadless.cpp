@@ -14,6 +14,9 @@
 #include <iostream>
 
 #include "seconds.h"
+#include "SPIRV/GlslangToSpv.h"
+#define HAVE_VULKAN
+#include "shaderResources.h"
 
 #define VULKAN_DEBUG 1
 
@@ -641,6 +644,75 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 	VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
 }
 
+std::vector<char> readFile(const std::string& filename) {
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+	if (!file.is_open())
+		std::cout << "failed to open file " + filename << std::endl;
+
+	size_t fileSize = (size_t) file.tellg();
+	std::vector<char> buffer(fileSize);
+
+	file.seekg(0);
+	file.read(buffer.data(), fileSize);
+	file.close();
+
+	return buffer;
+}
+
+VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options) {
+	std::string header = "#version 450\n";
+
+	for (auto const & option: options) {
+		header += "#define " + option + "\n";
+	}
+	auto fileContents= readFile(filePath.c_str());
+	fileContents.emplace_back(0); // terminate string
+
+	std::vector<char> source(header.begin(), header.end());
+	source.insert(source.end(), fileContents.begin(), fileContents.end());
+
+	std::vector<const char*> const shaderSources {source.data()};
+	auto const res = getShaderResources();
+	auto const compileMessages = EShMessages(EShMsgSpvRules | EShMsgVulkanRules);
+	auto shader = glslang::TShader(lang);
+	glslang::TProgram program;
+	std::vector<std::uint32_t> spirv;
+
+	shader.setStrings(shaderSources.data(), shaderSources.size());
+
+	if (!shader.parse(&res, 100, false, compileMessages)) {
+		std::stringstream s(fileContents.data());
+		std::string line;
+		unsigned int k=0;
+		while(getline(s,line))
+			cerr << ++k << ": " << line << std::endl;
+		std::cout << "\n failed to parse "
+								+ filePath
+								+ ":\n" + shader.getInfoLog()
+								+ " " + shader.getInfoDebugLog() << std::endl;
+	}
+
+	program.addShader(&shader);
+
+	if (!program.link(compileMessages)) {
+		std::cout << "failed to link shader "
+								+ filePath
+								+ ": " + shader.getInfoLog() << std::endl;
+	}
+
+	glslang::GlslangToSpv(*program.getIntermediate(lang), spirv);
+
+	VkShaderModule shaderModule;
+	VkShaderModuleCreateInfo moduleCreateInfo{};
+	moduleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	moduleCreateInfo.codeSize = spirv.size() * sizeof(std::uint32_t);
+	moduleCreateInfo.pCode = spirv.data();
+
+	VK_CHECK_RESULT(vkCreateShaderModule(device, &moduleCreateInfo, NULL, &shaderModule));
+
+	return shaderModule;
+}
+
 void HeadlessRenderer::createGraphicsPipeline() {
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
 		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
@@ -729,8 +801,8 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-	shaderStages[0].module = vks::tools::loadShader((shaderPath + "vertex.spv").c_str(), device);
-	shaderStages[1].module = vks::tools::loadShader((shaderPath + "fragment.spv").c_str(), device);
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", std::vector<string>{ });
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", std::vector<string>{ });
 
 	shaderModules = { shaderStages[0].module, shaderStages[1].module };
 	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipeline));

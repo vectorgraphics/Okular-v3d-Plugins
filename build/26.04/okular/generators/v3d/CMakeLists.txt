@@ -13,6 +13,7 @@ include_directories(
     "../../../../../3rdParty/v3d-Common/"
     "../../core/"
     "/usr/include/tirpc" 
+    "/usr/include/glslang/"
 
     "../../../../../3rdParty/asymptote"
     "../../../../../3rdParty/asymptote/prc/include"
@@ -44,7 +45,7 @@ set(
 
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})
 
-target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan tirpc glfw)
+target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan tirpc glfw glslang SPIRV-Tools SPIRV-Tools-opt)
 
 add_compile_definitions(
     HAVE_LIBTIRPC

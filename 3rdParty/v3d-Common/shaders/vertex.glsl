@@ -1,5 +1,3 @@
-#version 450
-
 layout(binding=0) uniform UniformBufferObject {
     mat4 projViewMat;
     mat4 viewMat;

@@ -331,7 +331,15 @@ V3dStraightTriangle::V3dStraightTriangle(
 // }
 
 void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
-    camp::materialIndex = materialIndex;
+    glm::vec3 normal = glm::normalize(glm::cross(vertices[0], vertices[1]));
+
+    materialData.materialVertices.push_back(MaterialVertex{ vertices[0], normal, materialIndex });
+    materialData.materialVertices.push_back(MaterialVertex{ vertices[1], normal, materialIndex });
+    materialData.materialVertices.push_back(MaterialVertex{ vertices[2], normal, materialIndex });
+
+    materialData.indices.push_back(materialData.materialVertices.size() - 4);
+    materialData.indices.push_back(materialData.materialVertices.size() - 3);
+    materialData.indices.push_back(materialData.materialVertices.size() - 2);
 
     std::cout << "V3dStraightTriangle cannot queue" << std::endl;
     return;

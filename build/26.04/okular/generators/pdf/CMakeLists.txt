@@ -12,6 +12,7 @@ include_directories(
    "../../../../../3rdParty/v3d-Common/"
    "../../core/"
    "/usr/include/tirpc"
+   "/usr/include/glslang/"
 
    "../../../../../3rdParty/gzip-hpp/include"
    "../../../../../3rdParty/asymptote"
@@ -61,7 +62,7 @@ okular_add_generator(okularGenerator_poppler ${okularGenerator_poppler_PART_SRCS
 
 target_link_libraries(okularGenerator_poppler okularcore KF6::I18n KF6::Completion KF6::KIOWidgets Poppler::Qt6 Qt6::Xml
 # ========== begin v3d ==========
-vulkan tirpc z
+vulkan tirpc z glslang SPIRV-Tools SPIRV-Tools-opt
 # ========== end v3d ==========
 )
 

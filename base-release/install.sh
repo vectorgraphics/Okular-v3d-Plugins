@@ -23,15 +23,15 @@ install okularGenerator_v3d.so ${UBUNTU} 2> /dev/null || \
 install okularGenerator_v3d.so ${ARCH} 2> /dev/null || \
 echo "Could not find installation path for: okularGenerator_v3d.so"
 
-install fragment.spv ${FEDORA} 2> /dev/null || \
-install fragment.spv ${UBUNTU} 2> /dev/null || \
-install fragment.spv ${ARCH} 2> /dev/null || \
-echo "Could not find installation path for: fragment.spv"
+install fragment.glsl ${FEDORA} 2> /dev/null || \
+install fragment.glsl ${UBUNTU} 2> /dev/null || \
+install fragment.glsl ${ARCH} 2> /dev/null || \
+echo "Could not find installation path for: fragment.glsl"
 
-install vertex.spv ${FEDORA} 2> /dev/null || \
-install vertex.spv ${UBUNTU} 2> /dev/null || \
-install vertex.spv ${ARCH} 2> /dev/null || \
-echo "Could not find installation path for: vertex.spv"
+install vertex.glsl ${FEDORA} 2> /dev/null || \
+install vertex.glsl ${UBUNTU} 2> /dev/null || \
+install vertex.glsl ${ARCH} 2> /dev/null || \
+echo "Could not find installation path for: vertex.glsl"
 
 install v3d-mime.xml /usr/share/mime/packages 2> /dev/null || \
 echo "Could not find installation path for: v3d-mime.xml"
