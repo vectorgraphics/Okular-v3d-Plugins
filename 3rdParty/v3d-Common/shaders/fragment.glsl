@@ -59,39 +59,54 @@ layout(binding = 8, std430) buffer OpaqueDepthBuffer
   float opaqueDepth[];
 };
 
-// #ifdef GPUCOMPRESS
-// layout(binding=9, std430) buffer indexBuffer
-// {
-//   uint index[];
-// };
-// #define INDEX(pixel) index[pixel]
-// #else
+#ifdef GPUCOMPRESS
+layout(binding=9, std430) buffer indexBuffer
+{
+  uint index[];
+};
+#define INDEX(pixel) index[pixel]
+#else
 #define INDEX(pixel) pixel
-// #endif
+#endif
 
-layout(location = 0) in vec3 position;
+#ifdef NORMAL
 layout(location = 1) in vec3 viewPosition;
 layout(location = 2) in vec3 norm;
-layout(location = 3) in vec4 inColor;
-layout(location = 4) flat in int materialIndex;
+layout(location = 5) in vec4 diffuse;
+layout(location = 6) in vec3 specular;
+layout(location = 7) in vec3 params; // roughness, metallic, fresnel0
+layout(location = 8) in vec4 emissive;
+#endif
 
-layout(push_constant) uniform PushConstants
-{
-	uvec4 constants;
-  vec4 background;
-  // constants[0] = nlights
-  // constants[1] = width;
-} push;
-
-layout(location = 0) out vec4 outColor;
-
-vec3 Emissive;
+// PBR material parameters (used by BRDF functions)
 vec3 Diffuse;
 vec3 Specular;
 float Metallic;
 float Fresnel0;
 float Roughness2;
 float Roughness;
+
+layout(location = 0) in vec3 position;
+
+#ifdef MATERIAL
+layout(location = 4) flat in int materialIndex;
+#endif
+
+layout(push_constant) uniform PushConstants
+{
+	uvec4 constants;
+  // constants[0] = nlights
+  // constants[1] = width;
+  vec4 background;
+} push;
+
+#ifdef TRANSPARENT
+vec4 outColor;
+#else
+layout(location = 0) out vec4 outColor;
+#endif
+
+vec3 Emissive;
 
 vec3 normal;
 
@@ -110,64 +125,64 @@ vec3 linearToPerceptual(vec3 inColor)
   return pow(inColor, vec3(invGamma));
 }
 
-// #ifdef USE_IBL
-//
-// layout(binding=11) uniform sampler2D diffuseSampler;
-// layout(binding=12) uniform sampler2D reflBRDFSampler;
-// layout(binding=13) uniform sampler3D reflImgSampler;
-//
-// const float pi=acos(-1.0);
-// const float piInv=1.0/pi;
-// const float twopi=2.0*pi;
-// const float twopiInv=1.0/twopi;
-//
-// // (x,y,z) -> (r,theta,phi);
-// // theta -> [0,pi]: colatitude
-// // phi -> [-pi,pi]: longitude
-// vec3 cart2sphere(vec3 cart)
-// {
-//   float x=cart.x;
-//   float y=cart.z;
-//   float z=cart.y;
-//
-//   float r=length(cart);
-//   float theta=r > 0.0 ? acos(z/r) : 0.0;
-//   float phi=atan(y,x);
-//
-//   return vec3(r,theta,phi);
-// }
-//
-// vec2 normalizedAngle(vec3 cartVec)
-// {
-//   vec3 sphericalVec=cart2sphere(cartVec);
-//   sphericalVec.y=sphericalVec.y*piInv;
-//   sphericalVec.z=0.75-sphericalVec.z*twopiInv;
-//
-//   return sphericalVec.zy;
-// }
-//
-// vec3 IBLColor(vec3 viewDir)
-// {
-//   //
-//   // based on the split sum formula approximation
-//   // L(v)=\int_\Omega L(l)f(l,v) \cos \theta_l
-//   // which, by the split sum approiximation (assuming independence+GGX distrubition),
-//   // roughly equals (within a margin of error)
-//   // [\int_\Omega L(l)] * [\int_\Omega f(l,v) \cos \theta_l].
-//   // the first term is the reflectance irradiance integral
-//
-//   vec3 IBLDiffuse=Diffuse*texture(diffuseSampler,normalizedAngle(normal)).rgb;
-//   vec3 reflectVec=normalize(reflect(-viewDir,normal));
-//   vec2 reflCoord=normalizedAngle(reflectVec);
-//   vec3 IBLRefl=texture(reflImgSampler,vec3(reflCoord,Roughness)).rgb;
-//   vec2 IBLbrdf=texture(reflBRDFSampler,vec2(dot(normal,viewDir),Roughness)).rg;
-//   float specularMultiplier=Fresnel0*IBLbrdf.x+IBLbrdf.y;
-//   vec3 dielectric=IBLDiffuse+specularMultiplier*IBLRefl;
-//   vec3 metal=Diffuse*IBLRefl;
-//   return mix(dielectric,metal,Metallic);
-// }
-//
-// #else
+#ifdef USE_IBL
+
+layout(binding=11) uniform sampler2D diffuseSampler;
+layout(binding=12) uniform sampler2D reflBRDFSampler;
+layout(binding=13) uniform sampler3D reflImgSampler;
+
+const float pi=acos(-1.0);
+const float piInv=1.0/pi;
+const float twopi=2.0*pi;
+const float twopiInv=1.0/twopi;
+
+// (x,y,z) -> (r,theta,phi);
+// theta -> [0,pi]: colatitude
+// phi -> [-pi,pi]: longitude
+vec3 cart2sphere(vec3 cart)
+{
+  float x=cart.x;
+  float y=cart.z;
+  float z=cart.y;
+
+  float r=length(cart);
+  float theta=r > 0.0 ? acos(z/r) : 0.0;
+  float phi=atan(y,x);
+
+  return vec3(r,theta,phi);
+}
+
+vec2 normalizedAngle(vec3 cartVec)
+{
+  vec3 sphericalVec=cart2sphere(cartVec);
+  sphericalVec.y=sphericalVec.y*piInv;
+  sphericalVec.z=0.75-sphericalVec.z*twopiInv;
+
+  return sphericalVec.zy;
+}
+
+vec3 IBLColor(vec3 viewDir)
+{
+  //
+  // based on the split sum formula approximation
+  // L(v)=\int_\Omega L(l)f(l,v) \cos \theta_l
+  // which, by the split sum approiximation (assuming independence+GGX distrubition),
+  // roughly equals (within a margin of error)
+  // [\int_\Omega L(l)] * [\int_\Omega f(l,v) \cos \theta_l].
+  // the first term is the reflectance irradiance integral
+
+  vec3 IBLDiffuse=Diffuse*texture(diffuseSampler,normalizedAngle(normal)).rgb;
+  vec3 reflectVec=normalize(reflect(-viewDir,normal));
+  vec2 reflCoord=normalizedAngle(reflectVec);
+  vec3 IBLRefl=texture(reflImgSampler,vec3(reflCoord,Roughness)).rgb;
+  vec2 IBLbrdf=texture(reflBRDFSampler,vec2(dot(normal,viewDir),Roughness)).rg;
+  float specularMultiplier=Fresnel0*IBLbrdf.x+IBLbrdf.y;
+  vec3 dielectric=IBLDiffuse+specularMultiplier*IBLRefl;
+  vec3 metal=Diffuse*IBLRefl;
+  return mix(dielectric,metal,Metallic);
+}
+
+#else
 
 float NDF_TRG(vec3 h)
 {
@@ -219,45 +234,20 @@ vec3 BRDF(vec3 viewDirection, vec3 lightDirection)
   return mix(dielectric,metal,Metallic);
 }
 
-// #endif
+#endif
 
 void main() {
+
   uint nlights = push.constants[0];
 
-  nlights = 1;
+#ifdef NORMAL
+  outColor = emissive;
 
-  Light light = lights[0];
-
-  Material mat = materials[materialIndex];
-
-// #ifdef GENERAL
-//   mat = materials[abs(materialIndex) - 1];
-//
-//   if (materialIndex < 0) {
-//     mat.diffuse = inColor;
-// // #ifdef NOLIGHTS
-// //       mat.emissive += inColor;
-// // #endif /*NOLIGHTS*/
-//   }
-//
-// #else
-
-//   mat = materials[materialIndex];
-
-// #ifdef COLOR
-//   mat.diffuse = inColor;
-// #endif /*COLOR*/
-// #endif /*GENERAL*/
-
-  outColor = mat.emissive;
-
-// #ifdef NORMAL
-
-  Diffuse = mat.diffuse.rgb;
-  Specular = mat.specular.rgb;
-  Roughness = 1.f - mat.parameters[0];
-  Metallic = mat.parameters[1];
-  Fresnel0 = mat.parameters[2];
+  Diffuse = diffuse.rgb;
+  Specular = specular.rgb;
+  Roughness = params.x;
+  Metallic = params.y;
+  Fresnel0 = params.z;
   Roughness2 = Roughness * Roughness;
 
 #ifdef ORTHOGRAPHIC
@@ -270,24 +260,23 @@ void main() {
   if (!gl_FrontFacing)
       normal = -normal;
 
-// #ifdef USE_IBL
-//   outColor=vec4(IBLColor(viewDirection), outColor.a);
-// #else
+#ifdef USE_IBL
+  outColor=vec4(IBLColor(viewDirection), outColor.a);
+#else
   for (int i = 0; i < nlights; i++)
   {
-
-//       Light light = lights[i];
-//       Light light = light;
+      Light light = lights[i];
 
       vec3 radiance = max(dot(normal, light.direction.xyz), 0.0) * light.color.rgb;
-//       outColor = vec4(BRDF(viewDirection, light.direction.xyz) * radiance, 1.0);
-//       return;
       outColor += vec4(BRDF(viewDirection, light.direction.xyz) * radiance, 0.0);
   }
 
-  outColor = vec4(outColor.rgb, mat.diffuse.a);
-// #endif /*USE_IBL*/
-// #endif /*NORMAL*/
+  outColor = vec4(outColor.rgb, diffuse.a);
+#endif /*USE_IBL*/
+#else
+  Material mat = materials[materialIndex];
+  outColor = mat.emissive;
+#endif /*NORMAL*/
 
   // for reasons, the swapchain/FXAA shader expects a "perceptual" color,
   // while all of our calculations have been linear (i.e. by measuring photon counts)
@@ -298,34 +287,35 @@ void main() {
 
   // if FXAA is enabled, convert it to perceptual since FXAA needs it
   // otherwise, if OUTPUT_AS_SRGB is enabled, also convert it to perceptual
-// #if defined(ENABLE_FXAA) || defined(OUTPUT_AS_SRGB)
+#if defined(ENABLE_FXAA) || defined(OUTPUT_AS_SRGB)
   // outColor is our output vector, so save what we have as linear color
   vec3 outColorInPerceptualSpace=linearToPerceptual(linearColor.rgb);
-  // outColor=vec4(outColorInPerceptualSpace,linearColor.a);
-// #else
-//   outColor=linearColor;
-// #endif
+  outColor=vec4(outColorInPerceptualSpace,linearColor.a);
+#else
+  outColor=linearColor;
+#endif
 
-// #ifndef WIDTH // TODO DO NOT DO THE DEPTH COMPARISON WHEN NO TRANSPARENT OBJECTS!
-//   uint pixel=uint(gl_FragCoord.y)*push.constants[1]+uint(gl_FragCoord.x);
-// #if defined(TRANSPARENT) || (!defined(HAVE_INTERLOCK) && !defined(OPAQUE))
-//   uint element=INDEX(pixel);
-//   uint listIndex=atomicAdd(offset[element],-1u)-1u;
-//   fragment[listIndex]=linearColor;
-//   depth[listIndex]=gl_FragCoord.z;
-// #ifndef WIREFRAME
-//   discard;
-// #endif /*WIREFRAME*/
-// #else
-// #if defined(HAVE_INTERLOCK) && !defined(OPAQUE)
-//   beginInvocationInterlockARB();
-//   if(opaqueDepth[pixel] == 0.0 || gl_FragCoord.z < opaqueDepth[pixel])
-//     {
-//     opaqueDepth[pixel]=gl_FragCoord.z;
-//     opaqueColor[pixel]=linearColor;
-//   }
-//   endInvocationInterlockARB();
-// #endif
-// #endif
-// #endif
+#ifndef WIDTH
+#if defined(TRANSPARENT) || (!defined(HAVE_INTERLOCK) && !defined(OPAQUE))
+  uint pixel=uint(gl_FragCoord.y)*push.constants[1]+uint(gl_FragCoord.x);
+  uint element=INDEX(pixel);
+  uint listIndex=atomicAdd(offset[element],-1u)-1u;
+  fragment[listIndex]=linearColor;
+  depth[listIndex]=gl_FragCoord.z;
+#ifndef WIREFRAME
+  discard;
+#endif /*WIREFRAME*/
+#else
+#if defined(HAVE_INTERLOCK) && !defined(OPAQUE)
+  uint pixel=uint(gl_FragCoord.y)*push.constants[1]+uint(gl_FragCoord.x);
+  beginInvocationInterlockARB();
+  if(opaqueDepth[pixel] == 0.0 || gl_FragCoord.z < opaqueDepth[pixel])
+    {
+    opaqueDepth[pixel]=gl_FragCoord.z;
+    opaqueColor[pixel]=linearColor;
+  }
+  endInvocationInterlockARB();
+#endif
+#endif
+#endif
 }

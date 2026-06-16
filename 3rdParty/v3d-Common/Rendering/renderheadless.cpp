@@ -717,8 +717,7 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
 		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
 
-	// MVP via push constant block
-	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), 0);
+	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::uvec4), 0);
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -801,14 +800,18 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", std::vector<string>{ });
-	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", std::vector<string>{ });
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", std::vector<string>{
+		"NORMAL", "MATERIAL", "OPAQUE"
+	});
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", std::vector<string>{
+		"NORMAL", "MATERIAL", "OPAQUE"
+	});
 
 	shaderModules = { shaderStages[0].module, shaderStages[1].module };
 	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipeline));
 }
 
-void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount) {
+void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, size_t lightCount) {
 	VkCommandBuffer commandBuffer;
 	VkCommandBufferAllocateInfo cmdBufAllocateInfo =
 		vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
@@ -855,8 +858,9 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, offsets);
 	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-	glm::mat4 mvp{ 1.0 }; // TODO
-	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(mvp), &mvp);
+	glm::uvec4 constants{ 0 };
+	constants.x = lightCount;
+	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
 
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
 
@@ -1112,7 +1116,7 @@ unsigned char* HeadlessRenderer::render(
 		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
 	}
 
-	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount);
+	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, lights.size());
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
 
