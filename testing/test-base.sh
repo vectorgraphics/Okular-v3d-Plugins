@@ -78,9 +78,9 @@ testFunc() {
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/vertex.glsl ./home/
+        cp ../../3rdParty/asymptote/base/shaders/vertex.glsl ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/fragment.glsl ./home/
+        cp ../../3rdParty/asymptote/base/shaders/fragment.glsl ./home/
 
         cp -r ../../base-release/* ./home/
 
@@ -105,9 +105,9 @@ testFunc() {
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/vertex.glsl ./home/
+        cp ../../3rdParty/asymptote/base/shaders/vertex.glsl ./home/
 
-        cp ../../3rdParty/v3d-Common/shaders/fragment.glsl ./home/
+        cp ../../3rdParty/asymptote/base/shaders/fragment.glsl ./home/
 
         cp -r ../../base-release/* ./home/
 

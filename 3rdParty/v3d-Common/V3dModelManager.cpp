@@ -51,7 +51,7 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     std::string shaderPath = "";
 
     for (const auto& path : shaderSearchPaths) {
-        if (fileExists(path + "vertex.spv") && fileExists(path + "fragment.spv")) {
+        if (fileExists(path + "vertex.glsl") && fileExists(path + "fragment.glsl")) {
             shaderPath = path;
             break;
         }

@@ -8,4 +8,4 @@ distroboxName=${distro}"-testingbox"
 distroboxHomeDir=${PWD}"/home/"
 
 . ../test-base.sh
-testFunc "sudo dnf install -y okular" $@
+testFunc "sudo dnf install -y okular glfw" $@
