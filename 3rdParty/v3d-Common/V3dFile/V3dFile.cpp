@@ -320,18 +320,68 @@ void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, t
 }
 
 Mesh V3dFile::GetMesh() {
-    using namespace std;
-    using namespace camp;
+    bool hasColorData = !colorData.colorVertices.empty();
+    bool hasMaterialData = !materialData.materialVertices.empty();
 
-    std::vector<unsigned char> vertices{ };
+    Mesh mesh{ };
 
-    vertices.resize(materialData.materialVertices.size() * (sizeof(float) * 6 + sizeof(int) * 1));
-    
-    std::memcpy((void*)vertices.data(), (void*)materialData.materialVertices.data(), vertices.size());
+    if (hasColorData && hasMaterialData) {
+        mesh.pipelineMode = MeshPipelineMode::Mixed;
 
-    if (materialData.indices.empty() || vertices.empty()) {
+        std::vector<ColorVertex> vertices;
+        vertices.reserve(materialData.materialVertices.size() + colorData.colorVertices.size());
+
+        uint32_t colorOffset = static_cast<uint32_t>(materialData.materialVertices.size());
+
+        for (const auto& mv : materialData.materialVertices) {
+            ColorVertex v;
+            v.position = mv.position;
+            v.normal = mv.normal;
+            v.material = mv.material + 1;
+            v.color = glm::vec4{ 0.0f };
+            vertices.push_back(v);
+        }
+
+        // Add color vertices with negative indices
+        for (const auto& cv : colorData.colorVertices) {
+            ColorVertex v;
+            v.position = cv.position;
+            v.normal = cv.normal;
+            v.material = -cv.material - 1;
+            v.color = cv.color;
+            vertices.push_back(v);
+        }
+
+        // Remap color indices to account for the prepended material vertices
+        auto colorIndices = colorData.indices;
+        for (auto& idx : colorIndices) {
+            idx += colorOffset;
+        }
+
+        mesh.vertices.resize(vertices.size() * sizeof(ColorVertex));
+        std::memcpy((void*)mesh.vertices.data(), (void*)vertices.data(), mesh.vertices.size());
+        mesh.indices = materialData.indices;
+        mesh.indices.insert(mesh.indices.end(), colorIndices.begin(), colorIndices.end());
+
+    } else if (hasColorData) {
+        mesh.pipelineMode = MeshPipelineMode::ColorOnly;
+
+        auto colorVerts = colorData.colorVertices;
+        for (auto& v : colorVerts) {
+            v.material = -v.material - 1;
+        }
+        mesh.vertices.resize(colorVerts.size() * (sizeof(ColorVertex)));
+        std::memcpy((void*)mesh.vertices.data(), (void*)colorVerts.data(), mesh.vertices.size());
+        mesh.indices = colorData.indices;
+    } else if (hasMaterialData) {
+        mesh.pipelineMode = MeshPipelineMode::MaterialOnly;
+
+        mesh.vertices.resize(materialData.materialVertices.size() * sizeof(MaterialVertex));
+        std::memcpy((void*)mesh.vertices.data(), (void*)materialData.materialVertices.data(), mesh.vertices.size());
+        mesh.indices = materialData.indices;
+    } else {
         std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
     }
 
-    return Mesh{ vertices, materialData.indices };
+    return mesh;
 }

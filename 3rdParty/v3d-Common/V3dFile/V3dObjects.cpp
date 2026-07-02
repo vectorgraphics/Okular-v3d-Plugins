@@ -193,8 +193,71 @@ V3dBezierPatchWithCornerColors::V3dBezierPatchWithCornerColors(
 void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dBezierPatchWithCornerColors cannot queue" << std::endl;
-    return;
+    triple Controls[] = {
+        triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
+        triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
+        triple(controlPoints[2].x, controlPoints[2].y, controlPoints[2].z),
+        triple(controlPoints[3].x, controlPoints[3].y, controlPoints[3].z),
+
+        triple(controlPoints[4].x, controlPoints[4].y, controlPoints[4].z),
+        triple(controlPoints[5].x, controlPoints[5].y, controlPoints[5].z),
+        triple(controlPoints[6].x, controlPoints[6].y, controlPoints[6].z),
+        triple(controlPoints[7].x, controlPoints[7].y, controlPoints[7].z),
+
+        triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
+        triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
+        triple(controlPoints[10].x, controlPoints[10].y, controlPoints[10].z),
+        triple(controlPoints[11].x, controlPoints[11].y, controlPoints[11].z),
+
+        triple(controlPoints[12].x, controlPoints[12].y, controlPoints[12].z),
+        triple(controlPoints[13].x, controlPoints[13].y, controlPoints[13].z),
+        triple(controlPoints[14].x, controlPoints[14].y, controlPoints[14].z),
+        triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
+    };
+
+    BezierPatch S;
+
+    triple b = sceneMinBound;
+    triple B = sceneMaxBound;
+
+    double Zmax = B.getz();
+    double perspective = orthographic ? 0.0 : 1.0 / Zmax;
+    double s = perspective ? b.getz() * perspective : 1.0;
+    double size2 = hypot(imageWidth, imageHeight);
+
+    bool transparent = false;
+    bool straight = false;
+
+    const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
+
+    triple Min = b;
+    triple Max = B;
+
+    bool offscreen = bbox2(Min, Max).offscreen();
+
+    if (offscreen) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
+    if (!remesh && fullyOnscreen) {
+        colorData.extendColor(vertexData);
+        return;
+    }
+
+    // Convert corner colors to float arrays matching BezierPatch::render signature.
+    float corners[16];
+    for (int i = 0; i < 4; ++i) {
+        corners[i*4+0] = static_cast<float>(cornerColors[i].r);
+        corners[i*4+1] = static_cast<float>(cornerColors[i].g);
+        corners[i*4+2] = static_cast<float>(cornerColors[i].b);
+        corners[i*4+3] = static_cast<float>(cornerColors[i].a);
+    }
+
+    S.queue(Controls, straight, size3.length() / size2, transparent, corners);
+    fullyOnscreen = true;
+    vertexData = S.data;
 }
 
 

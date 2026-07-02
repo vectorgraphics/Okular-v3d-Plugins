@@ -103,6 +103,7 @@ public:
 
 	glm::ivec2 currentTargetSize{ 0, 0 };
 	bool initialized{ false };
+	MeshPipelineMode currentPipelineMode{ MeshPipelineMode::MaterialOnly };
 
 	VkFramebuffer framebuffer;
 	FrameBufferAttachment colorAttachment, depthAttachment;
@@ -131,7 +132,7 @@ private:
 	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createDescriptorSetLayout();
-	void createGraphicsPipeline();
+	void createGraphicsPipeline(bool useColor);
 	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, size_t lightCount);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout);
 
@@ -149,7 +150,8 @@ public:
 		const glm::mat4& view, 
 		const glm::mat4& proj, 
 		const std::vector<V3dMaterial>& materials,
-		const std::vector<V3dHeaderInfo::Light>& lights
+		const std::vector<V3dHeaderInfo::Light>& lights,
+		MeshPipelineMode pipelineMode
 	);
 
 	void cleanupMeshData();

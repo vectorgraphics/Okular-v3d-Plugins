@@ -38,6 +38,10 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 		VK_CHECK_RESULT(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &commandPool));
 
+		// Allocate a single command buffer
+		VkCommandBufferAllocateInfo cmdBufAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
+		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocInfo, &commandBuffer));
+
 	}
 
 HeadlessRenderer::~HeadlessRenderer() { 
@@ -713,7 +717,7 @@ VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::strin
 	return shaderModule;
 }
 
-void HeadlessRenderer::createGraphicsPipeline() {
+void HeadlessRenderer::createGraphicsPipeline(bool useColor) {
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
 		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
 
@@ -733,7 +737,6 @@ void HeadlessRenderer::createGraphicsPipeline() {
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
 		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
-		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
 		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
@@ -772,18 +775,30 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 	pipelineCreateInfo.pStages = shaderStages.data();
 
-	// Vertex bindings an attributes
-	// Binding description
-	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
-		vks::initializers::vertexInputBindingDescription(0, (3 * sizeof(float)) + (3 * sizeof(float)) + (1 * sizeof(int)), VK_VERTEX_INPUT_RATE_VERTEX),
-	};
+	// Vertex bindings and attributes
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings;
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes;
 
-	// Attribute descriptions
-	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
-		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 					// Position
-		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),	// Normal
-		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float) * 6)		// Material Index
-	};
+	if (useColor) {
+		vertexInputBindings = {
+			vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+		};
+		vertexInputAttributes = {
+			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 					// Position
+			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),		// Normal
+			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),				// Material Index
+			vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)	// Color
+		};
+	} else {
+		vertexInputBindings = {
+			vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+		};
+		vertexInputAttributes = {
+			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 				// Position
+			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),	// Normal
+			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)			// Material Index
+		};
+	}
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
 	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
@@ -800,26 +815,21 @@ void HeadlessRenderer::createGraphicsPipeline() {
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", std::vector<string>{
-		"NORMAL", "MATERIAL", "OPAQUE"
-	});
-	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", std::vector<string>{
-		"NORMAL", "MATERIAL", "OPAQUE"
-	});
+	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
+	if (useColor) {
+		options.push_back("GENERAL");
+		options.push_back("COLOR");
+	}
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
 
 	shaderModules = { shaderStages[0].module, shaderStages[1].module };
 	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipeline));
 }
 
 void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, size_t lightCount) {
-	VkCommandBuffer commandBuffer;
-	VkCommandBufferAllocateInfo cmdBufAllocateInfo =
-		vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocateInfo, &commandBuffer));
-
-	VkCommandBufferBeginInfo cmdBufInfo =
-		vks::initializers::commandBufferBeginInfo();
-
+	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &cmdBufInfo));
 
 	VkClearValue clearValues[2];
@@ -868,9 +878,6 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 
 	vkCmdEndRenderPass(commandBuffer);
 	VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer));
-	submitWork(commandBuffer, queue);
-
-	vkDeviceWaitIdle(device);
 }
 
 unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout) {
@@ -1030,13 +1037,21 @@ unsigned char* HeadlessRenderer::render(
 	const glm::mat4& view, 
 	const glm::mat4& proj, 
 	const std::vector<V3dMaterial>& materials, 
-	const std::vector<V3dHeaderInfo::Light>& lights
+	const std::vector<V3dHeaderInfo::Light>& lights,
+	MeshPipelineMode pipelineMode
 ) {
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
 
-	if (currentTargetSize != targetSize) {
+	// Check if we need to recreate the pipeline due to content type change
+	bool pipelineModeChanged = (pipelineMode != currentPipelineMode);
+
+	if (m_IndexCount > 0 && !meshInitialized) {
+		pipelineModeChanged = true;
+	}
+
+	if (currentTargetSize != targetSize || pipelineModeChanged) {
 		if (initialized) {
 			cleanup();
 
@@ -1066,7 +1081,7 @@ unsigned char* HeadlessRenderer::render(
 
 		createDescriptorSetLayout();
 
-		createGraphicsPipeline();
+		createGraphicsPipeline(pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed);
 
 		createUniformBuffer();
 		// TODO potentially move
@@ -1102,7 +1117,7 @@ unsigned char* HeadlessRenderer::render(
 		createDescirptorSets();
 
 		initialized = true;
-
+		currentPipelineMode = pipelineMode;
 		currentTargetSize = targetSize;
 	}
 
@@ -1117,6 +1132,7 @@ unsigned char* HeadlessRenderer::render(
 	}
 
 	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, lights.size());
+	submitWork(commandBuffer, queue);
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
 

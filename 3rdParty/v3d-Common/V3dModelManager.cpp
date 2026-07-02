@@ -126,6 +126,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
             m_HeadlessRenderer->cleanupMeshData();
 
             materialData.clear();
+            colorData.clear();
         }
 
         bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
@@ -162,7 +163,8 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].viewMatrix, 
         m_Models[pageNumber][modelIndex].projectionMatrix,
         m_Models[pageNumber][modelIndex].file->materials,
-        std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light }
+        std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
+        mesh.pipelineMode
     );
 
     unsigned char* imgDataTmp = imageData;
