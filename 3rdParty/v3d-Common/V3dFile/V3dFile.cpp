@@ -70,6 +70,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
             xdrFile >> material.shininess;
             xdrFile >> material.metallic;
             xdrFile >> material.fresnel0;
+            xdrFile >> material.lightOn;
 
             materials.push_back(material);
             break;
@@ -204,6 +205,16 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                     case VIBRATE_TIME:
                         headerInfo.vibrateTime = readReal(xdrFile, doublePrecisionFlag);    
                         break;    
+
+                    default:
+                        // Skip unknown header entries by consuming 'length' XDR words.
+                        // This prevents stream corruption when newer v3d files contain
+                        // header keys that this version doesn't recognize.
+                        for (UINT j = 0; j < length; ++j) {
+                            uint32_t skipWord;
+                            xdrFile >> skipWord;
+                        }
+                        break;
                 }
             }
             break;

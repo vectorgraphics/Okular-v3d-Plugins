@@ -56,6 +56,7 @@ struct V3dMaterial {
     FLOAT shininess;
     FLOAT metallic;
     FLOAT fresnel0;
+    FLOAT lightOn;
 };
 
 class V3dBezierPatch : public V3dObject {

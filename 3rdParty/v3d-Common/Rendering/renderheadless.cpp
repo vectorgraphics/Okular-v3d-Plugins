@@ -752,8 +752,14 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor) {
 	VkPipelineDepthStencilStateCreateInfo depthStencilState =
 		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	VkPipelineViewportStateCreateInfo viewportState =
-		vks::initializers::pipelineViewportStateCreateInfo(1, 1);
+	VkViewport viewport = { 0, 0, 1, 1, 0, 1 }; // Placeholder (overridden by vkCmdSetViewport)
+	VkRect2D scissor = {};
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
 
 	VkPipelineMultisampleStateCreateInfo multisampleState =
 		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
