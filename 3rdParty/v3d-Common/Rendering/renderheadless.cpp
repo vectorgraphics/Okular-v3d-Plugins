@@ -249,10 +249,15 @@ VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
 }
 
 void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateInfo) {
+	VkPhysicalDeviceFeatures deviceFeatures = {};
+	deviceFeatures.vertexPipelineStoresAndAtomics = VK_TRUE;
+	deviceFeatures.fragmentStoresAndAtomics = VK_TRUE;
+
 	VkDeviceCreateInfo deviceCreateInfo = {};
 	deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	deviceCreateInfo.queueCreateInfoCount = 1;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfo;
+	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 	std::vector<const char*> deviceExtensions = {};
 
 	deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
@@ -629,7 +634,7 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 	materialBinding.binding = 1;
 	materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	materialBinding.descriptorCount = 1;
-	materialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	materialBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
 	VkDescriptorSetLayoutBinding lightBinding{};
 	lightBinding.binding = 2;
@@ -721,7 +726,7 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor) {
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
 		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
 
-	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::uvec4), 0);
+	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::uvec4) + sizeof(glm::vec4), 0);
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
