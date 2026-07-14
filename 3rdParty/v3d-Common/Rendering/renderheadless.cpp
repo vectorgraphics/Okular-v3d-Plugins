@@ -1088,11 +1088,7 @@ unsigned char* HeadlessRenderer::render(
 		std::vector<GPUMaterial> mats(materials.size());
 		int i = 0;
 		for (auto& mat : materials) {
-			// TODO check order of rgb
-			mats[i].diffuse.r  = mat.diffuse.b;
-			mats[i].diffuse.g  = mat.diffuse.g;
-			mats[i].diffuse.b  = mat.diffuse.r;
-			mats[i].diffuse.a  = mat.diffuse.a;
+			mats[i].diffuse = glm::vec4{ mat.diffuse.b, mat.diffuse.g, mat.diffuse.r, mat.diffuse.a };
 
 			mats[i].emissive   = mat.emissive;
 			mats[i].specular   = mat.specular;
@@ -1100,7 +1096,7 @@ unsigned char* HeadlessRenderer::render(
 				mat.shininess,   // roughness
 				mat.metallic,    // metallic
 				mat.fresnel0,    // fresnel
-				0.0f
+				pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed ? 1.0f : 0.0f
 			);
 			++i;
 		}

@@ -330,6 +330,6 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) override;
 
     TRIPLE position;
-    UINT centerIndex;
+    REAL width;
     UINT materialIndex;
 };

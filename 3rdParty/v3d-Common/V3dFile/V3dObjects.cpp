@@ -285,8 +285,63 @@ V3dBezierTriangleWithCornerColors::V3dBezierTriangleWithCornerColors(
 void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dBezierTriangleWithCornerColors cannot queue" << std::endl;
-    return;
+    triple Controls[] = {
+        triple(controlPoints[0].x, controlPoints[0].y, controlPoints[0].z),
+        triple(controlPoints[1].x, controlPoints[1].y, controlPoints[1].z),
+        triple(controlPoints[2].x, controlPoints[2].y, controlPoints[2].z),
+        triple(controlPoints[3].x, controlPoints[3].y, controlPoints[3].z),
+        triple(controlPoints[4].x, controlPoints[4].y, controlPoints[4].z),
+
+        triple(controlPoints[5].x, controlPoints[5].y, controlPoints[5].z),
+        triple(controlPoints[6].x, controlPoints[6].y, controlPoints[6].z),
+        triple(controlPoints[7].x, controlPoints[7].y, controlPoints[7].z),
+        triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
+        triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
+    };
+
+    BezierTriangle S;
+
+    triple b = sceneMinBound;
+    triple B = sceneMaxBound;
+
+    double Zmax = B.getz();
+    double perspective = orthographic ? 0.0 : 1.0 / Zmax;
+    double s = perspective ? b.getz() * perspective : 1.0;
+    double size2 = hypot(imageWidth, imageHeight);
+
+    bool transparent = false;
+    bool straight = false;
+
+    const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
+
+    triple Min = b;
+    triple Max = B;
+
+    bool offscreen = bbox2(Min, Max).offscreen();
+
+    if (offscreen) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
+    if (!remesh && fullyOnscreen) {
+        colorData.extendColor(vertexData);
+        return;
+    }
+
+    // Convert corner colors to float arrays matching BezierTriangle::render signature.
+    float corners[12];
+    for (int i = 0; i < 3; ++i) {
+        corners[i*4+0] = static_cast<float>(cornerColors[i].r);
+        corners[i*4+1] = static_cast<float>(cornerColors[i].g);
+        corners[i*4+2] = static_cast<float>(cornerColors[i].b);
+        corners[i*4+3] = static_cast<float>(cornerColors[i].a);
+    }
+
+    S.queue(Controls, straight, size3.length() / size2, transparent, corners);
+    fullyOnscreen = true;
+    vertexData = S.data;
 }
 
 
@@ -341,8 +396,29 @@ V3dStraightPlanarQuad::V3dStraightPlanarQuad(
 void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dStraightPlanarQuad cannot queue" << std::endl;
-    return;
+    TRIPLE p1 = vertices[0];
+    TRIPLE p2 = vertices[1];
+    TRIPLE p3 = vertices[2];
+
+    TRIPLE A = p2 - p1;
+    TRIPLE B = p3 - p1;
+
+    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+
+    materialData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
+    materialData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
+    materialData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+    materialData.materialVertices.push_back(MaterialVertex{vertices[3], normal, materialIndex});
+
+    materialData.indices.push_back(materialData.materialVertices.size() - 4);
+    materialData.indices.push_back(materialData.materialVertices.size() - 3);
+    materialData.indices.push_back(materialData.materialVertices.size() - 2);
+
+    materialData.indices.push_back(materialData.materialVertices.size() - 4);
+    materialData.indices.push_back(materialData.materialVertices.size() - 2);
+    materialData.indices.push_back(materialData.materialVertices.size() - 1);
+
+    fullyOnscreen = true;
 }
 
 
@@ -404,8 +480,7 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     materialData.indices.push_back(materialData.materialVertices.size() - 3);
     materialData.indices.push_back(materialData.materialVertices.size() - 2);
 
-    std::cout << "V3dStraightTriangle cannot queue" << std::endl;
-    return;
+    fullyOnscreen = true;
 }
 
 
@@ -433,8 +508,29 @@ V3dStraightPlanarQuadWithCornerColors::V3dStraightPlanarQuadWithCornerColors(
 void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dStraightPlanarQuadWithCornerColors cannot queue" << std::endl;
-    return;
+    TRIPLE p1 = vertices[0];
+    TRIPLE p2 = vertices[1];
+    TRIPLE p3 = vertices[2];
+
+    TRIPLE A = p2 - p1;
+    TRIPLE B = p3 - p1;
+
+    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+
+    colorData.colorVertices.push_back(ColorVertex{p1, normal, materialIndex, cornerColors[0]});
+    colorData.colorVertices.push_back(ColorVertex{p2, normal, materialIndex, cornerColors[1]});
+    colorData.colorVertices.push_back(ColorVertex{p3, normal, materialIndex, cornerColors[2]});
+    colorData.colorVertices.push_back(ColorVertex{vertices[3], normal, materialIndex, cornerColors[3]});
+
+    colorData.indices.push_back(colorData.colorVertices.size() - 4);
+    colorData.indices.push_back(colorData.colorVertices.size() - 3);
+    colorData.indices.push_back(colorData.colorVertices.size() - 2);
+
+    colorData.indices.push_back(colorData.colorVertices.size() - 4);
+    colorData.indices.push_back(colorData.colorVertices.size() - 2);
+    colorData.indices.push_back(colorData.colorVertices.size() - 1);
+
+    fullyOnscreen = true;
 }
 
 
@@ -462,8 +558,24 @@ V3dStraightTriangleWithCornerColors::V3dStraightTriangleWithCornerColors(
 void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dStraightTriangleWithCornerColors cannot queue" << std::endl;
-    return;
+    TRIPLE p1 = vertices[0];
+    TRIPLE p2 = vertices[1];
+    TRIPLE p3 = vertices[2];
+
+    TRIPLE A = p2 - p1;
+    TRIPLE B = p3 - p1;
+
+    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+
+    colorData.colorVertices.push_back(ColorVertex{p1, normal, materialIndex, cornerColors[0]});
+    colorData.colorVertices.push_back(ColorVertex{p2, normal, materialIndex, cornerColors[1]});
+    colorData.colorVertices.push_back(ColorVertex{p3, normal, materialIndex, cornerColors[2]});
+
+    colorData.indices.push_back(colorData.colorVertices.size() - 3);
+    colorData.indices.push_back(colorData.colorVertices.size() - 2);
+    colorData.indices.push_back(colorData.colorVertices.size() - 1);
+
+    fullyOnscreen = true;
 }
 
 
@@ -1307,8 +1419,48 @@ V3dLineSegment::V3dLineSegment(
 void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dLineSegment cannot queue" << std::endl;
-    return;
+    // For a straight line segment, use the BezierCurve pattern with (0,0,1) as normal.
+    // The BezierCurve class handles both straight and curved cases.
+    triple Controls[] = {
+        triple(endpoints[0].x, endpoints[0].y, endpoints[0].z),
+        triple(endpoints[1].x, endpoints[1].y, endpoints[1].z),
+        triple{0.0, 0.0, 0.0}, // dummy control point (not used for straight)
+        triple{0.0, 0.0, 0.0}  // dummy control point (not used for straight)
+    };
+
+    BezierCurve S;
+
+    triple b = sceneMinBound;
+    triple B = sceneMaxBound;
+
+    double Zmax = B.getz();
+    double perspective = orthographic ? 0.0 : 1.0 / Zmax;
+    double s = perspective ? b.getz() * perspective : 1.0;
+    double size2 = hypot(imageWidth, imageHeight);
+
+    bool straight = true;
+
+    const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
+
+    triple Min = b;
+    triple Max = B;
+
+    bool offscreen = bbox2(Min, Max).offscreen();
+
+    if (offscreen) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
+    if (!remesh && fullyOnscreen) {
+        lineData.extendMaterial(vertexData);
+        return;
+    }
+
+    S.queue(Controls, straight, size3.length() / size2);
+    fullyOnscreen = true;
+    vertexData = S.data;
 }
 
 
@@ -1320,7 +1472,8 @@ V3dPixel::V3dPixel(
         position.y = readReal(xdrFile, doublePrecision);
         position.z = readReal(xdrFile, doublePrecision);
 
-        xdrFile >> centerIndex;
+        width = readReal(xdrFile, doublePrecision);
+
         xdrFile >> materialIndex;
     }
 
