@@ -403,44 +403,66 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
-    if (m_ActiveModel == nullptr && m_ActiveModelPage == -1) {
+    // Only allow wheel zoom for standalone v3d files
+    // (single model that fills the entire page). For PDFs with embedded
+    // models, wheel always scrolls to avoid fighting Okular's scroll.
+    V3dModel* targetModel = nullptr;
+    int targetPage = -1;
+
+    if (m_Models.size() == 1 && m_Models[0].size() == 1) {
+        const auto& model = m_Models[0][0];
+        if (model.minBound.x <= 0.0f && model.maxBound.x >= 1.0f &&
+            model.minBound.y <= 0.0f && model.maxBound.y >= 1.0f) {
+            // Standalone v3d: zoom directly
+            targetModel = &m_Models[0][0];
+            targetPage = 0;
+        }
+    }
+
+    // If already actively dragging a model, use that instead
+    if (m_Dragging && m_ActiveModel) {
+        targetModel = m_ActiveModel;
+        targetPage = m_ActiveModelPage;
+    }
+
+    if (targetModel == nullptr || targetPage == -1) {
         return false;
     }
 
-    glm::vec2 normalizedPositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelPage);
+    glm::vec2 normalizedPositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, targetPage);
 
-    bool horizontallyOnModel = normalizedPositionOnPage.x > m_ActiveModel->minBound.x && normalizedPositionOnPage.x < m_ActiveModel->maxBound.x;
-    bool verticallyOnModel = normalizedPositionOnPage.y > m_ActiveModel->minBound.y && normalizedPositionOnPage.y < m_ActiveModel->maxBound.y;
+    bool horizontallyOnModel = normalizedPositionOnPage.x > targetModel->minBound.x && normalizedPositionOnPage.x < targetModel->maxBound.x;
+    bool verticallyOnModel = normalizedPositionOnPage.y > targetModel->minBound.y && normalizedPositionOnPage.y < targetModel->maxBound.y;
 
     if (!horizontallyOnModel || !verticallyOnModel) {
         return false;
     }
 
     if (event->angleDelta().y() < 0) {
-        m_ActiveModel->zoom /= m_ActiveModel->file->headerInfo.zoomFactor;
+        targetModel->zoom /= targetModel->file->headerInfo.zoomFactor;
     } else {
-        m_ActiveModel->zoom *= m_ActiveModel->file->headerInfo.zoomFactor;
+        targetModel->zoom *= targetModel->file->headerInfo.zoomFactor;
     }
 
     float maxZoom = std::sqrt(std::numeric_limits<float>::max());
     float minZoom = 1 / maxZoom;
 
-    if (m_ActiveModel->zoom < minZoom) {
-        m_ActiveModel->zoom = minZoom;
-    } else if (m_ActiveModel->zoom > maxZoom) {
-        m_ActiveModel->zoom = maxZoom;
+    if (targetModel->zoom < minZoom) {
+        targetModel->zoom = minZoom;
+    } else if (targetModel->zoom > maxZoom) {
+        targetModel->zoom = maxZoom;
     }
 
     float dpr = GetDevicePixelRatio();
-    EnsureCachedRequestSize((size_t)m_ActiveModelPage);
+    EnsureCachedRequestSize((size_t)targetPage);
 
     glm::vec2 canvasSize = {
-        (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x / dpr),
-        (m_ActiveModel->maxBound.y - m_ActiveModel->minBound.y) * (m_CachedRequestSizes[m_ActiveModelPage].size.y / dpr),
+        (targetModel->maxBound.x - targetModel->minBound.x) * (m_CachedRequestSizes[targetPage].size.x / dpr),
+        (targetModel->maxBound.y - targetModel->minBound.y) * (m_CachedRequestSizes[targetPage].size.y / dpr),
     };
 
-    m_ActiveModel->setProjection(canvasSize);
-    requestPixmapRefresh(m_ActiveModelPage);
+    targetModel->setProjection(canvasSize);
+    requestPixmapRefresh((size_t)targetPage);
 
     return true;
 }
