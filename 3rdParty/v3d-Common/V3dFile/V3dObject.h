@@ -21,6 +21,11 @@ public:
 
     UINT objectType;
 
+    // centerIndex > 0 means this object is a billboard (label/annotation).
+    // The index references into the file's centers array (1-based).
+    // Applied during QueueMesh to make labels always face the camera.
+    UINT centerIndex{ 0 };
+
     bool fullyOnscreen{ false };
 
 protected:

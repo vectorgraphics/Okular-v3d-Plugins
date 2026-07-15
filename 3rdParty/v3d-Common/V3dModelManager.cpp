@@ -22,7 +22,7 @@
 
 namespace camp {
     glm::dmat4 projViewMat{ 1.0 };
-    glm::dmat4 normMat{ 1.0 };
+    glm::dmat3 normMat{ 1.0 };
 
     const glm::dmat4& getProjViewMat()
     {
@@ -123,7 +123,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     auto valPtr = glm::value_ptr(projViewMat);
 
-    normMat = glm::dmat4{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
+    normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
 
     if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
         if (m_Models[pageNumber][modelIndex].initialized) {
@@ -135,9 +135,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
         bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-        for (auto& object : m_Models[pageNumber][modelIndex].file->objects) {
-            object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic);
-        }
+        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic);
     }
 
     Mesh mesh = m_Models[pageNumber][modelIndex].file->GetMesh();

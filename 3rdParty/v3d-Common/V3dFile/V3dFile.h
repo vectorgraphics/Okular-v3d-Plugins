@@ -23,7 +23,7 @@ public:
 
     V3dHeaderInfo headerInfo;
 
-    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic);
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic);
     Mesh GetMesh();
 
 private:

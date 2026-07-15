@@ -22,6 +22,7 @@ V3dBezierPatch::V3dBezierPatch(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
     }
 
@@ -105,6 +106,7 @@ V3dBezierTriangle::V3dBezierTriangle(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
     }
 
@@ -180,6 +182,7 @@ V3dBezierPatchWithCornerColors::V3dBezierPatchWithCornerColors(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
 
         for (int i = 0; i < 4; ++i) {
@@ -272,6 +275,7 @@ V3dBezierTriangleWithCornerColors::V3dBezierTriangleWithCornerColors(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
 
         for (int i = 0; i < 3; ++i) {
@@ -356,6 +360,7 @@ V3dStraightPlanarQuad::V3dStraightPlanarQuad(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex; 
     }
 
@@ -433,6 +438,7 @@ V3dStraightTriangle::V3dStraightTriangle(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
     }
 
@@ -495,6 +501,7 @@ V3dStraightPlanarQuadWithCornerColors::V3dStraightPlanarQuadWithCornerColors(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;     
 
         for (int i = 0; i < 4; ++i) {
@@ -545,6 +552,7 @@ V3dStraightTriangleWithCornerColors::V3dStraightTriangleWithCornerColors(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;     
 
         for (int i = 0; i < 3; ++i) {
@@ -646,6 +654,7 @@ V3dTriangleGroup::V3dTriangleGroup(
         }
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
     }
 
@@ -762,6 +771,7 @@ V3dSphere::V3dSphere(
         radius = readReal(xdrFile, doublePrecision);
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
     }
 
@@ -902,6 +912,7 @@ V3dHemiSphere::V3dHemiSphere(
         radius = readReal(xdrFile, doublePrecision);
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
 
         polarAngle = readReal(xdrFile, doublePrecision);
@@ -984,6 +995,7 @@ V3dDisk::V3dDisk(
         radius = readReal(xdrFile, doublePrecision);
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
 
         polarAngle = readReal(xdrFile, doublePrecision);
@@ -1088,6 +1100,7 @@ V3dCylinder::V3dCylinder(
         height = readReal(xdrFile, doublePrecision);
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
 
         polarAngle = readReal(xdrFile, doublePrecision);
@@ -1316,6 +1329,7 @@ V3dTube::V3dTube(
         width = readReal(xdrFile, doublePrecision);
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
         xdrFile >> core;
     }
@@ -1343,6 +1357,7 @@ V3dBezierCurve::V3dBezierCurve(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision)
     }    
 
     xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
     xdrFile >> materialIndex;
 }
 
@@ -1413,6 +1428,7 @@ V3dLineSegment::V3dLineSegment(
         }    
 
         xdrFile >> centerIndex;
+        V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
     }
 

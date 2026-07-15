@@ -12,6 +12,30 @@
 #include "rgba.h"
 #include "bezierpatch.h"
 
+// Billboard transform: rotate vertex positions around a center point using the
+// normal matrix (inverse-transpose of view rotation) so that billboard objects
+// (labels, annotations) always face the camera.  Mirrors camp::billboardTransform
+// from asymptote/render.h.
+static inline glm::vec3 billboardTransform(const glm::vec3& center, const glm::vec3& v)
+{
+    double cx = center.x;
+    double cy = center.y;
+    double cz = center.z;
+
+    double x = v.x - cx;
+    double y = v.y - cy;
+    double z = v.z - cz;
+
+    const glm::dmat3& normMat = camp::getNormMat();
+    const double* BBT = glm::value_ptr(normMat);
+
+    return glm::vec3(
+        float(x * BBT[0] + y * BBT[3] + z * BBT[6] + cx),
+        float(x * BBT[1] + y * BBT[4] + z * BBT[7] + cy),
+        float(x * BBT[2] + y * BBT[5] + z * BBT[8] + cz)
+    );
+}
+
 #define printObjectTypes
 
 #ifdef printObjectTypes
@@ -324,9 +348,37 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile.close();
 }
 
-void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool orthographic) {
+void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     for (auto& object : objects) {
-        object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, orthographic);
+        // Record buffer sizes before this object adds its vertices.
+        size_t matBefore = materialData.materialVertices.size();
+        size_t colBefore = colorData.colorVertices.size();
+        size_t lineBefore = lineData.materialVertices.size();
+
+        object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+
+        // Apply billboard transform if this object has a center index.
+        // In the v3d format, centerIndex == 0 means "no billboarding",
+        // while centerIndex > 0 indexes into the centers array (1-based).
+        UINT ci = object->centerIndex;
+        if (ci > 0 && ci <= centers.size()) {
+            glm::vec3 c = centers[ci - 1];
+
+            // Transform material vertices added by this object.
+            for (size_t i = matBefore; i < materialData.materialVertices.size(); ++i) {
+                materialData.materialVertices[i].position = billboardTransform(c, materialData.materialVertices[i].position);
+            }
+
+            // Transform color vertices added by this object.
+            for (size_t i = colBefore; i < colorData.colorVertices.size(); ++i) {
+                colorData.colorVertices[i].position = billboardTransform(c, colorData.colorVertices[i].position);
+            }
+
+            // Transform line/curve vertices added by this object.
+            for (size_t i = lineBefore; i < lineData.materialVertices.size(); ++i) {
+                lineData.materialVertices[i].position = billboardTransform(c, lineData.materialVertices[i].position);
+            }
+        }
     }
 }
 
