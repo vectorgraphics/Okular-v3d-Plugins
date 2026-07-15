@@ -162,7 +162,15 @@ void V3dModel::dragModeRotate(const glm::vec2& normalizedMousePosition, const gl
     glm::vec2 delta = normalizedMousePosition - lastNormalizedMousePosition;
     if (glm::length(delta) < 0.001f) { return; }
 
-    Arcball arcball{ { lastNormalizedMousePosition.x, -lastNormalizedMousePosition.y }, { normalizedMousePosition.x, -normalizedMousePosition.y} };
+    // Convert [0,1] mouse positions to NDC [-1,1] and flip Y to match the
+    // reference arcball implementation in renderBase.cc:
+    //   Arcball(xprev*2/Width - 1, 1 - yprev*2/Height, ...)
+    glm::vec2 lastNDC = { lastNormalizedMousePosition.x * 2.0f - 1.0f,
+                          1.0f - lastNormalizedMousePosition.y * 2.0f };
+    glm::vec2 currNDC = { normalizedMousePosition.x * 2.0f - 1.0f,
+                          1.0f - normalizedMousePosition.y * 2.0f };
+
+    Arcball arcball{ lastNDC, currNDC };
     float angle = arcball.angle;
     glm::vec3 axis = arcball.axis;
 
