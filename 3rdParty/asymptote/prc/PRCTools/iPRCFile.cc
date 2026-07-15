@@ -87,9 +87,9 @@ void iPRCFile::describe()
     cout << "  Minimal version for read " << *(unsigned int*)(header+3) << endl;
     cout << "  Authoring version " << *(unsigned int*)(header+7) << endl;
     cout << std::hex;
-    cout << "  File structure UUID " << *(unsigned int*)(header+11) << ' ' << *(unsigned int*)(header+15) << ' ' 
+    cout << "  File structure UUID " << *(unsigned int*)(header+11) << ' ' << *(unsigned int*)(header+15) << ' '
         << *(unsigned int*)(header+19) << ' ' << *(unsigned int*)(header+23) << endl;
-    cout << "  Application UUID " << *(unsigned int*)(header+27) << ' ' << *(unsigned int*)(header+31) << ' ' 
+    cout << "  Application UUID " << *(unsigned int*)(header+27) << ' ' << *(unsigned int*)(header+31) << ' '
         << *(unsigned int*)(header+35) << ' ' << *(unsigned int*)(header+39) << endl;
     cout << std::dec;
     // uncompressed files

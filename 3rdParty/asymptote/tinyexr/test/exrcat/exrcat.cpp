@@ -35,13 +35,13 @@ SaveAsPFM(const char* filename, int width, int height, float* data)
     rgb[3*i+1] = data[4*i+1];
     rgb[3*i+2] = data[4*i+2];
   }
-  
+
   fwrite(&rgb.at(0), sizeof(float), width * height * 3, fp);
 
   fclose(fp);
 }
 #endif
- 
+
 static float *OpenExrLoad(const char *name, int *width, int *height) {
   try {
     RgbaInputFile file (name);
@@ -51,7 +51,7 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
     std::vector<Rgba> pixels(*width * *height);
     file.setFrameBuffer(&pixels[0] - dw.min.x - dw.min.y * *width, 1, *width);
     file.readPixels(dw.min.y, dw.max.y);
- 
+
     printf("OpenExr\n    datawindow: (%d %d) - (%d %d)\n", dw.min.x, dw.min.y,
             dw.max.x, dw.max.y);
     printf("    line order %s\n", (file.lineOrder() == INCREASING_Y) ?
@@ -70,7 +70,7 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
       default: printf("unknown!");
     }
     printf("\n");
- 
+
     printf("    channels: ");
     RgbaChannels channels = file.channels();
     if (channels & WRITE_R) printf("R");
@@ -80,7 +80,7 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
     if (channels & WRITE_Y) printf("Y");
     if (channels & WRITE_C) printf("C");
     printf("\n");
- 
+
     float *ret = new float[4 * *width * *height];
     for (int i = 0; i < *width * *height; ++i) {
       ret[4*i] = pixels[i].r;
@@ -93,18 +93,18 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
     return NULL;
   }
 }
- 
+
 int main(int argc, char *argv[]) {
   if (argc != 2) {
     fprintf(stderr, "usage: exrcat <file.exr>\n");
     return 1;
   }
- 
+
   int ow, oh;
   float *orgb = OpenExrLoad(argv[1], &ow, &oh);
 
   //SaveAsPFM("out.pfm", ow, oh, orgb);
- 
+
   int tw, th;
   float *trgb;
   const char *err;
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "exrcat: %s %s\n", argv[1], err);
     return 1;
   }
- 
+
   assert(ow == tw && oh == th);
   int o = 0;
   for (int y = 0; y < th; ++y) {
@@ -122,6 +122,6 @@ int main(int argc, char *argv[]) {
              trgb[4*o], trgb[4*o+1], trgb[4*o+2], trgb[4*o+3]);
     }
   }
- 
+
   return 0;
 }

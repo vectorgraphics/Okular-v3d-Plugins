@@ -183,7 +183,7 @@ cout &lt;&lt; get&lt;double&gt;(x);
 
 cout &lt;&lt; get&lt;asy::real&gt;(w);
 </pre>
-        
+
         <p>The <code>asy::array</code> class implements, at a minimum, the
         methods:</p>
         <ul>
@@ -241,7 +241,7 @@ void doubler(array *a) {
         <code>//</code> are allowed at the top level. These do not affect the
         definition of the module, but the implementation may copy them into the
         .asy and .cc to help explain the resulting code.</p>
-        
+
         <h3>Verbatim Code Blocks</h3>
         <p>Verbatim code, ie. code to be copied directly into the either
         the output .asy or .cc file can be specified in the .asyc file by
@@ -349,7 +349,7 @@ void f(int asyname:cname)
         <p>Each formal parameter may take a piece of code as a default value.
         Because the function is implemented in C++, this code must be given as
         C++ code.  More akin to Asymptote than C++, default arguments may occur
-        for any non-rest parameters, not just those at the end of the list, and 
+        for any non-rest parameters, not just those at the end of the list, and
         may refer to earlier parameters in the list.  Earlier parameters are
         refered to by their C++ names.  Example:
 <pre>void drawbox(pair center, real width, real height=2*width, pen p)</pre>

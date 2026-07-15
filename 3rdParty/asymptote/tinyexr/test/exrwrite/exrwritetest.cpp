@@ -13,7 +13,7 @@
 #include <half.h>
 using namespace Imf;
 using namespace Imath;
- 
+
 static float *OpenExrLoad(const char *name, int *width, int *height) {
   try {
     RgbaInputFile file (name);
@@ -23,7 +23,7 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
     std::vector<Rgba> pixels(*width * *height);
     file.setFrameBuffer(&pixels[0] - dw.min.x - dw.min.y * *width, 1, *width);
     file.readPixels(dw.min.y, dw.max.y);
- 
+
     printf("OpenExr\n    datawindow: (%d %d) - (%d %d)\n", dw.min.x, dw.min.y,
             dw.max.x, dw.max.y);
     printf("    line order %s\n", (file.lineOrder() == INCREASING_Y) ?
@@ -42,7 +42,7 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
       default: printf("unknown!");
     }
     printf("\n");
- 
+
     printf("    channels: ");
     RgbaChannels channels = file.channels();
     if (channels & WRITE_R) printf("R");
@@ -52,7 +52,7 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
     if (channels & WRITE_Y) printf("Y");
     if (channels & WRITE_C) printf("C");
     printf("\n");
- 
+
     float *ret = new float[4 * *width * *height];
     for (int i = 0; i < *width * *height; ++i) {
       ret[4*i] = pixels[i].r;
@@ -65,16 +65,16 @@ static float *OpenExrLoad(const char *name, int *width, int *height) {
     return NULL;
   }
 }
- 
+
 static void WriteImageEXR(const char *name, float *rgba,
                           int xRes, int yRes) {
     Rgba *hrgba = new Rgba[xRes * yRes];
     for (int i = 0; i < xRes * yRes; ++i)
       hrgba[i] = Rgba(rgba[4*i], rgba[4*i+1], rgba[4*i+2], rgba[4*i+3]);
- 
+
     Box2i displayWindow(V2i(0,0), V2i(xRes-1, yRes-1));
     Box2i dataWindow(V2i(0, 0), V2i(xRes - 1, yRes - 1));
- 
+
     try {
         RgbaOutputFile file(name, displayWindow, dataWindow, WRITE_RGBA);
         file.setFrameBuffer(hrgba, 1, xRes);
@@ -84,38 +84,38 @@ static void WriteImageEXR(const char *name, float *rgba,
       fprintf(stderr, "Unable to write image file \"%s\": %s", name,
               e.what());
     }
- 
+
     delete[] hrgba;
 }
- 
- 
+
+
 int main(int argc, char *argv[]) {
   if (argc != 3) {
     fprintf(stderr, "usage: exrwritetest <tinyexr-filename.exr> <openexr-filename.exr>\n");
     return 1;
   }
- 
+
   int w = 1;
   int h = 2;
   float *rgba = new float[4 * w * h];
   for (int i = 0; i < 4 * w * h; ++i) {
     rgba[i] = drand48();
   }
- 
+
   WriteImageEXR(argv[2], rgba, w, h);
   const char *err;
   SaveEXR(rgba, w, h, argv[1], /* fp16 */1, &err);
-  
+
   int ow, oh;
   float *orgba = OpenExrLoad(argv[2], &ow, &oh);
- 
+
   int tw, th;
   float *trgba;
   if (LoadEXR(&trgba, &tw, &th, argv[1], &err) != 0) {
     fprintf(stderr, "exrwritetest: %s %s\n", argv[2], err);
     return 1;
   }
- 
+
   int offset = 0;
   for (int y = 0; y < h; ++y) {
     for (int x = 0; x < w; ++x)
@@ -127,6 +127,6 @@ int main(int argc, char *argv[]) {
                   orgba[offset], fabsf(rgba[offset] - orgba[offset]),
                   trgba[offset], fabsf(rgba[offset] - trgba[offset]));
   }
- 
+
   return 0;
 }

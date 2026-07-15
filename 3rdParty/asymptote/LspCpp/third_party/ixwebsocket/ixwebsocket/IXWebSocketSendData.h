@@ -15,7 +15,7 @@ namespace ix
 {
     /*
     * IXWebSocketSendData implements a wrapper for std::string, std:vector<char/uint8_t> and char*.
-    * It removes the necessarity to copy the data or string into a std::string 
+    * It removes the necessarity to copy the data or string into a std::string
     */
     class IXWebSocketSendData {
     public:

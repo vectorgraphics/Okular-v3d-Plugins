@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #####
-# 
+#
 # aspy.py
 #
 # Andy Hammerlindl 2011/09/03

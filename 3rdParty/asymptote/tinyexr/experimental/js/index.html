@@ -26,12 +26,12 @@
 
     canvas.width  = exrImg.width();
     canvas.height = exrImg.height();
-    
+
     let imageArray = exrImg.getBytes().map(num => {
       // Convert values to 0-255 range and apply gamma curve
       return Math.pow(num, 0.44) * 256;
     });
-    
+
     let image8Array = new Uint8ClampedArray(imageArray);
     let imageData = new ImageData(image8Array, exrImg.width(), exrImg.height());
     ctx.putImageData(imageData, 0, 0);

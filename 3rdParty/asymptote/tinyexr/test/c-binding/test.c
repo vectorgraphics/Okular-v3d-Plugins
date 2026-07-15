@@ -15,5 +15,5 @@ int main(int argc, char** argv)
 
   int ret = LoadEXR(&rgba, &width, &height, argv[1], &err);
 
-  return ret; 
+  return ret;
 }
