@@ -48,6 +48,7 @@ public:
 private:
     bool m_ReQueueModels{ true }; // TODO should be per model
 
+    void EnsureCachedRequestSize(size_t pageNumber);
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
     void CachePage(size_t pageNumber, Okular::Page* page);
 

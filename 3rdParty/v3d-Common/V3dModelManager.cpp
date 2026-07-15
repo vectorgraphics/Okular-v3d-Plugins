@@ -96,6 +96,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     m_Models[pageNumber][modelIndex].remesh = true; // TODO
 
     // Projection
+    EnsureCachedRequestSize(pageNumber);
     glm::vec2 canvasSize = {
         (m_Models[pageNumber][modelIndex].maxBound.x - m_Models[pageNumber][modelIndex].minBound.x) * m_CachedRequestSizes[pageNumber].size.x,
         (m_Models[pageNumber][modelIndex].maxBound.y - m_Models[pageNumber][modelIndex].minBound.y) * m_CachedRequestSizes[pageNumber].size.y,
@@ -269,6 +270,8 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 
         int pg = GetPageMouseIsOver();
 
+        EnsureCachedRequestSize((size_t)pg);
+
         int leftPixel = model.minBound.x * m_CachedRequestSizes[pg].size.x;
         int rightPixel = leftPixel + (model.maxBound.x - model.minBound.x) * m_CachedRequestSizes[pg].size.x;
 
@@ -304,6 +307,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 
     if (controlKey && !shiftKey && !altKey) {
         float dpr = GetDevicePixelRatio();
+        EnsureCachedRequestSize((size_t)m_ActiveModelPage);
 
         glm::vec2 canvasSize = {
             (model.maxBound.x - model.minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x),
@@ -422,6 +426,7 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
     }
 
     float dpr = GetDevicePixelRatio();
+    EnsureCachedRequestSize((size_t)m_ActiveModelPage);
 
     glm::vec2 canvasSize = {
         (m_ActiveModel->maxBound.x - m_ActiveModel->minBound.x) * (m_CachedRequestSizes[m_ActiveModelPage].size.x / dpr),
@@ -502,6 +507,12 @@ void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
 #endif
 }
 
+void V3dModelManager::EnsureCachedRequestSize(size_t pageNumber) {
+    if (m_CachedRequestSizes.size() <= pageNumber) {
+        m_CachedRequestSizes.resize(pageNumber + 1);
+    }
+}
+
 void V3dModelManager::CacheRequestSize(size_t pageNumber, int width, int height, int priority) {
     if (m_Pages.size() < pageNumber + 1) {
         m_CachedRequestSizes.resize(pageNumber + 1);
@@ -558,6 +569,7 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
         Okular::NormalizedRect rect = visiblePages[0]->rect;
 
         pageBorders[0].pageNumber = visiblePages[0]->pageNumber;
+        EnsureCachedRequestSize(pageBorders[0].pageNumber);
 
         glm::vec2 pageSize{ m_CachedRequestSizes[pageBorders[0].pageNumber].size.x / dpr, m_CachedRequestSizes[pageBorders[0].pageNumber].size.y / dpr };
 
@@ -592,6 +604,7 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
         size_t i = 0;
         for (auto& page : visiblePages) {
             Okular::NormalizedRect rect = page->rect;
+            EnsureCachedRequestSize(page->pageNumber);
             glm::vec2 pageSize{ m_CachedRequestSizes[page->pageNumber].size.x / dpr, m_CachedRequestSizes[page->pageNumber].size.y / dpr };
 
             pageBorders[i].pageNumber = page->pageNumber;
@@ -615,6 +628,7 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
         auto& firstPage = visiblePages[0];
         Okular::NormalizedRect firstPageRect = firstPage->rect;
         glm::vec2 firstPageSize{ m_CachedRequestSizes[firstPage->pageNumber].size.x / dpr, m_CachedRequestSizes[firstPage->pageNumber].size.y / dpr };
+        EnsureCachedRequestSize(firstPage->pageNumber);
 
         pageBorders[0].pageNumber = firstPage->pageNumber;
 
@@ -623,6 +637,7 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
 
             float totalPageHeight = 0;
             for (int i = visiblePages[0]->pageNumber; i <= visiblePages[visiblePages.size() - 1]->pageNumber; ++i) {
+                EnsureCachedRequestSize((size_t)i);
                 totalPageHeight += m_CachedRequestSizes[i].size.y / dpr;
             }
 
@@ -643,6 +658,7 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
         for (auto& page : visiblePages) {
             if (i == 0) { ++i; continue; } // First page is the base case and is handled above
 
+            EnsureCachedRequestSize(page->pageNumber);
             glm::vec2 pageSize{ m_CachedRequestSizes[page->pageNumber].size.x / dpr, m_CachedRequestSizes[page->pageNumber].size.y / dpr };
 
             pageBorders[i].hi = viewPortSize.y - pageBorders[i - 1].lo + 10;
@@ -677,6 +693,7 @@ glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& 
     std::vector<PageBorders> pageBorders = GetPageBordersForVisiblePages();
 
     float dpr = GetDevicePixelRatio();
+    EnsureCachedRequestSize((size_t)pageNumber);
     glm::vec2 pageSize{ m_CachedRequestSizes[pageNumber].size.x / dpr, m_CachedRequestSizes[pageNumber].size.y / dpr };
 
     auto it = std::find_if(pageBorders.begin(), pageBorders.end(), [&pageNumber](PageBorders border){
