@@ -26,7 +26,7 @@ echo "Could not find installation path for: okularGenerator_v3d.so"
 install *.glsl ${FEDORA} 2> /dev/null || \
 install *.glsl ${UBUNTU} 2> /dev/null || \
 install *.glsl ${ARCH} 2> /dev/null || \
-echo "Could not find installation path for: GLSL shaders"
+echo "Could not find installation path for shaders"
 
 install v3d-mime.xml /usr/share/mime/packages 2> /dev/null || \
 echo "Could not find installation path for: v3d-mime.xml"
