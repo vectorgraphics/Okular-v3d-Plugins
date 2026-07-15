@@ -22,6 +22,11 @@
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
+		if (!glslang::InitializeProcess()) {
+			std::cerr << "failed to initialize glslang" << std::endl;
+			std::exit(1);
+		}
+
 		createInstance();
 		createPhysicalDevice();
 
@@ -228,7 +233,6 @@ void HeadlessRenderer::createPhysicalDevice() {
 }
 
 VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
-	constexpr float defaultQueuePriority(0.0f);
 	VkDeviceQueueCreateInfo queueCreateInfo = {};
 	uint32_t queueFamilyCount;
 	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
@@ -240,7 +244,7 @@ VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
 			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 			queueCreateInfo.queueFamilyIndex = i;
 			queueCreateInfo.queueCount = 1;
-			queueCreateInfo.pQueuePriorities = &defaultQueuePriority;
+			queueCreateInfo.pQueuePriorities = &queuePriority;
 			break;
 		}
 	}

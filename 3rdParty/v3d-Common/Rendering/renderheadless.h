@@ -177,6 +177,7 @@ public:
 	uint32_t maxSize{ 1 };
 
 	std::string shaderPath;
+	float queuePriority{ 0.5f };
 
 	VkDebugReportCallbackEXT debugReportCallback{};
 
