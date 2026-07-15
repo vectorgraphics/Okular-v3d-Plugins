@@ -2378,7 +2378,6 @@ unsigned char* HeadlessRenderer::render(
 		vkDestroyFence(device, layoutFence, nullptr);
 		vkFreeCommandBuffers(device, commandPool, 1, &layoutCmd);
 
-		LOG("Transparent scene: fragments=%u\n", fragments);
 		elements = pixels;
 		recordCountCommandBuffer(m_IndexCount, lights.size());
 		recordComputeCommandBuffer();
