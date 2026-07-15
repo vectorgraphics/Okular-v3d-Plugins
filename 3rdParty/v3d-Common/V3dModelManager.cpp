@@ -244,6 +244,9 @@ glm::vec2 V3dModelManager::GetCanvasSize(size_t pageNumber) {
 
 void V3dModelManager::SetDocument(const Okular::Document* document) {
     m_Document = document;
+    m_ActiveModel = nullptr;
+    m_ActiveModelPage = -1;
+    m_Dragging = false;
 }
 
 bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
@@ -342,8 +345,6 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
     m_MousePosition.x = (int)event->position().x();
     m_MousePosition.y = (int)event->position().y();
 
-    // m_LastMousePosition = m_MousePosition;
-
     if (!(event->button() & Qt::MouseButton::LeftButton)) {
         return false;
     }
@@ -367,6 +368,7 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 
     if (modelMouseIsOver != nullptr) {
         m_Dragging = true;
+        m_LastMousePosition = m_MousePosition;
         m_ActiveModel = modelMouseIsOver;
         m_ActiveModelPage = pageMouseIsOver;
 
@@ -387,6 +389,8 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
     }
 
     m_Dragging = false;
+    m_ActiveModel = nullptr;
+    m_ActiveModelPage = -1;
 
     return false;
 }
@@ -700,6 +704,10 @@ glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& 
         return border.pageNumber == pageNumber;
     });
 
+    if (it == pageBorders.end()) {
+        return glm::vec2{ 0.0f, 0.0f };
+    }
+
     PageBorders& border = *it;
 
     return (pos - glm::vec2{ border.le, border.hi }) / pageSize;
@@ -779,6 +787,9 @@ void V3dModelManager::requestPixmapRefresh(size_t pageNumber) {
 }
 
 void V3dModelManager::refreshPixmap(size_t pageNumber) {
+    if (pageNumber >= m_Pages.size() || !m_Pages[pageNumber]) {
+        return;
+    }
     m_Pages[pageNumber]->deletePixmaps();
 
     QKeyEvent* keyEvent = new QKeyEvent(
