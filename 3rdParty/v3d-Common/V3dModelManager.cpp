@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QBoxLayout>
+#include <QColorSpace>
 #include <QScrollBar>
 #include <QPainter>
 #include <QWindow>
@@ -157,6 +158,13 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     VkSubresourceLayout imageSubresourceLayout;
 
+    glm::vec4 bgColor{
+        m_Models[pageNumber][modelIndex].file->headerInfo.background.r,
+        m_Models[pageNumber][modelIndex].file->headerInfo.background.g,
+        m_Models[pageNumber][modelIndex].file->headerInfo.background.b,
+        m_Models[pageNumber][modelIndex].file->headerInfo.background.a
+    };
+
     unsigned char* imageData = m_HeadlessRenderer->render(
         glm::ivec2{ imageWidth, imageHeight }, 
         &imageSubresourceLayout, 
@@ -164,7 +172,8 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].projectionMatrix,
         m_Models[pageNumber][modelIndex].file->materials,
         std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
-        mesh.pipelineMode
+        mesh.pipelineMode,
+        bgColor
     );
 
     unsigned char* imgDataTmp = imageData;
@@ -186,9 +195,26 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     delete imageData;
 
+    // Vulkan outputs BGRA bytes (VK_FORMAT_B8G8R8A8_UNORM).
+    // On little-endian x86, QImage::Format_ARGB32 stores bytes as B,G,R,A —
+    // so the byte order matches directly. No swap needed.
     QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
 
+    // Prevent Qt/Okular from applying sRGB gamma correction on display.
+    // The shader handles color space (OUTPUT_AS_SRGB when srgb=true).
+    // With no managed color space, Qt treats pixel values as-is.
+    image.setColorSpace(QColorSpace());
+
     image = image.mirrored(false, true);
+
+    // Force all pixels to fully opaque so Okular draws them directly
+    // without alpha compositing over its paperColor background.
+    for (int y = 0; y < imageHeight; y++) {
+        unsigned char *row = image.scanLine(y);
+        for (int x = 0; x < imageWidth; x++) {
+            row[x * 4 + 3] = 255;
+        }
+    }
 
     m_Models[pageNumber][modelIndex].m_HasChanged = false;
     m_ModelImages[pageNumber][modelIndex] = image;

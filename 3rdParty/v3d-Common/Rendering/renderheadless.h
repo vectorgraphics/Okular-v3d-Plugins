@@ -103,6 +103,8 @@ public:
 
 	glm::ivec2 currentTargetSize{ 0, 0 };
 	bool initialized{ false };
+	bool interlock{ false };
+	bool srgb{ false }; // TODO: control via env var
 	MeshPipelineMode currentPipelineMode{ MeshPipelineMode::MaterialOnly };
 
 	VkFramebuffer framebuffer;
@@ -236,7 +238,8 @@ public:
 		const glm::mat4& proj, 
 		const std::vector<V3dMaterial>& materials,
 		const std::vector<V3dHeaderInfo::Light>& lights,
-		MeshPipelineMode pipelineMode
+		MeshPipelineMode pipelineMode,
+		const glm::vec4& background
 	);
 
 	void cleanupMeshData();
@@ -249,4 +252,5 @@ public:
 	void submitWork(VkCommandBuffer cmdBuffer, VkQueue queue);
 
 	unsigned int m_IndexCount{ 0 };
+	glm::vec4 m_BackgroundColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 };

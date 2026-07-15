@@ -169,7 +169,7 @@ void HeadlessRenderer::createInstance() {
 	uint32_t layerCount = 1;
 	const char* validationLayers[] = { "VK_LAYER_KHRONOS_validation" };
 
-	std::vector<const char*> instanceExtensions = {};
+	std::vector<const char*> instanceExtensions = { VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME };
 
 #if VULKAN_DEBUG
 	// Check if layers are available
@@ -259,6 +259,29 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfo;
 	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 	std::vector<const char*> deviceExtensions = { VK_KHR_MAINTENANCE2_EXTENSION_NAME };
+
+	// Detect fragment shader interlock support
+	uint32_t extCount = 0;
+	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount, nullptr);
+	std::vector<VkExtensionProperties> extProps(extCount);
+	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount, extProps.data());
+	for (const auto& ext : extProps) {
+		if (strcmp(ext.extensionName, VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME) == 0) {
+			interlock = true;
+			deviceExtensions.push_back(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);
+			break;
+		}
+	}
+
+	VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT interlockFeatures = {};
+	if (interlock) {
+		interlockFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT;
+		interlockFeatures.fragmentShaderPixelInterlock = VK_TRUE;
+		deviceCreateInfo.pNext = &interlockFeatures;
+		LOG("INTERLOCK enabled\n");
+	} else {
+		LOG("INTERLOCK not available\n");
+	}
 
 	deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
 	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
@@ -833,9 +856,9 @@ void HeadlessRenderer::createCountRenderPass(int targetWidth, int targetHeight) 
 
 void HeadlessRenderer::createTransparentRenderPass(int targetWidth, int targetHeight) {
 	VkAttachmentDescription colorAttachmentDesc = {};
-	colorAttachmentDesc.format = VK_FORMAT_R8G8B8A8_UNORM;
+	colorAttachmentDesc.format = VK_FORMAT_B8G8R8A8_UNORM;
 	colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -847,7 +870,7 @@ void HeadlessRenderer::createTransparentRenderPass(int targetWidth, int targetHe
 	vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
 	depthAttachmentDesc.format = depthFormat;
 	depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-	depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depthAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -1214,7 +1237,7 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
 
 	VkPipelineDepthStencilStateCreateInfo depthStencilState =
-		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS);
 
 	VkViewport viewport = { 0, 0, (float)targetWidth, (float)targetHeight, 0.0f, 1.0f };
 	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
@@ -1284,7 +1307,14 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
+
 	std::vector<std::string> options{ "NORMAL", "TRANSPARENT", "MATERIAL" };
+	if (srgb) {
+		options.push_back("OUTPUT_AS_SRGB");
+	}
+	if (interlock) {
+		options.push_back("HAVE_INTERLOCK");
+	}
 	if (useColor) {
 		options.push_back("GENERAL");
 		options.push_back("COLOR");
@@ -1362,7 +1392,11 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-	std::vector<std::string> options{ "OUTPUT_AS_SRGB", "ARRAYSIZE 32" };
+	std::vector<std::string> options;
+	if (srgb) {
+		options.push_back("OUTPUT_AS_SRGB");
+	}
+	options.push_back("ARRAYSIZE 32");
 
 	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "screen.glsl", options);
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "blend.glsl", options);
@@ -1609,6 +1643,9 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 	shaderStages[1].pName = "main";
 
 	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
+	if (interlock) {
+		options.push_back("HAVE_INTERLOCK");
+	}
 	if (useColor) {
 		options.push_back("GENERAL");
 		options.push_back("COLOR");
@@ -1626,8 +1663,12 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 	VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &cmdBufInfo));
 
 	VkClearValue clearValues[2];
-	clearValues[0].color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
-	clearValues[1].depthStencil = { 1.0f, 0 };
+	clearValues[0].color.float32[0] = m_BackgroundColor.r;
+	clearValues[0].color.float32[1] = m_BackgroundColor.g;
+	clearValues[0].color.float32[2] = m_BackgroundColor.b;
+	clearValues[0].color.float32[3] = m_BackgroundColor.a;
+	clearValues[1].depthStencil.depth = 1.0f;
+	clearValues[1].depthStencil.stencil = 0;
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1856,8 +1897,16 @@ void HeadlessRenderer::recordTransparentCommandBuffer(size_t indexCount, size_t 
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassBeginInfo.renderArea.extent.width = currentTargetSize.x;
 	renderPassBeginInfo.renderArea.extent.height = currentTargetSize.y;
-	renderPassBeginInfo.clearValueCount = 0;
-	renderPassBeginInfo.pClearValues = nullptr;
+
+	VkClearValue clearValues[2];
+	clearValues[0].color.float32[0] = m_BackgroundColor.r;
+	clearValues[0].color.float32[1] = m_BackgroundColor.g;
+	clearValues[0].color.float32[2] = m_BackgroundColor.b;
+	clearValues[0].color.float32[3] = m_BackgroundColor.a;
+	clearValues[1].depthStencil.depth = 1.0f;
+	clearValues[1].depthStencil.stencil = 0;
+	renderPassBeginInfo.clearValueCount = 2;
+	renderPassBeginInfo.pClearValues = clearValues;
 	renderPassBeginInfo.renderPass = transparentRenderPass;
 	renderPassBeginInfo.framebuffer = transparentFramebuffer;
 
@@ -1882,7 +1931,11 @@ void HeadlessRenderer::recordTransparentCommandBuffer(size_t indexCount, size_t 
 	vkCmdNextSubpass(transCmd, VK_SUBPASS_CONTENTS_INLINE);
 
 	vkCmdBindPipeline(transCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blendPipeline);
-	glm::vec4 background{ 1.0f, 1.0f, 1.0f, 1.0f };
+	glm::vec4 background;
+	background.r = m_BackgroundColor.r;
+	background.g = m_BackgroundColor.g;
+	background.b = m_BackgroundColor.b;
+	background.a = m_BackgroundColor.a;
 	VkDeviceSize pushSize = sizeof(glm::uvec4) + sizeof(glm::vec4);
 	uint8_t* pushData = new uint8_t[pushSize];
 	memcpy(pushData, &constants, sizeof(glm::uvec4));
@@ -2002,7 +2055,7 @@ void HeadlessRenderer::createHostReadableDestinationImage(glm::ivec2 size) {
 	// Create the linear tiled destination image to copy to and to read the memory from
 	VkImageCreateInfo imgCreateInfo(vks::initializers::imageCreateInfo());
 	imgCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-	imgCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+	imgCreateInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
 	imgCreateInfo.extent.width = size.x;
 	imgCreateInfo.extent.height = size.y;
 	imgCreateInfo.extent.depth = 1;
@@ -2136,8 +2189,11 @@ unsigned char* HeadlessRenderer::render(
 	const glm::mat4& proj, 
 	const std::vector<V3dMaterial>& materials, 
 	const std::vector<V3dHeaderInfo::Light>& lights,
-	MeshPipelineMode pipelineMode
+	MeshPipelineMode pipelineMode,
+	const glm::vec4& bgColor
 ) {
+	m_BackgroundColor = bgColor;
+
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
@@ -2168,7 +2224,7 @@ unsigned char* HeadlessRenderer::render(
 			initialized = false;
 		}
 
-		VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+		VkFormat colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
 		VkFormat depthFormat;
 
 		vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
@@ -2186,7 +2242,7 @@ unsigned char* HeadlessRenderer::render(
 		std::vector<GPUMaterial> mats(materials.size());
 		int i = 0;
 		for (auto& mat : materials) {
-			mats[i].diffuse = glm::vec4{ mat.diffuse.b, mat.diffuse.g, mat.diffuse.r, mat.diffuse.a };
+			mats[i].diffuse = glm::vec4{ mat.diffuse.r, mat.diffuse.g, mat.diffuse.b, mat.diffuse.a };
 
 			mats[i].emissive   = mat.emissive;
 			mats[i].specular   = mat.specular;
@@ -2203,7 +2259,7 @@ unsigned char* HeadlessRenderer::render(
 
 		std::vector<GPULight> gpuLights(1);
 		gpuLights[0].direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
-		gpuLights[0].color = glm::vec4{ lights[0].color.b, lights[0].color.g, lights[0].color.r, 1.0f };
+		gpuLights[0].color = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
 
 		createLightBuffer(gpuLights);
 
@@ -2242,72 +2298,89 @@ unsigned char* HeadlessRenderer::render(
 		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
 	}
 
-	recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, lights.size());
-	submitWork(commandBuffer, queue);
+	// Detect if the scene has any transparent materials
+	bool hasTransparency = false;
+	for (const auto& mat : materials) {
+		if (mat.diffuse.a < 1.0f) {
+			hasTransparency = true;
+			break;
+		}
+	}
 
-	// Transparency pipeline
-	zeroTransparencyBuffers();
+	if (!hasTransparency) {
+		// Fully opaque scene: use only the opaque pass
+		recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, lights.size());
+		submitWork(commandBuffer, queue);
+	} else {
+		// Scene has transparency: skip opaque pass entirely.
+		// Follow vkrender.cc approach -- all geometry goes through the A-buffer path.
+		// The color attachment is cleared to transparent by the transparent render pass,
+		// and the blend shader composites the final result.
 
-	// Transition color image from TRANSFER_SRC_OPTIMAL back to COLOR_ATTACHMENT_OPTIMAL
-	VkCommandBufferAllocateInfo transAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer layoutCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &transAllocInfo, &layoutCmd));
-	VkCommandBufferBeginInfo transBufInfo = vks::initializers::commandBufferBeginInfo();
-	VK_CHECK_RESULT(vkBeginCommandBuffer(layoutCmd, &transBufInfo));
+		// Transition images from UNDEFINED (since we skipped the opaque pass) to attachment layouts.
+		zeroTransparencyBuffers();
 
-	VkImageMemoryBarrier colorBarrier = {};
-	colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	colorBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	colorBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	colorBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	colorBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	colorBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	colorBarrier.image = colorAttachment.image;
-	colorBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	colorBarrier.subresourceRange.baseMipLevel = 0;
-	colorBarrier.subresourceRange.levelCount = 1;
-	colorBarrier.subresourceRange.baseArrayLayer = 0;
-	colorBarrier.subresourceRange.layerCount = 1;
+		VkCommandBufferAllocateInfo transAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
+		VkCommandBuffer layoutCmd;
+		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &transAllocInfo, &layoutCmd));
+		VkCommandBufferBeginInfo transBufInfo = vks::initializers::commandBufferBeginInfo();
+		VK_CHECK_RESULT(vkBeginCommandBuffer(layoutCmd, &transBufInfo));
 
-	vkCmdPipelineBarrier(layoutCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &colorBarrier);
+		VkImageMemoryBarrier colorBarrier = {};
+		colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		colorBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		colorBarrier.srcAccessMask = 0;
+		colorBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		colorBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		colorBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		colorBarrier.image = colorAttachment.image;
+		colorBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		colorBarrier.subresourceRange.baseMipLevel = 0;
+		colorBarrier.subresourceRange.levelCount = 1;
+		colorBarrier.subresourceRange.baseArrayLayer = 0;
+		colorBarrier.subresourceRange.layerCount = 1;
 
-	VkImageMemoryBarrier depthBarrier = {};
-	depthBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	depthBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depthBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	depthBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-	depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	depthBarrier.image = depthAttachment.image;
-	depthBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-	depthBarrier.subresourceRange.baseMipLevel = 0;
-	depthBarrier.subresourceRange.levelCount = 1;
-	depthBarrier.subresourceRange.baseArrayLayer = 0;
-	depthBarrier.subresourceRange.layerCount = 1;
+		vkCmdPipelineBarrier(layoutCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &colorBarrier);
 
-	vkCmdPipelineBarrier(layoutCmd, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
+		VkImageMemoryBarrier depthBarrier = {};
+		depthBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		depthBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		depthBarrier.srcAccessMask = 0;
+		depthBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		depthBarrier.image = depthAttachment.image;
+		depthBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+		depthBarrier.subresourceRange.baseMipLevel = 0;
+		depthBarrier.subresourceRange.levelCount = 1;
+		depthBarrier.subresourceRange.baseArrayLayer = 0;
+		depthBarrier.subresourceRange.layerCount = 1;
 
-	VK_CHECK_RESULT(vkEndCommandBuffer(layoutCmd));
-	VkSubmitInfo layoutSubmit = vks::initializers::submitInfo();
-	layoutSubmit.commandBufferCount = 1;
-	layoutSubmit.pCommandBuffers = &layoutCmd;
-	VkFenceCreateInfo layoutFenceInfo = vks::initializers::fenceCreateInfo();
-	VkFence layoutFence;
-	VK_CHECK_RESULT(vkCreateFence(device, &layoutFenceInfo, nullptr, &layoutFence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &layoutSubmit, layoutFence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &layoutFence, VK_TRUE, UINT64_MAX));
-	vkDestroyFence(device, layoutFence, nullptr);
-	vkFreeCommandBuffers(device, commandPool, 1, &layoutCmd);
+		vkCmdPipelineBarrier(layoutCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
 
-	elements = pixels;
-	recordCountCommandBuffer(m_IndexCount, lights.size());
-	recordComputeCommandBuffer();
-	if (fragments > 0) {
-		recordTransparentCommandBuffer(m_IndexCount, lights.size());
+		VK_CHECK_RESULT(vkEndCommandBuffer(layoutCmd));
+		VkSubmitInfo layoutSubmit = vks::initializers::submitInfo();
+		layoutSubmit.commandBufferCount = 1;
+		layoutSubmit.pCommandBuffers = &layoutCmd;
+		VkFenceCreateInfo layoutFenceInfo = vks::initializers::fenceCreateInfo();
+		VkFence layoutFence;
+		VK_CHECK_RESULT(vkCreateFence(device, &layoutFenceInfo, nullptr, &layoutFence));
+		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &layoutSubmit, layoutFence));
+		VK_CHECK_RESULT(vkWaitForFences(device, 1, &layoutFence, VK_TRUE, UINT64_MAX));
+		vkDestroyFence(device, layoutFence, nullptr);
+		vkFreeCommandBuffers(device, commandPool, 1, &layoutCmd);
+
+		LOG("Transparent scene: fragments=%u\n", fragments);
+		elements = pixels;
+		recordCountCommandBuffer(m_IndexCount, lights.size());
+		recordComputeCommandBuffer();
+		if (fragments > 0) {
+			recordTransparentCommandBuffer(m_IndexCount, lights.size());
+		}
 	}
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
