@@ -446,9 +446,10 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
 bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_T) {
         std::cout << "TEST" << std::endl;
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {

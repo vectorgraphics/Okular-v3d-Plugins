@@ -159,9 +159,14 @@ void V3dModel::dragModeRotate(const glm::vec2& normalizedMousePosition, const gl
 
     if (normalizedMousePosition == lastNormalizedMousePosition) { return; }
 
+    glm::vec2 delta = normalizedMousePosition - lastNormalizedMousePosition;
+    if (glm::length(delta) < 0.001f) { return; }
+
     Arcball arcball{ { lastNormalizedMousePosition.x, -lastNormalizedMousePosition.y }, { normalizedMousePosition.x, -normalizedMousePosition.y} };
     float angle = arcball.angle;
     glm::vec3 axis = arcball.axis;
+
+    if (glm::length(axis) < 0.001f) { return; }
 
     float angleRadians = 2.0f * angle / zoom * arcballFactor;
     glm::mat4 temp = glm::rotate(glm::mat4(1.0f), angleRadians, axis);
