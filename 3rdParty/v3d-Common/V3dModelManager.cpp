@@ -174,7 +174,8 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].file->materials,
         std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
         mesh.pipelineMode,
-        bgColor
+        bgColor,
+        m_Models[pageNumber][modelIndex].file->headerInfo.orthographic
     );
 
     unsigned char* imgDataTmp = imageData;

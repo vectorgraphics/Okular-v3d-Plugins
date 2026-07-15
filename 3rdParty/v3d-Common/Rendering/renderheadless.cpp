@@ -1215,6 +1215,9 @@ void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int t
 
 	// Count pipeline uses empty options {}
 	std::vector<std::string> countOptions{};
+	if (m_Orthographic) {
+		countOptions.push_back("ORTHOGRAPHIC");
+	}
 
 	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", countOptions);
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "count.glsl", countOptions);
@@ -1323,6 +1326,9 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 		options.push_back("GENERAL");
 		options.push_back("COLOR");
 	}
+	if (m_Orthographic) {
+		options.push_back("ORTHOGRAPHIC");
+	}
 
 	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
@@ -1401,6 +1407,9 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 		options.push_back("OUTPUT_AS_SRGB");
 	}
 	options.push_back("ARRAYSIZE 32");
+	if (m_Orthographic) {
+		options.push_back("ORTHOGRAPHIC");
+	}
 
 	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "screen.glsl", options);
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "blend.glsl", options);
@@ -1653,6 +1662,9 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 	if (useColor) {
 		options.push_back("GENERAL");
 		options.push_back("COLOR");
+	}
+	if (m_Orthographic) {
+		options.push_back("ORTHOGRAPHIC");
 	}
 
 	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
@@ -2194,9 +2206,11 @@ unsigned char* HeadlessRenderer::render(
 	const std::vector<V3dMaterial>& materials, 
 	const std::vector<V3dHeaderInfo::Light>& lights,
 	MeshPipelineMode pipelineMode,
-	const glm::vec4& bgColor
+	const glm::vec4& bgColor,
+	bool orthographic
 ) {
 	m_BackgroundColor = bgColor;
+	m_Orthographic = orthographic;
 
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;

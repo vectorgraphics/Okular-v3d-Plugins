@@ -240,7 +240,8 @@ public:
 		const std::vector<V3dMaterial>& materials,
 		const std::vector<V3dHeaderInfo::Light>& lights,
 		MeshPipelineMode pipelineMode,
-		const glm::vec4& background
+		const glm::vec4& background,
+		bool orthographic = false
 	);
 
 	void cleanupMeshData();
@@ -254,4 +255,5 @@ public:
 
 	unsigned int m_IndexCount{ 0 };
 	glm::vec4 m_BackgroundColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+	bool m_Orthographic{ false };
 };
