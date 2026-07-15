@@ -109,6 +109,71 @@ public:
 	FrameBufferAttachment colorAttachment, depthAttachment;
 	VkRenderPass renderPass;
 
+	// Transparency buffers
+	VkBuffer countBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory countBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer globalSumBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory globalSumBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer offsetBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory offsetBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer opaqueColorBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory opaqueColorBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer opaqueDepthBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory opaqueDepthBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer fragmentBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory fragmentBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer depthFragBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory depthFragBufferMemory{ VK_NULL_HANDLE };
+
+	VkBuffer feedbackBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory feedbackBufferMemory{ VK_NULL_HANDLE };
+	uint32_t* feedbackMappedPtr{ nullptr };
+
+	// Compute resources
+	VkDescriptorSetLayout computeDescriptorSetLayout{ VK_NULL_HANDLE };
+	VkDescriptorPool computeDescriptorPool{ VK_NULL_HANDLE };
+	VkDescriptorSet computeDescriptorSet{ VK_NULL_HANDLE };
+	VkPipelineLayout computePipelineLayout{ VK_NULL_HANDLE };
+	VkPipeline computeSum1Pipeline{ VK_NULL_HANDLE };
+	VkPipeline computeSum2Pipeline{ VK_NULL_HANDLE };
+	VkPipeline computeSum3Pipeline{ VK_NULL_HANDLE };
+
+	// Transparency graphics resources
+	VkRenderPass countRenderPass{ VK_NULL_HANDLE };
+	VkFramebuffer countFramebuffer{ VK_NULL_HANDLE };
+	VkRenderPass transparentRenderPass{ VK_NULL_HANDLE };
+	VkFramebuffer transparentFramebuffer{ VK_NULL_HANDLE };
+
+	VkPipelineLayout transparencyPipelineLayout{ VK_NULL_HANDLE };
+
+	VkPipeline countPipeline{ VK_NULL_HANDLE };
+	VkPipelineCache countPipelineCache{ VK_NULL_HANDLE };
+	std::vector<VkShaderModule> countShaderModules;
+
+	VkPipeline transparentPipeline{ VK_NULL_HANDLE };
+	VkPipelineCache transparentPipelineCache{ VK_NULL_HANDLE };
+	std::vector<VkShaderModule> transparentShaderModules;
+
+	VkPipeline blendPipeline{ VK_NULL_HANDLE };
+	VkPipelineCache blendPipelineCache{ VK_NULL_HANDLE };
+	std::vector<VkShaderModule> blendShaderModules;
+
+	// Transparency state
+	uint32_t pixels{ 0 };
+	uint32_t groupSize{ 256 };
+	uint32_t localSize{ 16 };
+	uint32_t blockSize{ 16 };
+	uint32_t elements{ 0 };
+	uint32_t fragments{ 0 };
+	uint32_t maxFragments{ 0 };
+	uint32_t maxSize{ 1 };
+
 	std::string shaderPath;
 
 	VkDebugReportCallbackEXT debugReportCallback{};
@@ -132,12 +197,32 @@ private:
 	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createDescriptorSetLayout();
-	void createGraphicsPipeline(bool useColor);
+	void createGraphicsPipeline(bool useColor, int targetWidth, int targetHeight);
 	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, size_t lightCount);
+	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
+	void recordComputeCommandBuffer();
+	void recordTransparentCommandBuffer(size_t indexCount, size_t lightCount);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout);
 
 	void createHostReadableDestinationImage(glm::ivec2 size);
 	void destroyHostReadableDestinationImage();
+
+	// Transparency pipeline creation
+	void createTransparencyBuffers(int width, int height);
+	void zeroTransparencyBuffers();
+	VkShaderModule createComputeShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
+	void updateTransparencyDescriptors();
+	void createCountRenderPass(int targetWidth, int targetHeight);
+	void createTransparentRenderPass(int targetWidth, int targetHeight);
+	void createTransparencyPipelineLayout();
+	void createComputeDescriptorSetLayout();
+	void createComputeDescriptorPool();
+	void createComputeDescriptorSet();
+	void createComputePipelineLayout();
+	void createComputePipelines();
+	void createCountPipeline(bool useColor, int targetWidth, int targetHeight);
+	void createTransparentPipeline(bool useColor, int targetWidth, int targetHeight);
+	void createBlendPipeline(int targetWidth, int targetHeight);
 
 	void cleanup();
 
