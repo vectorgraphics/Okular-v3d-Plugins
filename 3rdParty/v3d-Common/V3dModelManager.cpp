@@ -227,6 +227,9 @@ V3dModel& V3dModelManager::Model(size_t pageNumber, size_t modelIndex) {
 }
 
 std::vector<V3dModel>& V3dModelManager::Models(size_t pageNumber) {
+    if (pageNumber >= m_Models.size()) {
+        m_Models.resize(pageNumber + 1);
+    }
     return m_Models[pageNumber];
 }
 
