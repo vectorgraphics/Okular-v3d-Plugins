@@ -68,8 +68,10 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     m_PageView = GetPageViewWidget();
 
     // Qt takes ownership of event filters once installed, and deletes them when no longer needed
-    m_EventFilter = new EventFilter(m_PageView, this);
-    m_PageView->viewport()->installEventFilter(m_EventFilter);
+    if (m_PageView) {
+        m_EventFilter = new EventFilter(m_PageView, this);
+        m_PageView->viewport()->installEventFilter(m_EventFilter);
+    }
 
     m_ApplicationEventFilter = new ApplicationEventFilter(qApp, this);
     qApp->installEventFilter(m_ApplicationEventFilter);
@@ -250,7 +252,7 @@ void V3dModelManager::SetDocument(const Okular::Document* document) {
 }
 
 bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
-    if (m_Models.size() == 0) {
+    if (m_Models.size() == 0 || !m_PageView) {
         // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
@@ -336,7 +338,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
-    if (m_Models.size() == 0) {
+    if (m_Models.size() == 0 || !m_PageView) {
         // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
@@ -379,7 +381,7 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
-    if (m_Models.size() == 0) {
+    if (m_Models.size() == 0 || !m_PageView) {
         // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
@@ -396,7 +398,7 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::wheelEvent(QWheelEvent* event) {
-    if (m_Models.size() == 0) {
+    if (m_Models.size() == 0 || !m_PageView) {
         // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
     }
@@ -558,6 +560,8 @@ float V3dModelManager::GetDevicePixelRatio() {
 }
 
 std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisiblePages() {
+    if (!m_PageView) return {};
+
     auto visiblePages = m_Document->visiblePageRects();
 
     std::vector<PageBorders> pageBorders{ };
@@ -632,8 +636,8 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
         // First page
         auto& firstPage = visiblePages[0];
         Okular::NormalizedRect firstPageRect = firstPage->rect;
-        glm::vec2 firstPageSize{ m_CachedRequestSizes[firstPage->pageNumber].size.x / dpr, m_CachedRequestSizes[firstPage->pageNumber].size.y / dpr };
         EnsureCachedRequestSize(firstPage->pageNumber);
+        glm::vec2 firstPageSize{ m_CachedRequestSizes[firstPage->pageNumber].size.x / dpr, m_CachedRequestSizes[firstPage->pageNumber].size.y / dpr };
 
         pageBorders[0].pageNumber = firstPage->pageNumber;
 
