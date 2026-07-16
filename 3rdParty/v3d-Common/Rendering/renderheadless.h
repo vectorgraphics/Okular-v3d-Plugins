@@ -59,6 +59,8 @@ public:
 	VkPhysicalDevice physicalDevice;
 	VkDevice device;
 	uint32_t maxComputeWorkGroupCountX{ 65535 };
+	uint32_t maxFramebufferWidth{ 16384 };
+	uint32_t maxFramebufferHeight{ 16384 };
 	uint32_t queueFamilyIndex;
 	VkPipelineCache pipelineCache;
 	VkQueue queue;

@@ -234,6 +234,8 @@ void HeadlessRenderer::createPhysicalDevice() {
 	VkPhysicalDeviceProperties deviceProps;
 	vkGetPhysicalDeviceProperties(physicalDevice, &deviceProps);
 	maxComputeWorkGroupCountX = deviceProps.limits.maxComputeWorkGroupCount[0];
+	maxFramebufferWidth = deviceProps.limits.maxFramebufferWidth;
+	maxFramebufferHeight = deviceProps.limits.maxFramebufferHeight;
 }
 
 VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
@@ -2236,6 +2238,9 @@ unsigned char* HeadlessRenderer::render(
 	m_Orthographic = orthographic;
 
 	groupSize = localSize * blockSize;
+
+	targetSize.x = std::min(targetSize.x, (int)maxFramebufferWidth);
+	targetSize.y = std::min(targetSize.y, (int)maxFramebufferHeight);
 
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
