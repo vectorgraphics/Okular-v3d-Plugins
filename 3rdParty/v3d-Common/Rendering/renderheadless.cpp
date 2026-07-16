@@ -2315,9 +2315,11 @@ unsigned char* HeadlessRenderer::render(
 	ubo.viewMat = view;
 	ubo.normMat = glm::inverse(view);
 
-	// TODO switch to "or" instead of "and"
-	if (cachedUbo.projViewMat != ubo.projViewMat && cachedUbo.viewMat != ubo.viewMat && cachedUbo.normMat != ubo.normMat) {
+	// Update UBO whenever ANY matrix changes (|| not &&).
+	// Multiple scenes share the same renderer; each has its own view/projection.
+	if (cachedUbo.projViewMat != ubo.projViewMat || cachedUbo.viewMat != ubo.viewMat || cachedUbo.normMat != ubo.normMat) {
 		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
+		cachedUbo = ubo;
 	}
 
 	// Always update material and light buffers on every render call.
