@@ -2391,16 +2391,18 @@ unsigned char* HeadlessRenderer::render(
 	}
 
 	if (!hasTransparency) {
-		// Fully opaque scene: use only the opaque pass
+		// Fully opaque scene: use only the opaque pass.
+		// The render pass transitions color from UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
+		// (via its initialLayout/dependencies) and ends in TRANSFER_SRC_OPTIMAL.
 		recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, lights.size());
 		submitWork(commandBuffer, queue);
 	} else {
-		// Scene has transparency: skip opaque pass entirely.
-		// Follow vkrender.cc approach -- all geometry goes through the A-buffer path.
-		// The color attachment is cleared to transparent by the transparent render pass,
-		// and the blend shader composites the final result.
-
-		// Transition images from UNDEFINED (since we skipped the opaque pass) to attachment layouts.
+		// Scene has transparency: use the A-buffer path (count -> compute -> blend).
+		// The transparent render pass uses initialLayout=COLOR_ATTACHMENT_OPTIMAL for
+		// color and DEPTH_STENCIL_ATTACHMENT_OPTIMAL for depth.  When switching from an
+		// opaque frame, the color image is in TRANSFER_SRC_OPTIMAL and depth is in
+		// DEPTH_STENCIL_ATTACHMENT_OPTIMAL.  We must transition color back to
+		// COLOR_ATTACHMENT_OPTIMAL before beginning the transparent render pass.
 		zeroTransparencyBuffers();
 
 		VkCommandBufferAllocateInfo transAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
@@ -2409,11 +2411,14 @@ unsigned char* HeadlessRenderer::render(
 		VkCommandBufferBeginInfo transBufInfo = vks::initializers::commandBufferBeginInfo();
 		VK_CHECK_RESULT(vkBeginCommandBuffer(layoutCmd, &transBufInfo));
 
+		// Transition color image: the previous frame may have left it in
+		// TRANSFER_SRC_OPTIMAL (opaque path) or COLOR_ATTACHMENT_OPTIMAL (prior
+		// transparent path).  Use a general barrier that works from any layout.
 		VkImageMemoryBarrier colorBarrier = {};
 		colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		colorBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		colorBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorBarrier.srcAccessMask = 0;
+		colorBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		colorBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		colorBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		colorBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -2424,14 +2429,16 @@ unsigned char* HeadlessRenderer::render(
 		colorBarrier.subresourceRange.baseArrayLayer = 0;
 		colorBarrier.subresourceRange.layerCount = 1;
 
-		vkCmdPipelineBarrier(layoutCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		vkCmdPipelineBarrier(layoutCmd,
+			VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, 0, nullptr, 0, nullptr, 1, &colorBarrier);
 
 		VkImageMemoryBarrier depthBarrier = {};
 		depthBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		depthBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		depthBarrier.srcAccessMask = 0;
+		depthBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		depthBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -2442,7 +2449,9 @@ unsigned char* HeadlessRenderer::render(
 		depthBarrier.subresourceRange.baseArrayLayer = 0;
 		depthBarrier.subresourceRange.layerCount = 1;
 
-		vkCmdPipelineBarrier(layoutCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+		vkCmdPipelineBarrier(layoutCmd,
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
 			0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
 
 		VK_CHECK_RESULT(vkEndCommandBuffer(layoutCmd));
