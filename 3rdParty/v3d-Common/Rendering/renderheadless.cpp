@@ -2223,6 +2223,8 @@ unsigned char* HeadlessRenderer::render(
 		pipelineModeChanged = true;
 	}
 
+	bool recreatedResources{ false };
+
 	if (currentTargetSize != targetSize || pipelineModeChanged) {
 		if (initialized) {
 			cleanup();
@@ -2304,6 +2306,8 @@ unsigned char* HeadlessRenderer::render(
 		initialized = true;
 		currentPipelineMode = pipelineMode;
 		currentTargetSize = targetSize;
+
+		recreatedResources = true;
 	}
 
 	UniformBufferObject ubo;
@@ -2314,6 +2318,67 @@ unsigned char* HeadlessRenderer::render(
 	// TODO switch to "or" instead of "and"
 	if (cachedUbo.projViewMat != ubo.projViewMat && cachedUbo.viewMat != ubo.viewMat && cachedUbo.normMat != ubo.normMat) {
 		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
+	}
+
+	// Always update material and light buffers on every render call.
+	// Multiple models share a single HeadlessRenderer instance; if the target
+	// size hasn't changed the recreation block above is skipped, but each model
+	// can have its own materials and lighting.  Destroying + recreating these
+	// small host-visible buffers ensures every scene renders with its own data.
+	if (initialized && !recreatedResources) {
+		vkDestroyBuffer(device, materialBuffer, nullptr);
+		vkFreeMemory(device, materialBufferMemory, nullptr);
+		vkDestroyBuffer(device, lightBuffer, nullptr);
+		vkFreeMemory(device, lightBufferMemory, nullptr);
+
+		std::vector<GPUMaterial> mats(materials.size());
+		for (size_t i = 0; i < materials.size(); ++i) {
+			mats[i].diffuse    = glm::vec4{ materials[i].diffuse.r, materials[i].diffuse.g, materials[i].diffuse.b, materials[i].diffuse.a };
+			mats[i].emissive   = materials[i].emissive;
+			mats[i].specular   = materials[i].specular;
+			mats[i].parameters = glm::vec4(
+				materials[i].shininess,
+				materials[i].metallic,
+				materials[i].fresnel0,
+				pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed ? 1.0f : 0.0f
+			);
+		}
+		createMaterialBuffer(mats);
+
+		std::vector<GPULight> gpuLights(1);
+		gpuLights[0].direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
+		gpuLights[0].color     = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
+		createLightBuffer(gpuLights);
+
+		// Re-bind the new buffers into the descriptor sets
+		VkDescriptorBufferInfo materialBufferInfo{};
+		materialBufferInfo.buffer = materialBuffer;
+		materialBufferInfo.offset = 0;
+		materialBufferInfo.range  = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet materialWrite{};
+		materialWrite.sType          = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		materialWrite.dstSet         = descriptorSets[0];
+		materialWrite.dstBinding     = 1;
+		materialWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		materialWrite.descriptorCount = 1;
+		materialWrite.pBufferInfo    = &materialBufferInfo;
+
+		VkDescriptorBufferInfo lightBufferInfo{};
+		lightBufferInfo.buffer = lightBuffer;
+		lightBufferInfo.offset = 0;
+		lightBufferInfo.range  = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet lightWrite{};
+		lightWrite.sType          = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		lightWrite.dstSet         = descriptorSets[0];
+		lightWrite.dstBinding     = 2;
+		lightWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		lightWrite.descriptorCount = 1;
+		lightWrite.pBufferInfo    = &lightBufferInfo;
+
+		std::array<VkWriteDescriptorSet, 2> writes = { materialWrite, lightWrite };
+		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 	}
 
 	// Detect if the scene has any transparent materials

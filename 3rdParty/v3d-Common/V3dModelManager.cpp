@@ -126,7 +126,11 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
 
     if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
-        if (m_Models[pageNumber][modelIndex].initialized) {
+        // Always clean up existing mesh data on the GPU before uploading new data.
+        // Using the renderer's own flag ensures we also catch stale data left over
+        // from a previous document (where the per-model 'initialized' flag is false
+        // for the newly-added model but the GPU still holds the old mesh).
+        if (m_HeadlessRenderer->meshInitialized) {
             m_HeadlessRenderer->cleanupMeshData();
 
             materialData.clear();
