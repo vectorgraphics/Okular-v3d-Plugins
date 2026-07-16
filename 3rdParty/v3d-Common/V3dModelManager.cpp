@@ -199,7 +199,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         imgDataTmp += imageSubresourceLayout.rowPitch;
     }
 
-    delete imageData;
+    delete[] imageData;
 
     // Vulkan outputs BGRA bytes (VK_FORMAT_B8G8R8A8_UNORM).
     // On little-endian x86, QImage::Format_ARGB32 stores bytes as B,G,R,A —
