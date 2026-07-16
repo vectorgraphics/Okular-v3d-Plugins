@@ -32,12 +32,29 @@ void V3dModel::initProjection() {
 
     zoom = file->headerInfo.initialZoom;
     lastZoom = file->headerInfo.initialZoom;
+    initialZoom = file->headerInfo.initialZoom;
 
     viewParam.minValues.z = file->headerInfo.minBound.z;
     viewParam.maxValues.z = file->headerInfo.maxBound.z;
 
     shift.x = 0.0f;
     shift.y = 0.0f;
+}
+
+void V3dModel::home() {
+    center.x = 0.0f;
+    center.y = 0.0f;
+
+    zoom = initialZoom;
+    lastZoom = initialZoom;
+
+    rotationMatrix = glm::mat4{ 1.0f };
+
+    shift.x = 0.0f;
+    shift.y = 0.0f;
+
+    m_HasChanged = true;
+    remesh = true;
 }
 
 void V3dModel::setProjection(const glm::vec2& displayDimensions) {

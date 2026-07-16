@@ -476,6 +476,24 @@ bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
         return true;
     }
 
+    if (event->key() == Qt::Key_H) {
+        int pageMouseIsOver = GetPageMouseIsOver();
+        if (pageMouseIsOver == -1) return false;
+
+        glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
+        for (auto& model : m_Models[pageMouseIsOver]) {
+            bool horizontallyOnModel = normalizedMousePositionOnPage.x > model.minBound.x && normalizedMousePositionOnPage.x < model.maxBound.x;
+            bool verticallyOnModel = normalizedMousePositionOnPage.y > model.minBound.y && normalizedMousePositionOnPage.y < model.maxBound.y;
+
+            if (horizontallyOnModel && verticallyOnModel) {
+                model.home();
+                requestPixmapRefresh(pageMouseIsOver);
+                break;
+            }
+        }
+        return true;
+    }
+
     return false;
 }
 

@@ -18,6 +18,7 @@ struct V3dModel {
 
     void setDimensions(float width, float height, float X, float Y);
     void updateViewMatrix();
+    void home();
 
     void dragModeShift  (const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize);
     void dragModeZoom   (const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize);
@@ -29,6 +30,7 @@ struct V3dModel {
 
     float zoom{ 1.0f };
     float lastZoom{ zoom };
+    float initialZoom{ 1.0f };
 
     glm::mat4 rotationMatrix{ 1.0f };
     glm::mat4 viewMatrix{ 1.0f };
