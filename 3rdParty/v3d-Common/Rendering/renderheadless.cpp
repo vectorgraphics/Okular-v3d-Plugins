@@ -230,6 +230,10 @@ void HeadlessRenderer::createPhysicalDevice() {
 	std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
 	VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data()));
 	physicalDevice = physicalDevices[0];
+
+	VkPhysicalDeviceProperties deviceProps;
+	vkGetPhysicalDeviceProperties(physicalDevice, &deviceProps);
+	maxComputeWorkGroupCountX = deviceProps.limits.maxComputeWorkGroupCount[0];
 }
 
 VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
@@ -1784,6 +1788,7 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	VK_CHECK_RESULT(vkBeginCommandBuffer(computeCmd, &cmdBufInfo));
 
 	uint32_t g = (elements + groupSize - 1) / groupSize;
+	g = std::min(g, maxComputeWorkGroupCountX);
 	uint32_t blockSize_val = (g + localSize - 1) / localSize;
 	uint32_t final_val = elements - 1;
 

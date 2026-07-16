@@ -58,6 +58,7 @@ public:
 	VkInstance instance;
 	VkPhysicalDevice physicalDevice;
 	VkDevice device;
+	uint32_t maxComputeWorkGroupCountX{ 65535 };
 	uint32_t queueFamilyIndex;
 	VkPipelineCache pipelineCache;
 	VkQueue queue;
