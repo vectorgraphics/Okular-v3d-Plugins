@@ -169,9 +169,9 @@ public:
 
 	// Transparency state
 	uint32_t pixels{ 0 };
-	uint32_t groupSize{ 256 };
-	uint32_t localSize{ 16 };
-	uint32_t blockSize{ 16 };
+	uint32_t groupSize;
+	uint32_t localSize{ 256 };
+	uint32_t blockSize{ 8 };
 	uint32_t elements{ 0 };
 	uint32_t fragments{ 0 };
 	uint32_t maxFragments{ 0 };

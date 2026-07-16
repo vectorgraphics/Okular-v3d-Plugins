@@ -2235,6 +2235,8 @@ unsigned char* HeadlessRenderer::render(
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
 
+	groupSize = localSize * blockSize;
+
 	if (m_IndexCount == 0) {
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
