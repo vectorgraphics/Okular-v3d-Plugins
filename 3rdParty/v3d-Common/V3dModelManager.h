@@ -4,6 +4,7 @@
 
 #include <QtGui/QMouseEvent>
 #include <QAbstractScrollArea>
+#include <QPointer>
 
 #include <document.h>
 #include <page.h>
@@ -22,6 +23,7 @@ public:
     friend class ApplicationEventFilter;
 
     V3dModelManager(const Okular::Document* document);
+    ~V3dModelManager();
 
     void AddModel(V3dModel model, size_t pageNumber);
 
@@ -78,7 +80,7 @@ private:
      ri: the distance between the right side of the viewport and the right side of the page
      */
     struct PageBorders {
-        float hi, lo, le, ri;
+        float hi{ 0.0f }, lo{ 0.0f }, le{ 0.0f }, ri{ 0.0f };
         int pageNumber{ 0 };
     };
 
@@ -111,7 +113,9 @@ private:
     glm::ivec2 m_MousePosition;
     glm::ivec2 m_LastMousePosition;
 
-    QAbstractScrollArea* m_PageView{ nullptr };
+    QPointer<QAbstractScrollArea> m_PageView;
+    QObject m_FilterParent;
+
     EventFilter* m_EventFilter{ nullptr };
     ApplicationEventFilter* m_ApplicationEventFilter{ nullptr };
 
@@ -129,3 +133,4 @@ private:
     V3dModel* m_ActiveModel{ nullptr };
     int m_ActiveModelPage{ -1};
 };
+

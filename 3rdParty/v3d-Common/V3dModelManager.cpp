@@ -67,23 +67,52 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
 
     m_PageView = GetPageViewWidget();
 
-    // Qt takes ownership of event filters once installed, and deletes them when no longer needed
+    // Parent filters to our own QObject so we fully control their lifetime.
+    // Do NOT parent them to m_PageView or qApp — those parents would delete
+    // the filters independently during Qt teardown, causing double-frees.
     if (m_PageView) {
-        m_EventFilter = new EventFilter(m_PageView, this);
+        m_EventFilter = new EventFilter(&m_FilterParent, this);
         m_PageView->viewport()->installEventFilter(m_EventFilter);
     }
 
-    m_ApplicationEventFilter = new ApplicationEventFilter(qApp, this);
+    m_ApplicationEventFilter = new ApplicationEventFilter(&m_FilterParent, this);
     qApp->installEventFilter(m_ApplicationEventFilter);
 }
 
+V3dModelManager::~V3dModelManager() {
+    // Null out back-references first so in-flight events are safe.
+    if (m_EventFilter) {
+        m_EventFilter->modelManager = nullptr;
+    }
+    if (m_ApplicationEventFilter) {
+        m_ApplicationEventFilter->modelManager = nullptr;
+    }
+
+    // Unregister from Qt event chains before the filters are destroyed.
+    QCoreApplication* app = QCoreApplication::instance();
+    if (app && m_ApplicationEventFilter) {
+        app->removeEventFilter(m_ApplicationEventFilter);
+    }
+    if (m_PageView && m_EventFilter) {
+        m_PageView->viewport()->removeEventFilter(m_EventFilter);
+    }
+
+    // m_FilterParent destroys both filters as its children.
+}
+
+
+
 void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
-    m_Models.resize(pageNumber + 1);
+    if (m_Models.size() < pageNumber + 1) {
+        m_Models.resize(pageNumber + 1);
+    }
     m_Models[pageNumber].emplace_back(std::move(model));
 
     m_Models[pageNumber].back().initProjection();
 
-    m_ModelImages.resize(pageNumber + 1);
+    if (m_ModelImages.size() < pageNumber + 1) {
+        m_ModelImages.resize(pageNumber + 1);
+    }
     m_ModelImages[pageNumber].push_back(QImage{ });
 }
 
@@ -356,7 +385,7 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 
     int pageMouseIsOver = GetPageMouseIsOver();
 
-    if (pageMouseIsOver == -1) return false;
+    if (pageMouseIsOver == -1 || pageMouseIsOver >= (int)m_Models.size()) return false;
 
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
 
@@ -471,14 +500,13 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
 }
 
 bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_T) {
-        std::cout << "TEST" << std::endl;
-        return true;
+    if (m_Models.size() == 0 || !m_PageView) {
+        return false;
     }
 
     if (event->key() == Qt::Key_H) {
         int pageMouseIsOver = GetPageMouseIsOver();
-        if (pageMouseIsOver == -1) return false;
+        if (pageMouseIsOver == -1 || pageMouseIsOver >= (int)m_Models.size()) return false;
 
         glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
         for (auto& model : m_Models[pageMouseIsOver]) {
