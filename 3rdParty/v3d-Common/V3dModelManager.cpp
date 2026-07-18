@@ -265,6 +265,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // On little-endian x86, QImage::Format_ARGB32 stores bytes as B,G,R,A —
     // so the byte order matches directly. No swap needed.
     QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
+    image = image.copy();  // Deep copy so we don't alias vectorData's buffer
 
     // Prevent Qt/Okular from applying sRGB gamma correction on display.
     // The shader handles color space (OUTPUT_AS_SRGB when srgb=true).
@@ -291,11 +292,26 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 V3dModel& V3dModelManager::Model(size_t pageNumber, size_t modelIndex) {
     QMutexLocker locker(&m_ModelsMutex);
 
+    if (pageNumber >= m_Models.size()) {
+        qWarning() << "V3dModelManager::Model: pageNumber" << pageNumber << "out of range (size =" << m_Models.size() << ")";
+        return m_EmptyModel;
+    }
+    if (modelIndex >= m_Models[pageNumber].size()) {
+        qWarning() << "V3dModelManager::Model: modelIndex" << modelIndex << "out of range for page" << pageNumber << "(size =" << m_Models[pageNumber].size() << ")";
+        return m_EmptyModel;
+    }
+
     return m_Models[pageNumber][modelIndex];
 }
 
 std::vector<V3dModel>& V3dModelManager::Models(size_t pageNumber) {
     QMutexLocker locker(&m_ModelsMutex);
+
+    // Sanity guard: refuse to resize to an absurdly large index
+    if (pageNumber > 100000) {
+        qWarning() << "V3dModelManager::Models: pageNumber" << pageNumber << "exceeds maximum allowed (100000)";
+        return m_EmptyModels;
+    }
 
     if (pageNumber >= m_Models.size()) {
         m_Models.resize(pageNumber + 1);
@@ -310,6 +326,10 @@ bool V3dModelManager::Empty() {
 }
 
 glm::vec2 V3dModelManager::GetCanvasSize(size_t pageNumber) {
+    if (pageNumber >= m_Models.size() || m_Models[pageNumber].empty()) {
+        qWarning() << "V3dModelManager::GetCanvasSize: pageNumber" << pageNumber << "invalid or empty";
+        return glm::vec2{ 0.0f, 0.0f };
+    }
     return glm::vec2{ m_Models[pageNumber][0].file->headerInfo.canvasWidth, m_Models[pageNumber][0].file->headerInfo.canvasHeight };
 }
 

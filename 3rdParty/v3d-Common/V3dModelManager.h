@@ -109,6 +109,10 @@ private:
     std::vector<std::vector<V3dModel>> m_Models;
     std::vector<std::vector<QImage>> m_ModelImages;
 
+    // Sentinel objects returned when bounds checks fail (avoids UB / exceptions)
+    V3dModel m_EmptyModel{ "" };
+    std::vector<V3dModel> m_EmptyModels;
+
     std::unique_ptr<HeadlessRenderer> m_HeadlessRenderer;
 
     bool m_Dragging{ false };
