@@ -240,14 +240,18 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     unsigned char* imgDataTmp = imageData;
 
-    size_t finalImageSize = imageWidth * imageHeight * 4;
+    // renderheadless.cpp clamps targetSize to maxFramebufferWidth/Height.
+    // Use the actual clamped dimensions from the subresource layout to avoid
+    // reading past the end of the returned buffer.
+    int32_t actualHeight = imageSubresourceLayout.size / imageSubresourceLayout.rowPitch;
+    int32_t actualRowPixels = imageSubresourceLayout.rowPitch / 4;
 
     std::vector<unsigned char> vectorData;
-    vectorData.reserve(finalImageSize);
+    vectorData.reserve(imageWidth * imageHeight * 4);
 
-    for (int32_t y = 0; y < imageHeight; y++) {
+    for (int32_t y = 0; y < actualHeight && y < imageHeight; y++) {
         unsigned int *row = (unsigned int*)imgDataTmp;
-        size_t rowBytes = imageWidth * 4;
+        size_t rowBytes = std::min(actualRowPixels, imageWidth) * 4;
     
         vectorData.resize(vectorData.size() + rowBytes);
         std::memcpy(vectorData.data() + vectorData.size() - rowBytes, (unsigned char*)row, rowBytes);

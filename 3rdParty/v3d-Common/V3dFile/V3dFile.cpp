@@ -114,6 +114,12 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
             UINT centersLength;
             xdrFile >> centersLength;
 
+            // Sanity cap to prevent bad_alloc from a crafted file.
+            if (centersLength > 1000000) {
+                std::cout << "WARNING: centers count (" << centersLength << ") exceeds limit, skipping." << std::endl;
+                break;
+            }
+
             if (centersLength > 0) {
                 centers.resize(centersLength);
 

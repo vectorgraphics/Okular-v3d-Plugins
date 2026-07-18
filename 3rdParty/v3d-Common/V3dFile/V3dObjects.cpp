@@ -596,6 +596,16 @@ V3dTriangleGroup::V3dTriangleGroup(
 
         nP = 0;
         xdrFile >> nP;
+
+        // Sanity caps to prevent bad_alloc or infinite loops from crafted files.
+        constexpr UINT maxCount = 10000000;
+        if (nI > maxCount || nP > maxCount) {
+            std::cout << "WARNING: V3dTriangleGroup count exceeds limit (nI=" << nI << ", nP=" << nP << "), skipping." << std::endl;
+            nI = 0;
+            nP = 0;
+            return;
+        }
+
         vertexPositions.resize(nP);
         for (UINT i = 0; i < nP; ++i) {
             vertexPositions[i].x = readReal(xdrFile, doublePrecision);
@@ -605,6 +615,10 @@ V3dTriangleGroup::V3dTriangleGroup(
 
         nN = 0;
         xdrFile >> nN;
+        if (nN > maxCount) {
+            std::cout << "WARNING: V3dTriangleGroup normal count exceeds limit, capping." << std::endl;
+            nN = 0;
+        }
         vertexNormalArray.resize(nN);
         for (UINT i = 0; i < nN; ++i) {
             vertexNormalArray[i].x = readReal(xdrFile, doublePrecision);
@@ -615,6 +629,10 @@ V3dTriangleGroup::V3dTriangleGroup(
         xdrFile >> explicitNI;
 
         xdrFile >> nC;
+        if (nC > maxCount) {
+            std::cout << "WARNING: V3dTriangleGroup color count exceeds limit, capping." << std::endl;
+            nC = 0;
+        }
         if (nC > 0) {
             vertexColorArray.resize(nC);
             for (UINT i = 0; i < nC; ++i) {
@@ -661,6 +679,8 @@ V3dTriangleGroup::V3dTriangleGroup(
 void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
     camp::materialIndex = materialIndex;
 
+    if (nI == 0 || nP == 0) return;
+
     std::vector<MaterialVertex> matVertices;
 
     std::vector<TRIPLE> vertices;
@@ -671,6 +691,10 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         uint32_t PI0 = PI[0];
         uint32_t PI1 = PI[1];
         uint32_t PI2 = PI[2];
+
+        // Bounds check: file-supplied indices must be within vertexPositions
+        if (PI0 >= nP || PI1 >= nP || PI2 >= nP) continue;
+
         TRIPLE P0 = vertexPositions[PI0];
         TRIPLE P1 = vertexPositions[PI1];
         TRIPLE P2 = vertexPositions[PI2];
@@ -683,7 +707,12 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
     for (size_t i = 0; i < vertices.size(); ++i) {
         MaterialVertex matVert;
         matVert.position = vertices[i];
-        matVert.normal = vertexNormalArray[i];
+        // Bounds check: normal index must be within vertexNormalArray
+        if (i < nN) {
+            matVert.normal = vertexNormalArray[i];
+        } else {
+            matVert.normal = TRIPLE{0.0, 0.0, 1.0};
+        }
 
         matVertices.push_back(matVert);
     }

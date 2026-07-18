@@ -23,8 +23,9 @@
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
 		if (!glslang::InitializeProcess()) {
-			std::cerr << "failed to initialize glslang" << std::endl;
-			std::exit(1);
+			std::cerr << "v3d: failed to initialize glslang, disabling rendering." << std::endl;
+			initialized = false;
+			return;
 		}
 
 		createInstance();
@@ -227,6 +228,11 @@ void HeadlessRenderer::createInstance() {
 void HeadlessRenderer::createPhysicalDevice() {
 	uint32_t deviceCount = 0;
 	VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
+	if (deviceCount == 0) {
+		std::cerr << "v3d: no Vulkan physical devices found, disabling rendering." << std::endl;
+		initialized = false;
+		return;
+	}
 	std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
 	VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data()));
 	physicalDevice = physicalDevices[0];
@@ -399,6 +405,17 @@ void HeadlessRenderer::createUniformBuffer() {
 }
 
 void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& materials) {
+    // Guard: vkCreateBuffer with size==0 is invalid usage.
+    if (materials.empty()) {
+        std::cout << "v3d: no materials found, creating minimal buffer." << std::endl;
+        GPUMaterial emptyMat{};
+        createBuffer(
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &materialBuffer, &materialBufferMemory, sizeof(GPUMaterial), &emptyMat);
+        return;
+    }
+
     VkDeviceSize size = sizeof(GPUMaterial) * materials.size();
 
     auto result = createBuffer(
@@ -1499,10 +1516,17 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 
 std::vector<char> readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
-	if (!file.is_open())
-		std::cout << "failed to open file " + filename << std::endl;
+	if (!file.is_open()) {
+		std::cout << "v3d: failed to open shader file " + filename << std::endl;
+		return {};
+	}
 
 	size_t fileSize = (size_t) file.tellg();
+	if (fileSize == 0) {
+		std::cout << "v3d: shader file is empty: " + filename << std::endl;
+		return {};
+	}
+
 	std::vector<char> buffer(fileSize);
 
 	file.seekg(0);
