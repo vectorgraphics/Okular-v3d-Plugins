@@ -59,11 +59,12 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     }
 
     if (shaderPath == "") {
-        std::cout << "Shaders could not be found, plugin cannot run without shaders." << std::endl;
-        std::exit(1);
+        std::cout << "Shaders could not be found, disabling v3d rendering." << std::endl;
+        // Do NOT call std::exit() — this runs for every PDF opened.
+        // m_HeadlessRenderer stays nullptr; RenderModel will return a blank image.
+    } else {
+        m_HeadlessRenderer = std::make_unique<HeadlessRenderer>(shaderPath);
     }
-
-    m_HeadlessRenderer = std::make_unique<HeadlessRenderer>(shaderPath);
 
     m_PageView = GetPageViewWidget();
 
@@ -121,6 +122,13 @@ void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
 QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int imageWidth, int imageHeight) {
     QMutexLocker locker(&m_ModelsMutex);
 
+    // If shaders were not found at construction, rendering is disabled.
+    if (!m_HeadlessRenderer) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
+    }
+
     // Guard against zero/negative dimensions (tiny models, small requests) which
     // produce NaN projection matrices or invalid Vulkan extents.
     if (imageWidth <= 0 || imageHeight <= 0) {
@@ -157,7 +165,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     triple sceneMinBound = m_Models[pageNumber][modelIndex].viewParam.minValues;
     triple sceneMaxBound = m_Models[pageNumber][modelIndex].viewParam.maxValues;
 
-    if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.gety()) {
+    if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.getz()) {
         sceneMinBound = m_Models[pageNumber][modelIndex].file->headerInfo.minBound;
         sceneMaxBound = m_Models[pageNumber][modelIndex].file->headerInfo.maxBound;
     }
@@ -630,7 +638,7 @@ void V3dModelManager::EnsureCachedRequestSize(size_t pageNumber) {
 }
 
 void V3dModelManager::CacheRequestSize(size_t pageNumber, int width, int height, int priority) {
-    if (m_Pages.size() < pageNumber + 1) {
+    if (m_CachedRequestSizes.size() < pageNumber + 1) {
         m_CachedRequestSizes.resize(pageNumber + 1);
     }
 
@@ -911,11 +919,11 @@ void V3dModelManager::refreshPixmap(size_t pageNumber) {
     }
     m_Pages[pageNumber]->deletePixmaps();
 
-    QKeyEvent* keyEvent = new QKeyEvent(
+    QKeyEvent keyEvent(
         QEvent::KeyRelease, // type
         Qt::Key_Control,    // key
         Qt::NoModifier      // modifiers
     );
 
-    ProtectedFunctionCaller::callKeyReleaseEvent(m_PageView, keyEvent);
+    ProtectedFunctionCaller::callKeyReleaseEvent(m_PageView, &keyEvent);
 }
