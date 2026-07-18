@@ -4,6 +4,7 @@
 
 #include <QtGui/QMouseEvent>
 #include <QAbstractScrollArea>
+#include <QMutex>
 #include <QPointer>
 
 #include <document.h>
@@ -49,6 +50,8 @@ public:
 
 private:
     bool m_ReQueueModels{ true }; // TODO should be per model
+
+    QMutex m_ModelsMutex;
 
     void EnsureCachedRequestSize(size_t pageNumber);
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
@@ -110,8 +113,8 @@ private:
 
     bool m_Dragging{ false };
 
-    glm::ivec2 m_MousePosition;
-    glm::ivec2 m_LastMousePosition;
+    glm::ivec2 m_MousePosition{ 0, 0 };
+    glm::ivec2 m_LastMousePosition{ 0, 0 };
 
     QPointer<QAbstractScrollArea> m_PageView;
     QObject m_FilterParent;

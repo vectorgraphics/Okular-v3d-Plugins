@@ -103,6 +103,8 @@ V3dModelManager::~V3dModelManager() {
 
 
 void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
+    QMutexLocker locker(&m_ModelsMutex);
+
     if (m_Models.size() < pageNumber + 1) {
         m_Models.resize(pageNumber + 1);
     }
@@ -117,6 +119,16 @@ void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
 }
 
 QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int imageWidth, int imageHeight) {
+    QMutexLocker locker(&m_ModelsMutex);
+
+    // Guard against zero/negative dimensions (tiny models, small requests) which
+    // produce NaN projection matrices or invalid Vulkan extents.
+    if (imageWidth <= 0 || imageHeight <= 0) {
+        QImage image{ std::max(imageWidth, 1), std::max(imageHeight, 1), QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
+    }
+
     if (!m_Models[pageNumber][modelIndex].m_HasChanged && 
         m_ModelImages[pageNumber][modelIndex].width() == imageWidth &&
         m_ModelImages[pageNumber][modelIndex].height() == imageHeight) {
@@ -132,6 +144,13 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         (m_Models[pageNumber][modelIndex].maxBound.x - m_Models[pageNumber][modelIndex].minBound.x) * m_CachedRequestSizes[pageNumber].size.x,
         (m_Models[pageNumber][modelIndex].maxBound.y - m_Models[pageNumber][modelIndex].minBound.y) * m_CachedRequestSizes[pageNumber].size.y,
     };
+
+    // Guard against zero canvas size which causes division-by-zero in setProjection.
+    if (canvasSize.x <= 0.0f || canvasSize.y <= 0.0f) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
+    }
 
     m_Models[pageNumber][modelIndex].setProjection(canvasSize);
 
@@ -258,10 +277,14 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 }
 
 V3dModel& V3dModelManager::Model(size_t pageNumber, size_t modelIndex) {
+    QMutexLocker locker(&m_ModelsMutex);
+
     return m_Models[pageNumber][modelIndex];
 }
 
 std::vector<V3dModel>& V3dModelManager::Models(size_t pageNumber) {
+    QMutexLocker locker(&m_ModelsMutex);
+
     if (pageNumber >= m_Models.size()) {
         m_Models.resize(pageNumber + 1);
     }
@@ -269,6 +292,8 @@ std::vector<V3dModel>& V3dModelManager::Models(size_t pageNumber) {
 }
 
 bool V3dModelManager::Empty() {
+    QMutexLocker locker(&m_ModelsMutex);
+
     return m_Models.empty();
 }
 
@@ -294,6 +319,9 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     m_MousePosition.y = (int)event->position().y();
 
     if (!m_Dragging) { m_LastMousePosition = m_MousePosition; return false; }
+
+    {
+        QMutexLocker locker(&m_ModelsMutex);
 
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, m_ActiveModelPage);
     glm::vec2 lastNormalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_LastMousePosition, m_ActiveModelPage);
@@ -363,6 +391,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     }
 
     requestPixmapRefresh(m_ActiveModelPage);
+        } // QMutexLocker scope
 
     m_LastMousePosition = m_MousePosition;
 
@@ -390,6 +419,9 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
     glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
 
     V3dModel* modelMouseIsOver = nullptr;
+    {
+        QMutexLocker locker(&m_ModelsMutex);
+
     for (auto& model : m_Models[pageMouseIsOver]) {
         bool horizontallyOnModel = normalizedMousePositionOnPage.x > model.minBound.x && normalizedMousePositionOnPage.x < model.maxBound.x;
         bool verticallyOnModel = normalizedMousePositionOnPage.y > model.minBound.y && normalizedMousePositionOnPage.y < model.maxBound.y;
@@ -398,6 +430,7 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
 
         modelMouseIsOver = &model;
         break;
+        } // QMutexLocker scope
     }
 
     if (modelMouseIsOver != nullptr) {
@@ -461,6 +494,9 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
+    {
+        QMutexLocker locker(&m_ModelsMutex);
+
     glm::vec2 normalizedPositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, targetPage);
 
     bool horizontallyOnModel = normalizedPositionOnPage.x > targetModel->minBound.x && normalizedPositionOnPage.x < targetModel->maxBound.x;
@@ -494,6 +530,8 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
     };
 
     targetModel->setProjection(canvasSize);
+        } // QMutexLocker scope
+
     requestPixmapRefresh((size_t)targetPage);
 
     return true;
@@ -785,6 +823,11 @@ glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& 
     }
 
     PageBorders& border = *it;
+
+    // Guard against zero page size which causes division-by-zero.
+    if (pageSize.x <= 0.0f || pageSize.y <= 0.0f) {
+        return glm::vec2{ 0.0f, 0.0f };
+    }
 
     return (pos - glm::vec2{ border.le, border.hi }) / pageSize;
 }
