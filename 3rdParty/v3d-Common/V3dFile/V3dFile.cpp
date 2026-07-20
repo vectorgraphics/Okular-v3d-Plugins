@@ -236,6 +236,26 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                         headerInfo.vibrateTime = readReal(xdrFile, doublePrecisionFlag);    
                         break;    
 
+                    case IMAGE: {
+                        uint64_t strLen;
+                        xdrFile >> strLen;
+                        std::string s;
+                        s.resize(strLen);
+                        for (uint64_t k = 0; k < strLen; ++k) {
+                            xdr::xbyte c;
+                            xdrFile >> c;
+                            s[k] = static_cast<char>(c);
+                        }
+                        // Advance remaining words to match getWordSize: (strLen+3)/4 data words
+                        uint64_t totalDataWords = (strLen + 3) / 4;
+                        for (uint64_t k = strLen; k < totalDataWords * 4; ++k) {
+                            xdr::xbyte dummy;
+                            xdrFile >> dummy;
+                        }
+                        headerInfo.imagePath = std::move(s);
+                        break;
+                    }    
+
                     default:
                         // Skip unknown header entries by consuming 'length' XDR words.
                         // This prevents stream corruption when newer v3d files contain

@@ -6,6 +6,7 @@
 #include <QScrollBar>
 #include <QPainter>
 #include <QWindow>
+#include <cstdlib>
 
 #include <generator.h>
 #include <gui/priorities.h>
@@ -226,6 +227,22 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].file->headerInfo.background.a
     };
 
+    // IBL is enabled when the v3d header contains an image path.
+    // The path encodes imageDir/image, so no env vars needed.
+    std::string imagePath = m_Models[pageNumber][modelIndex].file->headerInfo.imagePath;
+    bool useIBL = !imagePath.empty();
+    std::string iblPath = "";
+    if (useIBL) {
+        iblPath = imagePath;  // imagePath is already imageDir/image else {
+        // Backward compat: old v3d files may lack the image field.
+        const char* imageDir = std::getenv("OKULAR_IMAGE_DIR");
+        const char* imageName = std::getenv("OKULAR_IMAGE");
+        if (imageDir && imageName) {
+            useIBL = true;
+            iblPath = std::string(imageDir) + "/" + std::string(imageName);
+        }
+    }
+
     unsigned char* imageData = m_HeadlessRenderer->render(
         glm::ivec2{ imageWidth, imageHeight }, 
         &imageSubresourceLayout, 
@@ -235,7 +252,9 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
         mesh.pipelineMode,
         bgColor,
-        m_Models[pageNumber][modelIndex].file->headerInfo.orthographic
+        m_Models[pageNumber][modelIndex].file->headerInfo.orthographic,
+        useIBL,
+        iblPath
     );
 
     unsigned char* imgDataTmp = imageData;

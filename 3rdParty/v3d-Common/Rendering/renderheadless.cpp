@@ -17,6 +17,7 @@
 #include "SPIRV/GlslangToSpv.h"
 #define HAVE_VULKAN
 #include "shaderResources.h"
+#include <tinyexr.h>
 
 #define VULKAN_DEBUG 1
 
@@ -58,6 +59,9 @@ HeadlessRenderer::~HeadlessRenderer() {
 	if (hostReadableDestinationImageInitalized) {
 		destroyHostReadableDestinationImage();
 	}
+
+	// Clean up IBL resources before destroying device
+	destroyIBLResources();
 
 	if (initialized) {
 		cleanup();
@@ -446,13 +450,26 @@ void HeadlessRenderer::createLightBuffer(const std::vector<GPULight>& lights) {
 }
 
 void HeadlessRenderer::createDescriptorPool() {
-    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    std::vector<VkDescriptorPoolSize> poolSizes;
 
-    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = maxFramesInFlight;
+    poolSizes.reserve(5); // 2 base + up to 3 IBL
 
-    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = maxFramesInFlight * 8;
+    VkDescriptorPoolSize uboPool{};
+    uboPool.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboPool.descriptorCount = maxFramesInFlight;
+    poolSizes.push_back(uboPool);
+
+    VkDescriptorPoolSize storageBufferPool{};
+    storageBufferPool.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    storageBufferPool.descriptorCount = maxFramesInFlight * 8;
+    poolSizes.push_back(storageBufferPool);
+
+    if (ibl) {
+        VkDescriptorPoolSize combinedImageSamplerPool{};
+        combinedImageSamplerPool.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        combinedImageSamplerPool.descriptorCount = maxFramesInFlight * 3; // irradiance, brdf, reflection
+        poolSizes.push_back(combinedImageSamplerPool);
+    }
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -530,6 +547,51 @@ void HeadlessRenderer::createDescirptorSets() {
 			0,
 			nullptr
 		);
+
+		// Write IBL sampler descriptors if enabled
+		if (ibl) {
+			VkDescriptorImageInfo irradianceInfo{};
+			irradianceInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			irradianceInfo.imageView = irradianceView;
+			irradianceInfo.sampler = irradianceSampler;
+
+			VkDescriptorImageInfo brdfInfo{};
+			brdfInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			brdfInfo.imageView = brdfView;
+			brdfInfo.sampler = brdfSampler;
+
+			VkDescriptorImageInfo reflectionInfo{};
+			reflectionInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			reflectionInfo.imageView = reflectionView;
+			reflectionInfo.sampler = reflectionSampler;
+
+			VkWriteDescriptorSet irradianceWrite{};
+			irradianceWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			irradianceWrite.dstSet = descriptorSets[i];
+			irradianceWrite.dstBinding = 11;
+			irradianceWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			irradianceWrite.descriptorCount = 1;
+			irradianceWrite.pImageInfo = &irradianceInfo;
+
+			VkWriteDescriptorSet brdfWrite{};
+			brdfWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			brdfWrite.dstSet = descriptorSets[i];
+			brdfWrite.dstBinding = 12;
+			brdfWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			brdfWrite.descriptorCount = 1;
+			brdfWrite.pImageInfo = &brdfInfo;
+
+			VkWriteDescriptorSet reflectionWrite{};
+			reflectionWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			reflectionWrite.dstSet = descriptorSets[i];
+			reflectionWrite.dstBinding = 13;
+			reflectionWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			reflectionWrite.descriptorCount = 1;
+			reflectionWrite.pImageInfo = &reflectionInfo;
+
+			VkWriteDescriptorSet iblWrites[3] = { irradianceWrite, brdfWrite, reflectionWrite };
+			vkUpdateDescriptorSets(device, 3, iblWrites, 0, nullptr);
+		}
 	}
 }
 
@@ -1339,6 +1401,9 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 
 
 	std::vector<std::string> options{ "NORMAL", "TRANSPARENT", "MATERIAL" };
+	if (ibl) {
+		options.push_back("USE_IBL");
+	}
 	if (srgb) {
 		options.push_back("OUTPUT_AS_SRGB");
 	}
@@ -1497,6 +1562,25 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 	opaqueDepthBinding.descriptorCount = 1;
 	opaqueDepthBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+	// IBL bindings (11-13) - mirror asymptote's vkrender.cc
+	VkDescriptorSetLayoutBinding irradianceSamplerBinding{};
+	irradianceSamplerBinding.binding = 11;
+	irradianceSamplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	irradianceSamplerBinding.descriptorCount = 1;
+	irradianceSamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutBinding brdfSamplerBinding{};
+	brdfSamplerBinding.binding = 12;
+	brdfSamplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	brdfSamplerBinding.descriptorCount = 1;
+	brdfSamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutBinding reflectionSamplerBinding{};
+	reflectionSamplerBinding.binding = 13;
+	reflectionSamplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	reflectionSamplerBinding.descriptorCount = 1;
+	reflectionSamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
 	std::vector<VkDescriptorSetLayoutBinding> bindings = {
 		uboLayoutBinding,
 		materialBinding,
@@ -1508,6 +1592,12 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 		opaqueColorBinding,
 		opaqueDepthBinding
 	};
+
+	if (ibl) {
+		bindings.push_back(irradianceSamplerBinding);
+		bindings.push_back(brdfSamplerBinding);
+		bindings.push_back(reflectionSamplerBinding);
+	}
 
 	VkDescriptorSetLayoutCreateInfo descriptorLayout =
     vks::initializers::descriptorSetLayoutCreateInfo(bindings);
@@ -1686,6 +1776,9 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 	shaderStages[1].pName = "main";
 
 	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
+	if (ibl) {
+		options.push_back("USE_IBL");
+	}
 	if (interlock) {
 		options.push_back("HAVE_INTERLOCK");
 	}
@@ -2152,6 +2245,334 @@ void HeadlessRenderer::destroyHostReadableDestinationImage() {
 	vkDestroyImage(device, hostReadableDestinationImage, nullptr);
 }
 
+// ============================================================================
+// IBL (Image-Based Lighting) - follows asymptote/vkrender.cc initIBL() pattern
+// ============================================================================
+
+static std::vector<float> loadEXR(const std::string& filePath, int& width, int& height) {
+	float* data = nullptr;
+	char const* err = nullptr;
+	int ret = LoadEXR(&data, &width, &height, filePath.c_str(), &err);
+	if (ret != TINYEXR_SUCCESS) {
+		std::cerr << "TinyEXR Error: " << (err ? err : "unknown") << " loading: " << filePath << std::endl;
+		if (err) FreeEXRErrorMessage(err);
+		return {};
+	}
+	std::vector<float> result(data, data + width * height * 4);
+	free(data);
+	return result;
+}
+
+void HeadlessRenderer::copyIBLDataToImage(const float* data, VkDeviceSize dataSize,
+    VkImage image, uint32_t w, uint32_t h, uint32_t layerOffset) {
+	// Create staging buffer
+	VkBufferCreateInfo bufCI = {};
+	bufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufCI.size = dataSize;
+	bufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	bufCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	VkBuffer stagingBuf;
+	VK_CHECK_RESULT(vkCreateBuffer(device, &bufCI, nullptr, &stagingBuf));
+
+	VkMemoryRequirements memReqs;
+	vkGetBufferMemoryRequirements(device, stagingBuf, &memReqs);
+	VkMemoryAllocateInfo alloc = {};
+	alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc.allocationSize = memReqs.size;
+	alloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	VkDeviceMemory stagingMem;
+	VK_CHECK_RESULT(vkAllocateMemory(device, &alloc, nullptr, &stagingMem));
+
+	void* mapped;
+	VK_CHECK_RESULT(vkMapMemory(device, stagingMem, 0, dataSize, 0, &mapped));
+	memcpy(mapped, data, dataSize);
+	vkUnmapMemory(device, stagingMem);
+	VK_CHECK_RESULT(vkBindBufferMemory(device, stagingBuf, stagingMem, 0));
+
+	// Copy buffer -> image via one-time command buffer
+	VkCommandBufferAllocateInfo cmdAlloc = {};
+	cmdAlloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	cmdAlloc.commandPool = commandPool;
+	cmdAlloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cmdAlloc.commandBufferCount = 1;
+	VkCommandBuffer cmd;
+	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdAlloc, &cmd));
+
+	VkCommandBufferBeginInfo begin = {};
+	begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK_RESULT(vkBeginCommandBuffer(cmd, &begin));
+
+	VkBufferImageCopy region = {};
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+	region.imageOffset = { 0, 0, static_cast<int32_t>(layerOffset) };
+	region.imageExtent.width = w;
+	region.imageExtent.height = h;
+	region.imageExtent.depth = 1;
+
+	vkCmdCopyBufferToImage(cmd, stagingBuf, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &region);
+
+	VK_CHECK_RESULT(vkEndCommandBuffer(cmd));
+
+	VkSubmitInfo submit = {};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &cmd;
+	VkFenceCreateInfo fenceCI = {};
+	fenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	VkFence fence;
+	VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &fence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submit, fence));
+	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+	vkDestroyFence(device, fence, nullptr);
+	vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+
+	vkDestroyBuffer(device, stagingBuf, nullptr);
+	vkFreeMemory(device, stagingMem, nullptr);
+}
+
+void HeadlessRenderer::transitionImageLayout(VkImage image,
+    VkImageLayout oldLayout, VkImageLayout newLayout) {
+	VkCommandBufferAllocateInfo alloc = {};
+	alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	alloc.commandPool = commandPool;
+	alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	alloc.commandBufferCount = 1;
+	VkCommandBuffer cmd;
+	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &alloc, &cmd));
+
+	VkCommandBufferBeginInfo begin = {};
+	begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK_RESULT(vkBeginCommandBuffer(cmd, &begin));
+
+	VkImageMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+
+	VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+	VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	if (newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	}
+
+	vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0,
+		0, nullptr, 0, nullptr, 1, &barrier);
+
+	VK_CHECK_RESULT(vkEndCommandBuffer(cmd));
+
+	VkSubmitInfo submit = {};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &cmd;
+	VkFenceCreateInfo fenceCI = {};
+	fenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	VkFence fence;
+	VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &fence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submit, fence));
+	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+	vkDestroyFence(device, fence, nullptr);
+	vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+}
+
+static void createSampler(VkDevice device, VkSampler& sampler) {
+	VkSamplerCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	info.magFilter = VK_FILTER_LINEAR;
+	info.minFilter = VK_FILTER_LINEAR;
+	info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	info.minLod = 0.0f;
+	info.maxLod = 0.0f;
+	info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+	VK_CHECK_RESULT(vkCreateSampler(device, &info, nullptr, &sampler));
+}
+
+VkResult HeadlessRenderer::createIBLImage(const std::vector<float>& data,
+    uint32_t width, uint32_t height,
+    VkImage& image, VkDeviceMemory& memory,
+    VkImageView& imageView, VkSampler& sampler) {
+
+	VkImageCreateInfo imgCI = {};
+	imgCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imgCI.imageType = VK_IMAGE_TYPE_2D;
+	imgCI.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	imgCI.extent.width = width;
+	imgCI.extent.height = height;
+	imgCI.extent.depth = 1;
+	imgCI.mipLevels = 1;
+	imgCI.arrayLayers = 1;
+	imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
+	imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	VK_CHECK_RESULT(vkCreateImage(device, &imgCI, nullptr, &image));
+
+	VkMemoryRequirements memReqs;
+	vkGetImageMemoryRequirements(device, image, &memReqs);
+	VkMemoryAllocateInfo alloc = {};
+	alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc.allocationSize = memReqs.size;
+	alloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VK_CHECK_RESULT(vkAllocateMemory(device, &alloc, nullptr, &memory));
+	VK_CHECK_RESULT(vkBindImageMemory(device, image, memory, 0));
+
+	transitionImageLayout(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+	copyIBLDataToImage(data.data(), data.size() * sizeof(float),
+		image, width, height, 0);
+
+	transitionImageLayout(image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	VkImageViewCreateInfo viewCI = {};
+	viewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewCI.image = image;
+	viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewCI.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	viewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewCI.subresourceRange.baseMipLevel = 0;
+	viewCI.subresourceRange.levelCount = 1;
+	viewCI.subresourceRange.baseArrayLayer = 0;
+	viewCI.subresourceRange.layerCount = 1;
+	VK_CHECK_RESULT(vkCreateImageView(device, &viewCI, nullptr, &imageView));
+
+	createSampler(device, sampler);
+
+	return VK_SUCCESS;
+}
+
+VkResult HeadlessRenderer::createIBLImage3D(const std::vector<std::vector<float>>& layers,
+    uint32_t width, uint32_t height,
+    VkImage& image, VkDeviceMemory& memory,
+    VkImageView& imageView, VkSampler& sampler) {
+
+	VkImageCreateInfo imgCI = {};
+	imgCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imgCI.imageType = VK_IMAGE_TYPE_3D;
+	imgCI.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	imgCI.extent.width = width;
+	imgCI.extent.height = height;
+	imgCI.extent.depth = static_cast<uint32_t>(layers.size());
+	imgCI.mipLevels = 1;
+	imgCI.arrayLayers = 1;
+	imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
+	imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	VK_CHECK_RESULT(vkCreateImage(device, &imgCI, nullptr, &image));
+
+	VkMemoryRequirements memReqs;
+	vkGetImageMemoryRequirements(device, image, &memReqs);
+	VkMemoryAllocateInfo alloc = {};
+	alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc.allocationSize = memReqs.size;
+	alloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VK_CHECK_RESULT(vkAllocateMemory(device, &alloc, nullptr, &memory));
+	VK_CHECK_RESULT(vkBindImageMemory(device, image, memory, 0));
+
+	transitionImageLayout(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+	for (uint32_t i = 0; i < static_cast<uint32_t>(layers.size()); ++i) {
+		copyIBLDataToImage(layers[i].data(), layers[i].size() * sizeof(float),
+			image, width, height, i);
+	}
+
+	transitionImageLayout(image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	VkImageViewCreateInfo viewCI = {};
+	viewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewCI.image = image;
+	viewCI.viewType = VK_IMAGE_VIEW_TYPE_3D;
+	viewCI.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	viewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewCI.subresourceRange.baseMipLevel = 0;
+	viewCI.subresourceRange.levelCount = 1;
+	viewCI.subresourceRange.baseArrayLayer = 0;
+	viewCI.subresourceRange.layerCount = 1;
+	VK_CHECK_RESULT(vkCreateImageView(device, &viewCI, nullptr, &imageView));
+
+	createSampler(device, sampler);
+
+	return VK_SUCCESS;
+}
+
+void HeadlessRenderer::initIBL(const std::string& iblPath) {
+	// Load diffuse.exr -> irradiance (2D)
+	int w = 0, h = 0;
+	auto diffuseData = loadEXR(iblPath + "/diffuse.exr", w, h);
+	if (diffuseData.empty()) {
+		std::cerr << "v3d: failed to load IBL diffuse.exr from " << iblPath << std::endl;
+		return;
+	}
+	createIBLImage(diffuseData, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
+		irradianceImg, irradianceImgMemory, irradianceView, irradianceSampler);
+
+	// Load refl.exr -> brdf (2D) - from imageDir (parent of iblPath)
+	std::string imageDir = iblPath.substr(0, iblPath.find_last_of('/'));
+	w = 0; h = 0;
+	auto brdfData = loadEXR(imageDir + "/refl.exr", w, h);
+	if (brdfData.empty()) {
+		std::cerr << "v3d: failed to load IBL refl.exr from " << imageDir << std::endl;
+		return;
+	}
+	createIBLImage(brdfData, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
+		brdfImg, brdfImgMemory, brdfView, brdfSampler);
+
+	// Load refl0.exr .. refl10.exr -> reflection (3D, depth=11)
+	constexpr int NTEXTURES = 11;
+	std::vector<std::vector<float>> layers;
+	layers.reserve(NTEXTURES);
+	w = 0; h = 0;
+	for (int i = 0; i < NTEXTURES; ++i) {
+		auto layerData = loadEXR(iblPath + "/refl" + std::to_string(i) + ".exr", w, h);
+		if (layerData.empty()) {
+			std::cerr << "v3d: failed to load IBL refl" << i << ".exr from " << iblPath << std::endl;
+			return;
+		}
+		layers.push_back(std::move(layerData));
+	}
+	createIBLImage3D(layers, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
+		reflectionImg, reflectionImgMemory, reflectionView, reflectionSampler);
+}
+
+void HeadlessRenderer::destroyIBLResources() {
+	if (irradianceSampler) { vkDestroySampler(device, irradianceSampler, nullptr); irradianceSampler = VK_NULL_HANDLE; }
+	if (irradianceView) { vkDestroyImageView(device, irradianceView, nullptr); irradianceView = VK_NULL_HANDLE; }
+	if (irradianceImg) { vkDestroyImage(device, irradianceImg, nullptr); irradianceImg = VK_NULL_HANDLE; }
+	if (irradianceImgMemory) { vkFreeMemory(device, irradianceImgMemory, nullptr); irradianceImgMemory = VK_NULL_HANDLE; }
+
+	if (brdfSampler) { vkDestroySampler(device, brdfSampler, nullptr); brdfSampler = VK_NULL_HANDLE; }
+	if (brdfView) { vkDestroyImageView(device, brdfView, nullptr); brdfView = VK_NULL_HANDLE; }
+	if (brdfImg) { vkDestroyImage(device, brdfImg, nullptr); brdfImg = VK_NULL_HANDLE; }
+	if (brdfImgMemory) { vkFreeMemory(device, brdfImgMemory, nullptr); brdfImgMemory = VK_NULL_HANDLE; }
+
+	if (reflectionSampler) { vkDestroySampler(device, reflectionSampler, nullptr); reflectionSampler = VK_NULL_HANDLE; }
+	if (reflectionView) { vkDestroyImageView(device, reflectionView, nullptr); reflectionView = VK_NULL_HANDLE; }
+	if (reflectionImg) { vkDestroyImage(device, reflectionImg, nullptr); reflectionImg = VK_NULL_HANDLE; }
+	if (reflectionImgMemory) { vkFreeMemory(device, reflectionImgMemory, nullptr); reflectionImgMemory = VK_NULL_HANDLE; }
+}
+
 void HeadlessRenderer::cleanup() {
 	vkDestroyImageView(device, colorAttachment.view, nullptr);
 	vkDestroyImage(device, colorAttachment.image, nullptr);
@@ -2238,6 +2659,9 @@ void HeadlessRenderer::cleanup() {
 	depthFragBuffer = VK_NULL_HANDLE; depthFragBufferMemory = VK_NULL_HANDLE;
 	feedbackBuffer = VK_NULL_HANDLE; feedbackBufferMemory = VK_NULL_HANDLE;
 	feedbackMappedPtr = nullptr;
+
+	// Cleanup IBL resources
+	destroyIBLResources();
 }
 
 void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
@@ -2256,10 +2680,19 @@ unsigned char* HeadlessRenderer::render(
 	const std::vector<V3dHeaderInfo::Light>& lights,
 	MeshPipelineMode pipelineMode,
 	const glm::vec4& bgColor,
-	bool orthographic
+	bool orthographic,
+	bool useIBL,
+	const std::string& iblPath
 ) {
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
+
+	// Track IBL state changes - recreate pipelines if IBL toggles
+	bool iblChanged = (useIBL != ibl);
+	if (iblChanged) {
+		destroyIBLResources();
+		ibl = useIBL;
+	}
 
 	groupSize = localSize * blockSize;
 
@@ -2270,8 +2703,8 @@ unsigned char* HeadlessRenderer::render(
 		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
 	}
 
-	// Check if we need to recreate the pipeline due to content type change
-	bool pipelineModeChanged = (pipelineMode != currentPipelineMode);
+	// Check if we need to recreate the pipeline due to content type change or IBL toggle
+	bool pipelineModeChanged = (pipelineMode != currentPipelineMode) || iblChanged;
 
 	if (m_IndexCount > 0 && !meshInitialized) {
 		pipelineModeChanged = true;
@@ -2308,6 +2741,11 @@ unsigned char* HeadlessRenderer::render(
 		createRenderPipeline(colorFormat, depthFormat, targetSize.x, targetSize.y);
 
 		createDescriptorSetLayout();
+
+		// Initialize IBL resources before creating pipelines (shaders need USE_IBL define)
+		if (ibl && !iblPath.empty()) {
+			initIBL(iblPath);
+		}
 
 		createGraphicsPipeline(pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed, targetSize.x, targetSize.y);
 

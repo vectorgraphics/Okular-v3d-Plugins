@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "V3dTypes.h"
 
 enum HeaderTypes {
@@ -21,7 +23,8 @@ enum HeaderTypes {
     ZOOM_STEP = 16,             // Zoom power step
     SHIFT_HOLD_DISTANCE = 17,   // Shift-mode maximum hold distance (pixels)
     SHIFT_WAIT_TIME = 18,       // Shift-mode hold time (milliseconds)
-    VIBRATE_TIME = 19           // Shift-mode vibrate time (milliseconds)
+    VIBRATE_TIME = 19,          // Shift-mode vibrate time (milliseconds)
+    IMAGE = 20               // Full IBL image URL (imageDir/image)
 };
 
 struct V3dHeaderInfo {
@@ -50,6 +53,7 @@ public:
     REAL shiftHoldDistance = 1.0f;
     REAL shiftWaitTime = 1.0f;
     REAL vibrateTime = 1.0f;
+    std::string imagePath;             // IBL image path (imageDir/image)
 
     void print();
 };

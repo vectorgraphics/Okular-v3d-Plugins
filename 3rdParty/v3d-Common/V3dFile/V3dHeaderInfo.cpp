@@ -25,4 +25,5 @@ void V3dHeaderInfo::print() {
     std::cout << "shiftHoldDistance: " << shiftHoldDistance << std::endl;
     std::cout << "shiftWaitTime: " << shiftWaitTime << std::endl;
     std::cout << "vibrateTime: " << vibrateTime << std::endl;
+    std::cout << "imagePath: " << imagePath << std::endl;
 }

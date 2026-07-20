@@ -16,6 +16,8 @@ include_directories(
 
    "../../../../../3rdParty/gzip-hpp/include"
    "../../../../../3rdParty/asymptote"
+   "../../../../../3rdParty/asymptote/tinyexr"
+   "../../../../../3rdParty/asymptote/tinyexr/deps/miniz"
    "../../../../../3rdParty/asymptote/prc/include"
    "../../../../../3rdParty/asymptote/backports/optional/include"
    "../../../../../3rdParty/asymptote/LspCpp/include"
@@ -34,6 +36,8 @@ set(okularGenerator_poppler_PART_SRCS
 
    # ========== begin v3d ==========
    ../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
+   ../../../../../3rdParty/asymptote/tinyexr/tinyexr.cc
+   ../../../../../3rdParty/asymptote/tinyexr/deps/miniz/miniz.c
    ../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
    ../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp

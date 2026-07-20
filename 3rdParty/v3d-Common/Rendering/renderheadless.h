@@ -169,6 +169,23 @@ public:
 	VkPipelineCache blendPipelineCache{ VK_NULL_HANDLE };
 	std::vector<VkShaderModule> blendShaderModules;
 
+	// IBL (Image-Based Lighting) resources
+	bool ibl{ false };
+	VkImage irradianceImg{ VK_NULL_HANDLE };
+	VkDeviceMemory irradianceImgMemory{ VK_NULL_HANDLE };
+	VkImageView irradianceView{ VK_NULL_HANDLE };
+	VkSampler irradianceSampler{ VK_NULL_HANDLE };
+
+	VkImage brdfImg{ VK_NULL_HANDLE };
+	VkDeviceMemory brdfImgMemory{ VK_NULL_HANDLE };
+	VkImageView brdfView{ VK_NULL_HANDLE };
+	VkSampler brdfSampler{ VK_NULL_HANDLE };
+
+	VkImage reflectionImg{ VK_NULL_HANDLE };
+	VkDeviceMemory reflectionImgMemory{ VK_NULL_HANDLE };
+	VkImageView reflectionView{ VK_NULL_HANDLE };
+	VkSampler reflectionSampler{ VK_NULL_HANDLE };
+
 	// Transparency state
 	uint32_t pixels{ 0 };
 	uint32_t groupSize;
@@ -230,6 +247,20 @@ private:
 	void createTransparentPipeline(bool useColor, int targetWidth, int targetHeight);
 	void createBlendPipeline(int targetWidth, int targetHeight);
 
+	// IBL (Image-Based Lighting)
+	VkResult createIBLImage(const std::vector<float>& data, uint32_t width, uint32_t height,
+	                        VkImage& image, VkDeviceMemory& memory,
+	                        VkImageView& imageView, VkSampler& sampler);
+	VkResult createIBLImage3D(const std::vector<std::vector<float>>& layers,
+	                          uint32_t width, uint32_t height,
+	                          VkImage& image, VkDeviceMemory& memory,
+	                          VkImageView& imageView, VkSampler& sampler);
+	void initIBL(const std::string& iblPath);
+	void destroyIBLResources();
+	void copyIBLDataToImage(const float* data, VkDeviceSize dataSize,
+	                        VkImage image, uint32_t w, uint32_t h, uint32_t layerOffset);
+	void transitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout);
+
 	void cleanup();
 
 public:
@@ -244,7 +275,9 @@ public:
 		const std::vector<V3dHeaderInfo::Light>& lights,
 		MeshPipelineMode pipelineMode,
 		const glm::vec4& background,
-		bool orthographic = false
+		bool orthographic = false,
+		bool useIBL = false,
+		const std::string& iblPath = ""
 	);
 
 	void cleanupMeshData();
