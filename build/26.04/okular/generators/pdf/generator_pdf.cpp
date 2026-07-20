@@ -1383,7 +1383,6 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
                 int xMax = (int)(request->width() * model.maxBound.x);
                 int yMin = (int)(request->height() * model.minBound.y);
                 int yMax = (int)(request->height() * model.maxBound.y);
-                
                 int imageWidth = xMax - xMin;
                 int imageHeight = yMax - yMin;
 
@@ -1990,7 +1989,7 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
                 if (asset == nullptr) {
                     continue;
                 }
-                
+
                 Poppler::EmbeddedFile* embeddedFile = asset->embeddedFile();
                 if (embeddedFile == nullptr) {
                     continue;
@@ -2027,7 +2026,7 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
 
                 modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
 
-            }    
+            }
         }
         // ========== end v3d ==========
         bool doDelete = true;
