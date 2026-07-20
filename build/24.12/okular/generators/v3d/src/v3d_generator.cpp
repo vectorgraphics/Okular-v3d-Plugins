@@ -9,6 +9,8 @@
 
 #include "v3d_generator.h"
 
+#include <gui/priorities.h>
+
 OKULAR_EXPORT_PLUGIN(V3dGenerator, "libokularGenerator_v3d.json")
 
 V3dGenerator::V3dGenerator(QObject *parent, const QVariantList &args) {
@@ -19,7 +21,17 @@ V3dGenerator::V3dGenerator(QObject *parent, const QVariantList &args) {
 void V3dGenerator::generatePixmap(Okular::PixmapRequest* request) {
     m_ModelManager.CacheRequest(request);
 
-    QImage image = m_ModelManager.RenderModel(0, 0, (int)request->width(), (int)request->height());
+    // For thumbnail requests, return a blank image instead of triggering
+    // expensive Vulkan rendering. Thumbnails should be static, non-interactive.
+    bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
+
+    QImage image;
+    if (isThumbnail) {
+        image = QImage((int)request->width(), (int)request->height(), QImage::Format_ARGB32);
+        image.fill(Qt::black);
+    } else {
+        image = m_ModelManager.RenderModel(0, 0, (int)request->width(), (int)request->height());
+    }
 
     QPixmap* pixmap = new QPixmap(QPixmap::fromImage(image));
     request->page()->setPixmap(request->observer(), pixmap);

@@ -70,6 +70,7 @@
 #include <gzip/decompress.hpp>
 #include <gzip/utils.hpp>
 #include <gzip/version.hpp>
+#include <gui/priorities.h>
 // ========== end v3d ==========
 
 Q_DECLARE_METATYPE(Poppler::Annotation *)
@@ -1276,29 +1277,35 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     }
 
     // ========== begin v3d ==========
+    // Skip v3d Vulkan rendering for thumbnail requests — use the pre-rendered
+    // PDF bitmap preview instead. Thumbnails should be static, non-interactive.
     if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
+        bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
+
         size_t pageNumber = (size_t)request->page()->number();
 
         int i = 0;
         for (auto& model : modelManager.Models(pageNumber)) {
-            int xMin = (int)(request->width() * model.minBound.x);
-            int xMax = (int)(request->width() * model.maxBound.x);
-            int yMin = (int)(request->height() * model.minBound.y);
-            int yMax = (int)(request->height() * model.maxBound.y);
+            if (!isThumbnail) {
+                int xMin = (int)(request->width() * model.minBound.x);
+                int xMax = (int)(request->width() * model.maxBound.x);
+                int yMin = (int)(request->height() * model.minBound.y);
+                int yMax = (int)(request->height() * model.maxBound.y);
 
-            int imageWidth = xMax - xMin;
-            int imageHeight = yMax - yMin;
+                int imageWidth = xMax - xMin;
+                int imageHeight = yMax - yMin;
 
-            modelManager.CacheRequest(request);
+                modelManager.CacheRequest(request);
 
-            QImage image = modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
+                QImage image = modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
 
-            QPainter painter{ &img };
+                QPainter painter{ &img };
 
-            if (request->isTile()) {
-                painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
-            } else {
-                painter.drawImage(xMin, yMin, image);
+                if (request->isTile()) {
+                    painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
+                } else {
+                    painter.drawImage(xMin, yMin, image);
+                }
             }
 
             ++i;
