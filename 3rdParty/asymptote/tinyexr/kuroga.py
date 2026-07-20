@@ -226,7 +226,7 @@ def as_list(input):
 # -- end from ninja_syntax.py --
 
 def gen(ninja, toolchain, config):
-
+    
     ninja.variable('ninja_required_version', '1.4')
     ninja.newline()
 
@@ -260,7 +260,7 @@ def gen(ninja, toolchain, config):
     cxx = toolchain + 'cxx'
     link = toolchain + 'link'
     ar = toolchain + 'ar'
-
+    
     if hasattr(config, "cxx_files"):
         for src in config.cxx_files:
             srcfile = src
@@ -290,7 +290,7 @@ def gen(ninja, toolchain, config):
 
     ninja.build('all', 'phony', targetlist)
     ninja.newline()
-
+        
     ninja.default('all')
 
 def main():
@@ -305,7 +305,7 @@ def main():
 
     if hasattr(config, "register_toolchain"):
         config.register_toolchain(ninja)
-
+        
     gen(ninja, config.toolchain, config)
     f.close()
 

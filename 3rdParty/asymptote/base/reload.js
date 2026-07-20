@@ -1,7 +1,7 @@
 // Load/reload the document associated with a given path.
 
 // UNIX: Copy to ~/.adobe/Acrobat/x.x/JavaScripts/
-// To avoid random window placement we recommend specifying an acroread
+// To avoid random window placement we recommend specifying an acroread 
 // geometry option, for example: -geometry +0+0
 
 // MSWindows: Copy to %APPDATA%/Adobe/Acrobat/x.x/JavaScripts/

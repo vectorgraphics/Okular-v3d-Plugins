@@ -43,7 +43,7 @@ public:
 private:
     int width, height;
     float* flt;
-};
+}; 
 
 class OEXRFile
 {

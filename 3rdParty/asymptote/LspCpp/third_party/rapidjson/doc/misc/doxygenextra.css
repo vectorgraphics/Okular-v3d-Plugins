@@ -139,7 +139,7 @@ div.line {
 	font-style: normal;
 	font-variant: normal;
 	font-weight: normal;
-	line-height: 19px;
+	line-height: 19px;	
 }
 
 tt, code, pre {
@@ -172,7 +172,7 @@ div.fragment {
 	margin: 0px;
 	padding: 2px 0px;
 }
-
+    
 #projectbrief
 {
 	font-family: Helvetica, arial, freesans, clean, sans-serif, 'Segoe UI Emoji', 'Segoe UI Symbol';
@@ -204,7 +204,7 @@ div.fragment {
 #nav-tree .label
 {
 	font-family: Helvetica, arial, freesans, clean, sans-serif, 'Segoe UI Emoji', 'Segoe UI Symbol';
-	line-height: 25.5px;
+	line-height: 25.5px;	
 	font-size: 15px;
 }
 

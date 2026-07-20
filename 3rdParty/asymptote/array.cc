@@ -78,7 +78,7 @@ void array::setNonBridgingSlice(size_t l, size_t r, mem::vector<item> *a)
 {
   assert(0 <= l);
   assert(l <= r);
-
+  
   size_t const sliceLength=r-l;
 
   size_t asize=a->size();

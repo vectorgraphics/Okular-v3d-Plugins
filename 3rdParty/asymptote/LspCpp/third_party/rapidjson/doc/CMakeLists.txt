@@ -11,7 +11,7 @@ ELSE()
     CONFIGURE_FILE(Doxyfile.zh-cn.in Doxyfile.zh-cn @ONLY)
 
     file(GLOB DOXYFILES ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile*)
-
+    
     add_custom_command(OUTPUT html
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile.zh-cn

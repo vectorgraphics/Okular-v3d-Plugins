@@ -3132,7 +3132,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
 #define MZ_FILE_STAT mz_stat
 #else
 #define MZ_FILE_STAT_STRUCT _stat64
-#define MZ_FILE_STAT mz_stat64
+#define MZ_FILE_STAT mz_stat64 
 #endif
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN mz_freopen
@@ -6823,7 +6823,7 @@ mz_bool mz_zip_writer_add_read_buf_callback(mz_zip_archive *pZip, const char *pA
 
         if (!mz_zip_writer_create_local_dir_header(pZip, local_dir_header,
                                                    (mz_uint16)archive_name_size, (mz_uint16)(extra_size + user_extra_data_len),
-                                                   (max_size >= MZ_UINT32_MAX) ? MZ_UINT32_MAX : uncomp_size,
+                                                   (max_size >= MZ_UINT32_MAX) ? MZ_UINT32_MAX : uncomp_size, 
                                                     (max_size >= MZ_UINT32_MAX) ? MZ_UINT32_MAX : comp_size,
                                                    uncomp_crc32, method, gen_flags, dos_time, dos_date))
             return mz_zip_set_error(pZip, MZ_ZIP_INTERNAL_ERROR);

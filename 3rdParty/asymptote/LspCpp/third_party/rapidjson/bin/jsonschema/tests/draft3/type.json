@@ -415,7 +415,7 @@
         ]
     },
     {
-        "description":
+        "description": 
             "when types includes a schema it should fully validate the schema",
         "schema": {
             "type": [
