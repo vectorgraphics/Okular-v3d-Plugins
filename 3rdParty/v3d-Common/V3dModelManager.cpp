@@ -441,8 +441,14 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
         model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     }
 
+        } // QMutexLocker scope — release BEFORE requesting refresh
+
+    // requestPixmapRefresh must be called OUTSIDE the mutex. If held while
+    // refreshPixmap() calls deletePixmaps(), Okular may request new pixmaps
+    // from another thread/context which calls RenderModel() — that also acquires
+    // m_ModelsMutex, causing a deadlock (QMutex is non-recursive) or event-loop
+    // corruption that stops MouseMove routing.
     requestPixmapRefresh(m_ActiveModelPage);
-        } // QMutexLocker scope
 
     m_LastMousePosition = m_MousePosition;
 
