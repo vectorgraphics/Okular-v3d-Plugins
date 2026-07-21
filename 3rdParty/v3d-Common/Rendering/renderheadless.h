@@ -85,9 +85,11 @@ public:
 
 	VkBuffer materialBuffer;
 	VkDeviceMemory materialBufferMemory;
+	void* materialBufferMapped{ nullptr };
 
 	VkBuffer lightBuffer;
 	VkDeviceMemory lightBufferMemory;
+	void* lightBufferMapped{ nullptr };
 
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;

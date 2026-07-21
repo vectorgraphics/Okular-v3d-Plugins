@@ -57,6 +57,10 @@ bool V3dGenerator::loadDocument(const QString &fileName, QVector<Okular::Page *>
 
     pagesVector.append(page);
 
+    // Cache the page so that refreshPixmap() can call deletePixmaps() on it
+    // during drag rotation, providing visual feedback for raw .v3d files.
+    m_ModelManager.CachePage(0, page);
+
     return true;
 }
 

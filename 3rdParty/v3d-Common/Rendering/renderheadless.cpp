@@ -69,9 +69,11 @@ HeadlessRenderer::~HeadlessRenderer() {
 		vkDestroyBuffer(device, uniformBuffer, nullptr);
 		vkFreeMemory(device, uniformBufferMemory, nullptr);
 
+		if (materialBufferMapped) vkUnmapMemory(device, materialBufferMemory);
 		vkDestroyBuffer(device, materialBuffer, nullptr);
 		vkFreeMemory(device, materialBufferMemory, nullptr);
 
+		if (lightBufferMapped) vkUnmapMemory(device, lightBufferMemory);
 		vkDestroyBuffer(device, lightBuffer, nullptr);
 		vkFreeMemory(device, lightBufferMemory, nullptr);
 
@@ -345,6 +347,7 @@ void HeadlessRenderer::copyDataToGPU(const std::vector<unsigned char>& data, VkB
 
 	submitWork(copyCmd, queue);
 
+	vkFreeCommandBuffers(device, commandPool, 1, &copyCmd);
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingMemory, nullptr);	
 }
@@ -389,6 +392,7 @@ void HeadlessRenderer::copyIndexDataToGPU(const std::vector<unsigned int>& indic
 
 	submitWork(copyCmd, queue);
 
+	vkFreeCommandBuffers(device, commandPool, 1, &copyCmd);
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingMemory, nullptr);
 }
@@ -417,6 +421,8 @@ void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& mate
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             &materialBuffer, &materialBufferMemory, sizeof(GPUMaterial), &emptyMat);
+        VkDeviceSize size = sizeof(GPUMaterial);
+        vkMapMemory(device, materialBufferMemory, 0, size, 0, &materialBufferMapped);
         return;
     }
 
@@ -432,6 +438,9 @@ void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& mate
     );
 
 	VK_CHECK_RESULT(result);
+
+	// Map the buffer for its whole lifetime so we can update via memcpy
+	vkMapMemory(device, materialBufferMemory, 0, size, 0, &materialBufferMapped);
 }
 
 void HeadlessRenderer::createLightBuffer(const std::vector<GPULight>& lights) {
@@ -447,6 +456,9 @@ void HeadlessRenderer::createLightBuffer(const std::vector<GPULight>& lights) {
     );
 
 	VK_CHECK_RESULT(result);
+
+	// Map the buffer for its whole lifetime so we can update via memcpy
+	vkMapMemory(device, lightBufferMemory, 0, size, 0, &lightBufferMapped);
 }
 
 void HeadlessRenderer::createDescriptorPool() {
@@ -2719,9 +2731,13 @@ unsigned char* HeadlessRenderer::render(
 			vkDestroyBuffer(device, uniformBuffer, nullptr);
 			vkFreeMemory(device, uniformBufferMemory, nullptr);
 
+			if (materialBufferMapped) vkUnmapMemory(device, materialBufferMemory);
+			materialBufferMapped = nullptr;
 			vkDestroyBuffer(device, materialBuffer, nullptr);
 			vkFreeMemory(device, materialBufferMemory, nullptr);
 
+			if (lightBufferMapped) vkUnmapMemory(device, lightBufferMemory);
+			lightBufferMapped = nullptr;
 			vkDestroyBuffer(device, lightBuffer, nullptr);
 			vkFreeMemory(device, lightBufferMemory, nullptr);
 
@@ -2814,17 +2830,13 @@ unsigned char* HeadlessRenderer::render(
 		cachedUbo = ubo;
 	}
 
-	// Always update material and light buffers on every render call.
-	// Multiple models share a single HeadlessRenderer instance; if the target
-	// size hasn't changed the recreation block above is skipped, but each model
-	// can have its own materials and lighting.  Destroying + recreating these
-	// small host-visible buffers ensures every scene renders with its own data.
+	// Update material and light buffers via mapped memory instead of
+	// destroying + recreating.  Multiple models share a single HeadlessRenderer
+	// instance; if the target size hasn't changed the recreation block above is
+	// skipped, but each model can have its own materials and lighting.  Using
+	// the already-mapped pointers avoids per-frame GPU memory allocation churn
+	// that fragments device memory under sustained dragging.
 	if (initialized && !recreatedResources) {
-		vkDestroyBuffer(device, materialBuffer, nullptr);
-		vkFreeMemory(device, materialBufferMemory, nullptr);
-		vkDestroyBuffer(device, lightBuffer, nullptr);
-		vkFreeMemory(device, lightBufferMemory, nullptr);
-
 		std::vector<GPUMaterial> mats(materials.size());
 		for (size_t i = 0; i < materials.size(); ++i) {
 			mats[i].diffuse    = glm::vec4{ materials[i].diffuse.r, materials[i].diffuse.g, materials[i].diffuse.b, materials[i].diffuse.a };
@@ -2837,42 +2849,17 @@ unsigned char* HeadlessRenderer::render(
 				pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed ? 1.0f : 0.0f
 			);
 		}
-		createMaterialBuffer(mats);
+		VkDeviceSize matSize = mats.empty() ? sizeof(GPUMaterial) : sizeof(GPUMaterial) * mats.size();
+		if (materialBufferMapped) {
+			std::memcpy(materialBufferMapped, mats.empty() ? nullptr : mats.data(), matSize);
+		}
 
-		std::vector<GPULight> gpuLights(1);
-		gpuLights[0].direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
-		gpuLights[0].color     = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
-		createLightBuffer(gpuLights);
-
-		// Re-bind the new buffers into the descriptor sets
-		VkDescriptorBufferInfo materialBufferInfo{};
-		materialBufferInfo.buffer = materialBuffer;
-		materialBufferInfo.offset = 0;
-		materialBufferInfo.range  = VK_WHOLE_SIZE;
-
-		VkWriteDescriptorSet materialWrite{};
-		materialWrite.sType          = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		materialWrite.dstSet         = descriptorSets[0];
-		materialWrite.dstBinding     = 1;
-		materialWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		materialWrite.descriptorCount = 1;
-		materialWrite.pBufferInfo    = &materialBufferInfo;
-
-		VkDescriptorBufferInfo lightBufferInfo{};
-		lightBufferInfo.buffer = lightBuffer;
-		lightBufferInfo.offset = 0;
-		lightBufferInfo.range  = VK_WHOLE_SIZE;
-
-		VkWriteDescriptorSet lightWrite{};
-		lightWrite.sType          = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		lightWrite.dstSet         = descriptorSets[0];
-		lightWrite.dstBinding     = 2;
-		lightWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		lightWrite.descriptorCount = 1;
-		lightWrite.pBufferInfo    = &lightBufferInfo;
-
-		std::array<VkWriteDescriptorSet, 2> writes = { materialWrite, lightWrite };
-		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+		GPULight gpuLight{};
+		gpuLight.direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
+		gpuLight.color     = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
+		if (lightBufferMapped) {
+			std::memcpy(lightBufferMapped, &gpuLight, sizeof(GPULight));
+		}
 	}
 
 	// Detect if the scene has any transparent materials

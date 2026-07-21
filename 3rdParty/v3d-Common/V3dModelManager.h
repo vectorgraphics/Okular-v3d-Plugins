@@ -47,6 +47,7 @@ public:
     void DrawMouseBoundaries(QImage* img, size_t pageNumber);
 
     void CacheRequest(Okular::PixmapRequest* request);
+    void CachePage(size_t pageNumber, Okular::Page* page);
 
 private:
     bool m_ReQueueModels{ true }; // TODO should be per model
@@ -55,7 +56,6 @@ private:
 
     void EnsureCachedRequestSize(size_t pageNumber);
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
-    void CachePage(size_t pageNumber, Okular::Page* page);
 
     float GetDevicePixelRatio();
 
