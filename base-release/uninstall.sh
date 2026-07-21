@@ -14,6 +14,11 @@ rm ${UBUNTU}okularGenerator_v3d.so 2> /dev/null || \
 rm ${ARCH}okularGenerator_v3d.so 2> /dev/null || \
 echo "Could not find okularGenerator_v3d.so, was the plugin ever installed?"
 
+rm ${FEDORA}libv3dCommon.so 2> /dev/null || \
+rm ${UBUNTU}libv3dCommon.so 2> /dev/null || \
+rm ${ARCH}libv3dCommon.so 2> /dev/null || \
+echo "Could not find libv3dCommon.so, was the plugin ever installed?"
+
 rm ${FEDORA}*.glsl 2> /dev/null || \
 rm ${UBUNTU}*.glsl 2> /dev/null || \
 rm ${ARCH}*.glsl 2> /dev/null || \
@@ -36,3 +41,4 @@ rm -r ${FEDORA}tmp/ 2> /dev/null || \
 rm -r ${UBUNTU}tmp/ 2> /dev/null || \
 rm -r ${ARCH}tmp/ 2> /dev/null || \
 echo "Could not find existing okularGenerator_poppler.so to save"
+

@@ -10,54 +10,30 @@ add_definitions(
 )
 
 include_directories(
-    "../../../../../3rdParty/v3d-Common/"
     "../../core/"
-    "/usr/include/tirpc" 
-    "/usr/include/glslang/"
-
-    "../../../../../3rdParty/asymptote"
-    "../../../../../3rdParty/asymptote/tinyexr"
-    "../../../../../3rdParty/asymptote/tinyexr/deps/miniz"
-    "../../../../../3rdParty/asymptote/prc/include"
-    "../../../../../3rdParty/asymptote/backports/optional/include"
-    "../../../../../3rdParty/asymptote/LspCpp/include"
 )
 
 set(
     okularGenerator_v3d_SRCS 
-    src/v3d_generator.cpp 
-
-    ../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
-    ../../../../../3rdParty/asymptote/tinyexr/tinyexr.cc
-    ../../../../../3rdParty/asymptote/tinyexr/deps/miniz/miniz.c
-    ../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
-    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
-    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
-    ../../../../../3rdParty/asymptote/xstream.cc
-    ../../../../../3rdParty/asymptote/bezierpatch.cc
-    ../../../../../3rdParty/asymptote/beziercurve.cc
+    src/v3d_generator.cpp
 )
 
 okular_add_generator(okularGenerator_v3d ${okularGenerator_v3d_SRCS})
 
-target_link_libraries(okularGenerator_v3d okularcore KF6::I18n vulkan tirpc glfw glslang SPIRV-Tools SPIRV-Tools-opt)
+# Link against v3dCommon which provides all shared v3d code (Vulkan renderer,
+# V3dFile parser, V3dModelManager, event filters, arcball, etc.).
+# v3dCommon PUBLIC definitions propagate: HAVE_LIBTIRPC, HAVE_LIBGLM, HAVE_RENDERER.
+target_link_libraries(okularGenerator_v3d okularcore KF6::I18n v3dCommon)
 
-add_compile_definitions(
-    HAVE_LIBTIRPC
-    HAVE_LIBGLM
-    HAVE_RENDERER
+# Set RUNPATH to $ORIGIN so the generator finds libv3dCommon.so in its own
+# installation directory (okular_generators/) regardless of distro path.
+# Override all CMake automatic RPATH to prevent build-dir leakage.
+set_target_properties(okularGenerator_v3d PROPERTIES
+    SKIP_BUILD_RPATH TRUE
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "\$ORIGIN"
 )
-
-target_compile_options(okularGenerator_v3d PUBLIC -fexceptions)
 
 ########### install files ###############
 install(PROGRAMS okularApplication_v3d.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+

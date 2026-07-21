@@ -9,6 +9,10 @@ function(okular_add_generator _target)
   set_property(GLOBAL PROPERTY okular_generator_list ${aux_list})
 endfunction()
 
+# Build v3dCommon shared library first so both generators can link against it.
+set(V3D_OKULAR_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../core")
+add_subdirectory(../../../../3rdParty/v3d-Common v3dCommon)
+
 # let's enable the generators properly configured
 
 add_subdirectory(v3d)

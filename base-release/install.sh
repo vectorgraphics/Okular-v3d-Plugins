@@ -23,6 +23,14 @@ install okularGenerator_v3d.so ${UBUNTU} 2> /dev/null || \
 install okularGenerator_v3d.so ${ARCH} 2> /dev/null || \
 echo "Could not find installation path for: okularGenerator_v3d.so"
 
+# Install libv3dCommon.so alongside the generator plugins. Both generators
+# have RUNPATH=$ORIGIN set at build time, so they resolve this relative to
+# their own directory automatically.
+install libv3dCommon.so ${FEDORA} 2> /dev/null || \
+install libv3dCommon.so ${UBUNTU} 2> /dev/null || \
+install libv3dCommon.so ${ARCH} 2> /dev/null || \
+echo "Could not find installation path for: libv3dCommon.so"
+
 install *.glsl ${FEDORA} 2> /dev/null || \
 install *.glsl ${UBUNTU} 2> /dev/null || \
 install *.glsl ${ARCH} 2> /dev/null || \
@@ -35,3 +43,4 @@ update-mime-database /usr/share/mime
 
 install okularApplication_v3d.desktop /usr/share/applications/ 2> /dev/null || \
 echo "Could not find installation path for: okularApplication_v3d.desktop"
+
