@@ -39,7 +39,7 @@ static inline glm::vec3 billboardTransform(const glm::vec3& center, const glm::v
 #define printObjectTypes
 
 #ifdef printObjectTypes
-    #define PRINT_OBJECT_TYPE(t) std::cout << #t << std::endl
+    #define PRINT_OBJECT_TYPE(t) do { if (std::getenv("OKULAR_V3D_DEBUG")) std::cout << #t << std::endl; } while(0)
 #else
     #define PRINT_OBJECT_TYPE(t)
 #endif

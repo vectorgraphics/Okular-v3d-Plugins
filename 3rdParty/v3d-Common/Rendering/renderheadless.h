@@ -22,13 +22,17 @@
 #include "../V3dFile/V3dHeaderInfo.h"
 #include "Public/ShaderLang.h"
 
-#define DEBUG (!NDEBUG)
-
 #define BUFFER_ELEMENTS 32
 
-#define LOG(...) printf(__VA_ARGS__)
+static inline bool v3dDebugEnabled() {
+#ifdef DEBUG
+    return true;  // debug builds always enable Vulkan validation + debug output
+#else
+    return std::getenv("OKULAR_V3D_DEBUG") != nullptr;
+#endif
+}
 
-#define VULKAN_DEBUG 1
+#define LOG(...) do { if (v3dDebugEnabled()) printf(__VA_ARGS__); } while(0)
 
 struct UniformBufferObject {
 	glm::mat4 projViewMat { };

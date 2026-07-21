@@ -18,8 +18,7 @@
 #define HAVE_VULKAN
 #include "shaderResources.h"
 #include <tinyexr.h>
-
-#define VULKAN_DEBUG 1
+#include <cstdlib>
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
@@ -86,13 +85,14 @@ HeadlessRenderer::~HeadlessRenderer() {
 	vkDestroyCommandPool(device, commandPool, nullptr);
 	vkDestroyDevice(device, nullptr);
 
-#if VULKAN_DEBUG
-	if (debugReportCallback) {
+	vkDestroyCommandPool(device, commandPool, nullptr);
+	vkDestroyDevice(device, nullptr);
+
+	if (getenv("OKULAR_V3D_DEBUG") && debugReportCallback) {
 		PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallback = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT"));
 		assert(vkDestroyDebugReportCallback);
 		vkDestroyDebugReportCallback(instance, debugReportCallback, nullptr);
 	}
-#endif
 
 	vkDestroyInstance(instance, nullptr);
 }
@@ -183,41 +183,43 @@ void HeadlessRenderer::createInstance() {
 
 	std::vector<const char*> instanceExtensions = { VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME };
 
-#if VULKAN_DEBUG
-	// Check if layers are available
-	uint32_t instanceLayerCount;
-	vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr);
-	std::vector<VkLayerProperties> instanceLayers(instanceLayerCount);
-	vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data());
+	bool enableValidation = getenv("OKULAR_V3D_DEBUG") != nullptr;
+	if (enableValidation) {
+		// Check if layers are available
+		uint32_t instanceLayerCount;
+		vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr);
+		std::vector<VkLayerProperties> instanceLayers(instanceLayerCount);
+		vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data());
 
-	bool layersAvailable = true;
-	for (auto layerName : validationLayers) {
-		bool layerAvailable = false;
-		for (auto instanceLayer : instanceLayers) {
-			if (strcmp(instanceLayer.layerName, layerName) == 0) {
-				layerAvailable = true;
+		bool layersAvailable = true;
+		for (auto layerName : validationLayers) {
+			bool layerAvailable = false;
+			for (auto instanceLayer : instanceLayers) {
+				if (strcmp(instanceLayer.layerName, layerName) == 0) {
+					layerAvailable = true;
+					break;
+				}
+			}
+			if (!layerAvailable) {
+				layersAvailable = false;
 				break;
 			}
 		}
-		if (!layerAvailable) {
-			layersAvailable = false;
-			break;
+
+		if (layersAvailable) {
+			instanceExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+			instanceCreateInfo.ppEnabledLayerNames = validationLayers;
+			instanceCreateInfo.enabledLayerCount = layerCount;
+		} else {
+			enableValidation = false; // layers not available, disable callback too
 		}
 	}
-
-	if (layersAvailable) {
-		instanceExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-		instanceCreateInfo.ppEnabledLayerNames = validationLayers;
-		instanceCreateInfo.enabledLayerCount = layerCount;
-	}
-#endif
 
 	instanceCreateInfo.enabledExtensionCount = (uint32_t)instanceExtensions.size();
 	instanceCreateInfo.ppEnabledExtensionNames = instanceExtensions.data();
 	VK_CHECK_RESULT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
 
-#if VULKAN_DEBUG
-	if (layersAvailable) {
+	if (enableValidation) {
 		VkDebugReportCallbackCreateInfoEXT debugReportCreateInfo = {};
 		debugReportCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
 		debugReportCreateInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
@@ -228,7 +230,6 @@ void HeadlessRenderer::createInstance() {
 		assert(vkCreateDebugReportCallbackEXT);
 		VK_CHECK_RESULT(vkCreateDebugReportCallbackEXT(instance, &debugReportCreateInfo, nullptr, &debugReportCallback));
 	}
-#endif
 }
 
 void HeadlessRenderer::createPhysicalDevice() {

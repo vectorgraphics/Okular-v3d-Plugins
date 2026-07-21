@@ -56,13 +56,13 @@ buildFunc() {
     fi
 
     if [[ $debug -eq 1 ]]; then
-        cmake -S okular/ -B build/debug/ -DCMAKE_BUILD_TYPE=Debug --install-prefix $PWD/usr/debug/
+        cmake -S okular/ -B build/debug/ -DCMAKE_BUILD_TYPE=Debug --install-prefix $PWD/usr/debug/ -DCMAKE_CXX_FLAGS="-U NDEBUG"
         cmake --build build/debug/ --target okularGenerator_v3d
         cmake --build build/debug/ --target okularGenerator_poppler
     fi
 
     if [[ $release -eq 1 ]]; then
-        cmake -S okular/ -B build/release/ -DCMAKE_BUILD_TYPE=Release --install-prefix $PWD/usr/release
+        cmake -S okular/ -B build/release/ -DCMAKE_BUILD_TYPE=Release --install-prefix $PWD/usr/release -DCMAKE_CXX_FLAGS="-U NDEBUG"
         cmake --build build/release/ --target okularGenerator_v3d
         cmake --build build/release/ --target okularGenerator_poppler
     fi
