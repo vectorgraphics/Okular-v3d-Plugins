@@ -1,7 +1,6 @@
 #include "V3dModelManager.h"
 
 #include <QApplication>
-#include <QBoxLayout>
 #include <QColorSpace>
 #include <QScrollBar>
 #include <QPainter>
@@ -893,47 +892,17 @@ QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
     QAbstractScrollArea* pageView = nullptr;
 
     for (QWidget* widget : QApplication::allWidgets()) {
+        // Okular's PageView class inherits from QAbstractScrollArea and has the
+        // Q_OBJECT macro, so its meta-object class name is "PageView".  Using the
+        // Qt meta-object system to identify it by type is far more robust than
+        // counting children (QBoxLayout / QFrame heuristics) which can break if
+        // Okular's internal widget hierarchy changes.
+        if (!widget->inherits("PageView")) {
+            continue;
+        }
+
         QAbstractScrollArea* scrollArea = dynamic_cast<QAbstractScrollArea*>(widget);
-
         if (scrollArea == nullptr) {
-            continue;
-        }
-
-        QWidget* parent = dynamic_cast<QWidget*>(widget->parent());
-
-        if (parent == nullptr) {
-            continue;
-        }
-
-        // if (parent->children().size() != 9) {
-        if (parent->children().size() < 8) {
-            continue;
-        }
-
-        int QBoxLayoutCount = 0;
-        for (auto child : parent->children()) {
-            QBoxLayout* qBox = dynamic_cast<QBoxLayout*>(child);
-
-            if (qBox != nullptr) {
-                QBoxLayoutCount += 1;
-            }
-        }
-
-        if (QBoxLayoutCount == 0) {
-            continue;
-        }
-
-        int QFrameCount = 0;
-        for (auto child : parent->children()) {
-            QFrame* qFrame = dynamic_cast<QFrame*>(child);
-
-            if (qFrame != nullptr) {
-                QFrameCount += 1;
-            }
-        }
-
-        // if (QFrameCount != 6) {
-        if (QFrameCount < 5) {
             continue;
         }
 
@@ -941,7 +910,7 @@ QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
             std::cout << "ERROR, multiple pageViews found" << std::endl;
         }
 
-        pageView = dynamic_cast<QAbstractScrollArea*>(widget);
+        pageView = scrollArea;
     }
 
     if (pageView == nullptr) {
