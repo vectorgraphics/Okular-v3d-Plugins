@@ -59,17 +59,17 @@ class HeadlessRenderer
 public:
 	static constexpr uint32_t maxFramesInFlight = 1; // TODO potentially have multiple frames in flight
 
-	VkInstance instance;
-	VkPhysicalDevice physicalDevice;
-	VkDevice device;
+	VkInstance instance{ VK_NULL_HANDLE };
+	VkPhysicalDevice physicalDevice{ VK_NULL_HANDLE };
+	VkDevice device{ VK_NULL_HANDLE };
 	uint32_t maxComputeWorkGroupCountX{ 65535 };
 	uint32_t maxFramebufferWidth{ 16384 };
 	uint32_t maxFramebufferHeight{ 16384 };
 	uint32_t queueFamilyIndex;
 	VkPipelineCache pipelineCache;
 	VkQueue queue;
-	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	VkCommandPool commandPool{ VK_NULL_HANDLE };
+	VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline pipeline;

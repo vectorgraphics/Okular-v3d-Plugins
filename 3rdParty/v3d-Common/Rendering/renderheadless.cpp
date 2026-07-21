@@ -82,19 +82,11 @@ HeadlessRenderer::~HeadlessRenderer() {
 		initialized = false;
 	}
 
-	vkDestroyCommandPool(device, commandPool, nullptr);
-	vkDestroyDevice(device, nullptr);
-
-	vkDestroyCommandPool(device, commandPool, nullptr);
-	vkDestroyDevice(device, nullptr);
-
-	if (getenv("OKULAR_V3D_DEBUG") && debugReportCallback) {
-		PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallback = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT"));
-		assert(vkDestroyDebugReportCallback);
-		vkDestroyDebugReportCallback(instance, debugReportCallback, nullptr);
-	}
-
-	vkDestroyInstance(instance, nullptr);
+	// Do not explicitly destroy commandPool, device, or instance.
+	// Asymptote's vkrender.cc takes the same approach: it skips explicit
+	// Vulkan teardown and lets process exit clean up.  The Intel ANV driver
+	// crashes inside vkDestroyDevice when validation layers are active
+	// (NULL deref in vk_meta_device_finish hash table iteration).
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageCallback(
@@ -2852,7 +2844,11 @@ unsigned char* HeadlessRenderer::render(
 		}
 		VkDeviceSize matSize = mats.empty() ? sizeof(GPUMaterial) : sizeof(GPUMaterial) * mats.size();
 		if (materialBufferMapped) {
-			std::memcpy(materialBufferMapped, mats.empty() ? nullptr : mats.data(), matSize);
+			if (mats.empty()) {
+				std::memset(materialBufferMapped, 0, matSize);
+			} else {
+				std::memcpy(materialBufferMapped, mats.data(), matSize);
+			}
 		}
 
 		GPULight gpuLight{};
