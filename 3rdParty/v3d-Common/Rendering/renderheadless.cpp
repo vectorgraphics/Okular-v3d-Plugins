@@ -2536,9 +2536,10 @@ void HeadlessRenderer::initIBL(const std::string& iblPath) {
 	// Load refl.exr -> brdf (2D) - from imageDir (parent of iblPath)
 	std::string imageDir = iblPath.substr(0, iblPath.find_last_of('/'));
 	w = 0; h = 0;
-	auto brdfData = loadEXR(imageDir + "/refl.exr", w, h);
+	std::string reflPath = imageDir + "/refl.exr";
+	auto brdfData = loadEXR(reflPath, w, h);
 	if (brdfData.empty()) {
-		std::cerr << "v3d: failed to load IBL refl.exr from " << imageDir << std::endl;
+		std::cerr << "v3d: failed to load IBL refl.exr from " << reflPath << std::endl;
 		return;
 	}
 	createIBLImage(brdfData, static_cast<uint32_t>(w), static_cast<uint32_t>(h),

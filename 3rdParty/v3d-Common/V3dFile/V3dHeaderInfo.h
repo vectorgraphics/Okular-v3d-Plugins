@@ -53,7 +53,7 @@ public:
     REAL shiftHoldDistance = 1.0f;
     REAL shiftWaitTime = 1.0f;
     REAL vibrateTime = 1.0f;
-    std::string imagePath;             // IBL image path (imageDir/image)
+    std::string imageName;             // IBL environment map identifier (relative path or bare name)
 
     void print();
 };

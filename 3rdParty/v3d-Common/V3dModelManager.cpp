@@ -6,6 +6,11 @@
 #include <QPainter>
 #include <QWindow>
 #include <cstdlib>
+#include <fstream>
+#include <set>
+#include <QTimer>
+#include <QSemaphore>
+#include <QThread>
 
 #include <generator.h>
 #include <gui/priorities.h>
@@ -37,6 +42,39 @@ bool fileExists(const std::string& path) {
     return f.good();
 }
 
+// Custom event for marshaling IBL download prompts from background threads to main thread.
+class IBLPromptEvent : public QEvent {
+public:
+    using Callback = std::function<bool()>;
+    IBLPromptEvent(Callback&& cb, QSemaphore* sem)
+        : QEvent(QEvent::Type(QEvent::User + 1)), m_Callback(std::move(cb)), m_Semaphore(sem) {}
+
+    Callback m_Callback;
+    QSemaphore* m_Semaphore;
+};
+
+// Event filter installed on qApp to catch IBLPromptEvent and run the callback on the main thread.
+class IBLEventFilter : public QObject {
+public:
+    // NO Q_OBJECT macro -- we only need eventFilter, no signals/slots.
+    explicit IBLEventFilter(QObject* parent) : QObject(parent) {}
+
+    bool eventFilter(QObject* object, QEvent* event) override {
+        if (event->type() == QEvent::Type(QEvent::User + 1)) {
+            IBLPromptEvent* promptEvent = static_cast<IBLPromptEvent*>(event);
+            promptEvent->m_Callback();
+            if (promptEvent->m_Semaphore) {
+                promptEvent->m_Semaphore->release();
+            }
+            // Do NOT delete event here -- Qt owns it and will delete it after
+            // the filter chain returns. Deleting it ourselves causes use-after-free
+            // when sendPostedEvents tries to clean up its smart pointer to the event.
+            return true;
+        }
+        return false;
+    }
+};
+
 V3dModelManager::V3dModelManager(const Okular::Document* document) 
     : m_Document(document)
     , m_HeadlessRenderer(nullptr) 
@@ -60,7 +98,7 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
 
     if (shaderPath == "") {
         std::cout << "Shaders could not be found, disabling v3d rendering." << std::endl;
-        // Do NOT call std::exit() — this runs for every PDF opened.
+        // Do NOT call std::exit() -- this runs for every PDF opened.
         // m_HeadlessRenderer stays nullptr; RenderModel will return a blank image.
     } else {
         m_HeadlessRenderer = std::make_unique<HeadlessRenderer>(shaderPath);
@@ -69,7 +107,7 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     m_PageView = GetPageViewWidget();
 
     // Parent filters to our own QObject so we fully control their lifetime.
-    // Do NOT parent them to m_PageView or qApp — those parents would delete
+    // Do NOT parent them to m_PageView or qApp -- those parents would delete
     // the filters independently during Qt teardown, causing double-frees.
     if (m_PageView) {
         m_EventFilter = new EventFilter(&m_FilterParent, this);
@@ -78,9 +116,18 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
 
     m_ApplicationEventFilter = new ApplicationEventFilter(&m_FilterParent, this);
     qApp->installEventFilter(m_ApplicationEventFilter);
+
+    // Install IBL event filter on qApp to handle cross-thread IBL download prompts.
+    m_IBLEventFilter = new IBLEventFilter(&m_FilterParent);
+    qApp->installEventFilter(m_IBLEventFilter);
 }
 
 V3dModelManager::~V3dModelManager() {
+    m_Destroying = true;
+
+    // Don't touch m_PendingTimers -- they may have been created on a different thread.
+    // The m_Destroying flag prevents callbacks from accessing destroyed members.
+    // Timers self-destruct when their singleShot fires or Okular exits.
     // Null out back-references first so in-flight events are safe.
     if (m_EventFilter) {
         m_EventFilter->modelManager = nullptr;
@@ -93,6 +140,9 @@ V3dModelManager::~V3dModelManager() {
     QCoreApplication* app = QCoreApplication::instance();
     if (app && m_ApplicationEventFilter) {
         app->removeEventFilter(m_ApplicationEventFilter);
+    }
+    if (app && m_IBLEventFilter) {
+        app->removeEventFilter(m_IBLEventFilter);
     }
     if (m_PageView && m_EventFilter) {
         m_PageView->viewport()->removeEventFilter(m_EventFilter);
@@ -135,6 +185,31 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         QImage image{ std::max(imageWidth, 1), std::max(imageHeight, 1), QImage::Format_ARGB32 };
         image.fill(Qt::black);
         return image;
+    }
+
+    // Check IBL availability early -- if the model needs IBL but files aren't
+    // available yet, defer rendering entirely until download completes.
+    std::string imageName = m_Models[pageNumber][modelIndex].file->headerInfo.imageName;
+    bool useIBL = false;
+    std::string iblPath = "";
+    if (!imageName.empty() && !m_IBLDeclined) {
+        iblPath = resolveIBLPath(imageName, /*doSchedule=*/false);
+        if (iblPath.empty()) {
+            // IBL missing -- track this model and return blank.
+            m_ModelsWithMissingIBL.insert({pageNumber, modelIndex});
+
+            // Marshal the download prompt to the main thread via custom event.
+            // Post-and-forget: we can't wait synchronously because Okular's
+            // background worker thread doesn't process events during PDF loading.
+            // The popup will appear once Okular returns to its main event loop.
+            std::string base = getIBLBase();
+            scheduleIBLPrompt(imageName, base);
+
+            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+            image.fill(Qt::black);
+            return image;
+        }
+        useIBL = true;
     }
 
     if (!m_Models[pageNumber][modelIndex].m_HasChanged && 
@@ -226,22 +301,8 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].file->headerInfo.background.a
     };
 
-    // IBL is enabled when the v3d header contains an image path.
-    // The path encodes imageDir/image, so no env vars needed.
-    std::string imagePath = m_Models[pageNumber][modelIndex].file->headerInfo.imagePath;
-    bool useIBL = !imagePath.empty();
-    std::string iblPath = "";
-    if (useIBL) {
-        iblPath = imagePath;  // imagePath is already imageDir/image else {
-        // Backward compat: old v3d files may lack the image field.
-        const char* imageDir = std::getenv("OKULAR_IMAGE_DIR");
-        const char* imageName = std::getenv("OKULAR_IMAGE");
-        if (imageDir && imageName) {
-            useIBL = true;
-            iblPath = std::string(imageDir) + "/" + std::string(imageName);
-        }
-    }
-
+    // IBL is enabled when the v3d header contains an environment map name.
+    // Already resolved above -- use the values from the early check.
     unsigned char* imageData = m_HeadlessRenderer->render(
         glm::ivec2{ imageWidth, imageHeight }, 
         &imageSubresourceLayout, 
@@ -280,7 +341,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     delete[] imageData;
 
     // Vulkan outputs BGRA bytes (VK_FORMAT_B8G8R8A8_UNORM).
-    // On little-endian x86, QImage::Format_ARGB32 stores bytes as B,G,R,A —
+    // On little-endian x86, QImage::Format_ARGB32 stores bytes as B,G,R,A --
     // so the byte order matches directly. No swap needed.
     QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
     image = image.copy();  // Deep copy so we don't alias vectorData's buffer
@@ -440,11 +501,11 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
         model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     }
 
-        } // QMutexLocker scope — release BEFORE requesting refresh
+        } // QMutexLocker scope -- release BEFORE requesting refresh
 
     // requestPixmapRefresh must be called OUTSIDE the mutex. If held while
     // refreshPixmap() calls deletePixmaps(), Okular may request new pixmaps
-    // from another thread/context which calls RenderModel() — that also acquires
+    // from another thread/context which calls RenderModel() -- that also acquires
     // m_ModelsMutex, causing a deadlock (QMutex is non-recursive) or event-loop
     // corruption that stops MouseMove routing.
     requestPixmapRefresh(m_ActiveModelPage);
@@ -944,4 +1005,334 @@ void V3dModelManager::refreshPixmap(size_t pageNumber) {
     );
 
     ProtectedFunctionCaller::callKeyReleaseEvent(m_PageView, &keyEvent);
+}
+
+std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool doSchedule) {
+    if (imageName.empty()) return "";
+
+    // Strip leading "/" from old files that may still store an absolute path.
+    // Preserve relative paths (e.g., "snowyField/refl0") in case we use subdirs later.
+    std::string name = imageName;
+    if (!name.empty() && name[0] == '/') {
+        size_t lastSlash = name.find_last_of('/');
+        name = (lastSlash != 0) ? name.substr(lastSlash + 1) : name.substr(1);
+    }
+    // Remove trailing slash if present.
+    while (!name.empty() && name.back() == '/') name.pop_back();
+    if (name.empty()) return "";
+
+    // Helper: check if a path exists and return it.
+    auto tryPath = [](const std::string& path) -> std::string {
+        std::ifstream f(path.c_str());
+        return f.good() ? path : "";
+    };
+
+    // The iblPath must point to a directory containing diffuse.exr + refl0..10.exr.
+    // We also verify that the parent directory has refl.exr (common BRDF LUT).
+    auto tryIBLDir = [&tryPath](const std::string& dir) -> std::string {
+        if (!dir.empty() && dir.back() == '/') return dir;
+        std::string d = dir + "/";
+        // Check diffuse.exr exists in this directory.
+        std::string diffuse = tryPath(d + "diffuse.exr");
+        if (diffuse.empty()) return "";
+        // Check refl.exr exists in the parent directory.
+        std::string parent = d.substr(0, d.size() - 1);
+        size_t slash = parent.find_last_of('/');
+        if (slash == std::string::npos) return "";
+        std::string parentDir = parent.substr(0, slash + 1);
+        std::string refl = tryPath(parentDir + "refl.exr");
+        if (refl.empty()) return "";
+        return d.substr(0, d.size() - 1);  // Return without trailing slash.
+    };
+
+    auto getIBLBase = []() -> std::string {
+        const char* envDir = std::getenv("OKULAR_V3D_IMAGE_DIR");
+        if (envDir && strlen(envDir) > 0) return std::string(envDir);
+        const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
+        if (xdgDataHome && strlen(xdgDataHome) > 0) {
+            return std::string(xdgDataHome) + "/okular/ibl";
+        }
+        const char* home = std::getenv("HOME");
+        if (home) return std::string(home) + "/.local/share/okular/ibl";
+        return "";
+    };
+
+    std::string iblBase = getIBLBase();
+
+    // Strategy A: name contains a "/" -- it's a relative subdirectory path (e.g., "snowyField/refl0").
+    // Try as-is first.
+    if (name.find('/') != std::string::npos) {
+        std::string dir = iblBase + "/" + name;
+        std::string found = tryIBLDir(dir);
+        if (!found.empty()) return found;
+    }
+
+    // Strategy B: name is a bare identifier (e.g., "snowyField").
+    // 1. Check <iblBase>/<name>/ as an IBL subdirectory.
+    std::string dir = iblBase + "/" + name;
+    std::string found = tryIBLDir(dir);
+    if (!found.empty()) return found;
+
+    // Strategy C: scan all immediate subdirectories of iblBase for one containing diffuse.exr.
+    // This handles the case where imageName matches a file inside a subdir we haven't guessed yet.
+    if (!iblBase.empty()) {
+        QDir qDir(QString::fromStdString(iblBase));
+        QStringList subdirs = qDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString& sd : subdirs) {
+            std::string candidate = iblBase + "/" + sd.toStdString();
+            found = tryIBLDir(candidate);
+            if (!found.empty()) return found;
+        }
+    }
+
+    // 4. Not found locally. Schedule deferred download prompt only if requested.
+    if (doSchedule) {
+        scheduleIBLDownload(name, iblBase);
+    }
+    return "";
+}
+
+void V3dModelManager::scheduleIBLDownload(const std::string& imageName, const std::string& iblBase) {
+    // Debounce: avoid spamming the user with repeated prompts for the same image.
+    static std::set<std::string> pendingDownloads;
+    if (pendingDownloads.count(imageName)) return;
+
+    pendingDownloads.insert(imageName);
+
+    m_PendingIBLImageName = imageName;
+    m_PendingIBLIblBase = iblBase;
+
+    // Schedule on the main event loop so we're outside the render path / mutex hold.
+    QTimer* timer = new QTimer();
+    timer->setSingleShot(true);
+    QObject::connect(timer, &QTimer::timeout, [this]() {
+        if (!m_Destroying) performIBLDownload(m_PendingIBLImageName, m_PendingIBLIblBase);
+    });
+    timer->start(0);
+}
+
+void V3dModelManager::performIBLDownload(const std::string& imageName, const std::string& iblBase) {
+    const char* imageUrlEnv = std::getenv("OKULAR_V3D_IMAGE_URL");
+    std::string baseUrl = imageUrlEnv && strlen(imageUrlEnv) > 0
+        ? std::string(imageUrlEnv)
+        : "https://vectorgraphics.gitlab.io/asymptote/ibl";
+
+    QString qImageName = QString::fromStdString(imageName);
+    QString qIblBase = iblBase.empty()
+        ? QDir::homePath() + QStringLiteral("/.local/share/okular/ibl")
+        : QString::fromStdString(iblBase);
+
+    // Download directory: <iblBase>/<imageName>/  (e.g., ~/.local/share/okular/ibl/snowyField/)
+    QString envDir = qIblBase + QLatin1Char('/') + qImageName;
+
+    // Files to download:
+    //   refl.exr          > <iblBase>/refl.exr       (common BRDF LUT, shared by all)
+    //   diffuse.exr       > <envDir>/diffuse.exr     (irradiance map)
+    //   refl0.exr..refl10.exr  > <envDir>/           (reflection mip levels)
+    struct DownloadTask {
+        QString remoteFile;  // filename on server
+        QString localPath;   // full local path to write
+    };
+
+    std::vector<DownloadTask> tasks;
+
+    // refl.exr -- common, stored at <iblBase>/refl.exr on the server.
+    QString reflLocal = qIblBase + QStringLiteral("/refl.exr");
+    tasks.push_back({QStringLiteral("refl.exr"), reflLocal});
+
+    // Environment map files live in <imageName>/ subdirectory on the server.
+    QString remoteSubdir = qImageName + QLatin1Char('/');
+    tasks.push_back({remoteSubdir + QStringLiteral("diffuse.exr"), envDir + QStringLiteral("/diffuse.exr")});
+    for (int i = 0; i <= 10; ++i) {
+        QString fname = QString::fromLatin1("refl%1.exr").arg(i);
+        tasks.push_back({remoteSubdir + fname, envDir + QLatin1Char('/') + fname});
+    }
+
+    // Build the message.
+    QString msg = QString::fromLatin1("The IBL environment map '%1' was not found locally.\n\n")
+        .arg(qImageName);
+    msg += QString::fromLatin1("Would you like to download it (%1 files) from:\n%2?");
+    msg = msg.arg(tasks.size()).arg(QString::fromStdString(baseUrl));
+
+    // Show a QMessageBox asking if the user wants to download.
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    int result = QMessageBox::question(
+        nullptr,
+        QStringLiteral("IBL Environment Map Missing"),
+        msg,
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+    QApplication::restoreOverrideCursor();
+
+    if (result != QMessageBox::Yes) {
+        // User declined -- render normally without IBL.
+        m_IBLDeclined = true;
+        std::set<size_t> pages;
+        for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
+            pages.insert(pn);
+        }
+        m_ModelsWithMissingIBL.clear();
+        for (size_t pn : pages) {
+            QTimer* timer = new QTimer();
+            timer->setSingleShot(true);
+            QObject::connect(timer, &QTimer::timeout, [this, pn]() {
+                if (!m_Destroying) refreshPixmap(pn);
+            });
+            timer->start(25);
+        }
+        return;
+    }
+
+    QDir dir;
+    if (!dir.mkpath(envDir)) {
+        std::cout << "Failed to create directory: " << envDir.toStdString() << std::endl;
+        return;
+    }
+    if (!dir.exists(qIblBase) && !dir.mkpath(qIblBase)) {
+        std::cout << "Failed to create base IBL directory: " << qIblBase.toStdString() << std::endl;
+        return;
+    }
+
+    // Start async downloads. Each reply's finished signal calls onIBLDownloadReplyFinished().
+    // NOTE: no parent -- we manage lifetime manually to avoid QObject child deletion conflicts.
+    m_IBLNetManager = new QNetworkAccessManager();
+    m_PendingDownloadCount = 0;
+
+    for (const auto& task : tasks) {
+        // Skip refl.exr if it already exists.
+        if (task.localPath == reflLocal && QFile::exists(task.localPath)) {
+            std::cout << "IBL: refl.exr already present at " << task.localPath.toStdString() << std::endl;
+            continue;
+        }
+
+        QString urlStr = QString::fromStdString(baseUrl) + QLatin1Char('/') + task.remoteFile;
+        QUrl reqUrl(urlStr);
+        QNetworkRequest netRequest(reqUrl);
+        QNetworkReply* reply = m_IBLNetManager->get(netRequest);
+
+        // Store the local path in the reply's property so we can write it on completion.
+        reply->setProperty("localPath", task.localPath);
+        reply->setProperty("remoteFile", task.remoteFile);
+
+        m_PendingDownloadCount++;
+        // Store a raw pointer to 'this' in the reply so we can route the callback.
+        reply->setProperty("manager", QVariant::fromValue(reinterpret_cast<qlonglong>(this)));
+        QObject::connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
+            onIBLDownloadReplyFinished(reply);
+        });
+    }
+
+    if (m_PendingDownloadCount == 0) {
+        // All files already present -- nothing to download.
+        delete m_IBLNetManager;
+        m_IBLNetManager = nullptr;
+        onIBLDownloadComplete();
+    }
+}
+
+void V3dModelManager::onIBLDownloadReplyFinished(QNetworkReply* reply) {
+    if (m_Destroying) { reply->deleteLater(); return; }
+
+    QString localPath = reply->property("localPath").toString();
+    QString remoteFile = reply->property("remoteFile").toString();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        std::cout << "IBL download failed for " << remoteFile.toStdString()
+                  << ": " << reply->errorString().toStdString() << std::endl;
+        reply->deleteLater();
+        m_PendingDownloadCount--;
+        if (m_PendingDownloadCount == 0) onIBLDownloadComplete();
+        return;
+    }
+
+    // Reject HTML responses (directory listings, 404 pages).
+    QString contentType = reply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
+    if (contentType.contains(QLatin1String("text/html"))) {
+        std::cout << "IBL: server returned HTML for " << remoteFile.toStdString() << ", skipping." << std::endl;
+        reply->deleteLater();
+        m_PendingDownloadCount--;
+        if (m_PendingDownloadCount == 0) onIBLDownloadComplete();
+        return;
+    }
+
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+
+    if (!data.isEmpty()) {
+        QFile file(localPath);
+        if (file.open(QIODevice::WriteOnly)) {
+            file.write(data);
+            file.close();
+        } else {
+            std::cout << "IBL: failed to write " << localPath.toStdString() << std::endl;
+        }
+    }
+
+    m_PendingDownloadCount--;
+    if (m_PendingDownloadCount == 0) {
+        onIBLDownloadComplete();
+    }
+}
+
+void V3dModelManager::onIBLDownloadComplete() {
+    if (m_IBLNetManager) {
+        delete m_IBLNetManager;
+        m_IBLNetManager = nullptr;
+    }
+
+    m_ReQueueModels = true;
+    std::set<size_t> affectedPages;
+    for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
+        if (m_Models.size() > pn && m_Models[pn].size() > mi) {
+            m_Models[pn][mi].m_HasChanged = true;
+        }
+        affectedPages.insert(pn);
+    }
+    m_ModelsWithMissingIBL.clear();
+
+    // Force Okular to re-request pixmaps for each affected page.
+    // Stagger the calls to avoid the 1/60s refresh throttle.
+    for (size_t pn : affectedPages) {
+        QTimer* timer = new QTimer();
+        timer->setSingleShot(true);
+        QObject::connect(timer, &QTimer::timeout, [this, pn]() {
+            if (!m_Destroying) refreshPixmap(pn);
+        });
+        timer->start(25);
+    }
+}
+
+std::string V3dModelManager::getIBLBase() const {
+    const char* envDir = std::getenv("OKULAR_V3D_IMAGE_DIR");
+    if (envDir && strlen(envDir) > 0) return std::string(envDir);
+    const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
+    if (xdgDataHome && strlen(xdgDataHome) > 0) {
+        return std::string(xdgDataHome) + "/okular/ibl";
+    }
+    const char* home = std::getenv("HOME");
+    if (home) return std::string(home) + "/.local/share/okular/ibl";
+    return "";
+}
+
+void V3dModelManager::scheduleIBLPrompt(const std::string& imageName, const std::string& iblBase) {
+    // Debounce: avoid spamming the user with repeated prompts for the same image.
+    static std::set<std::string> pendingPrompts;
+    if (pendingPrompts.count(imageName)) return;
+
+    pendingPrompts.insert(imageName);
+
+    // Post a custom event to qApp's main thread event queue. The IBLEventFilter
+    // will catch it and run the callback on the main thread, showing the dialog.
+    // This works from both background threads (PDF loading) and the main thread
+    // (standalone .v3d), since postEvent always delivers to the receiver's thread.
+    IBLPromptEvent* event = new IBLPromptEvent(
+        [this, imageName, iblBase]() -> bool {
+            performIBLDownload(imageName, iblBase);
+            return !m_IBLDeclined;
+        },
+        nullptr  // No semaphore needed -- post-and-forget.
+    );
+
+    QCoreApplication::postEvent(qApp, event);
 }

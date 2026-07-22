@@ -252,7 +252,7 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                             xdr::xbyte dummy;
                             xdrFile >> dummy;
                         }
-                        headerInfo.imagePath = std::move(s);
+                        headerInfo.imageName = std::move(s);
                         break;
                     }    
 

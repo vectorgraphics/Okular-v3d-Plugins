@@ -1,11 +1,19 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include <QtGui/QMouseEvent>
 #include <QAbstractScrollArea>
+#include <QMessageBox>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkReply>
+#include <QtNetwork/QNetworkRequest>
+#include <QDir>
+#include <QEventLoop>
 #include <QMutex>
 #include <QPointer>
+#include <set>
 
 #include <document.h>
 #include <page.h>
@@ -14,6 +22,9 @@
 #include "V3dModel.h"
 
 // #define MOUSE_BOUNDARIES
+
+class IBLEventFilter;
+class IBLPromptEvent;
 
 class EventFilter;
 class ApplicationEventFilter;
@@ -48,6 +59,9 @@ public:
 
     void CacheRequest(Okular::PixmapRequest* request);
     void CachePage(size_t pageNumber, Okular::Page* page);
+
+    std::string getIBLBase() const;
+    void scheduleIBLPrompt(const std::string& imageName, const std::string& iblBase);
 
 private:
     bool m_ReQueueModels{ true }; // TODO should be per model
@@ -106,6 +120,21 @@ private:
     void requestPixmapRefresh(size_t pageNumber);
     void refreshPixmap(size_t pageNumber);
 
+    // Resolve an IBL environment map name to a full filesystem path.
+    // Lookup order: $OKULAR_V3D_IMAGE_DIR/imageName > XDG data dir > (return empty, schedule download).
+    std::string resolveIBLPath(const std::string& imageName, bool doSchedule = true);
+
+    // Schedule a deferred download prompt for a missing IBL image (via QTimer::singleShot).
+    void scheduleIBLDownload(const std::string& imageName, const std::string& iblBase);
+
+    // Actually show the QMessageBox and perform the download (runs on main event loop, not render path).
+    void performIBLDownload(const std::string& imageName, const std::string& iblBase);
+
+    // Called when each async QNetworkReply finishes. When all replies are done,
+    // marks models as changed so Okular re-renders with IBL on the next cycle.
+    void onIBLDownloadReplyFinished(QNetworkReply* reply);
+    void onIBLDownloadComplete();
+
     std::vector<std::vector<V3dModel>> m_Models;
     std::vector<std::vector<QImage>> m_ModelImages;
 
@@ -125,6 +154,7 @@ private:
 
     EventFilter* m_EventFilter{ nullptr };
     ApplicationEventFilter* m_ApplicationEventFilter{ nullptr };
+    IBLEventFilter* m_IBLEventFilter{ nullptr };
 
     std::chrono::time_point<std::chrono::system_clock> m_StartTime{ };
 
@@ -136,6 +166,18 @@ private:
 
     std::vector<RequestCache> m_CachedRequestSizes;
     std::vector<Okular::Page*> m_Pages;
+
+    // Models whose IBL was missing at render time. After download completes,
+    // their cached images are invalidated so they re-render with IBL enabled.
+    std::set<std::pair<size_t, size_t>> m_ModelsWithMissingIBL;
+
+    // Async download state: number of replies still pending.
+    int m_PendingDownloadCount = 0;
+    QNetworkAccessManager* m_IBLNetManager = nullptr;  // lives for duration of download batch.
+    bool m_IBLDeclined = false;
+    bool m_Destroying = false;
+    std::string m_PendingIBLImageName;
+    std::string m_PendingIBLIblBase;
 
     V3dModel* m_ActiveModel{ nullptr };
     int m_ActiveModelPage{ -1};
