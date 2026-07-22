@@ -43,7 +43,6 @@ buildFunc() {
     if [[ $clean -eq 1 ]] || [[ $cleanOnly -eq 1 ]]; then
         rm -rf build/
         rm -rf usr/
-        cmake --target clean
     fi
 
     if [[ $cleanOnly -eq 1 ]]; then
@@ -57,12 +56,14 @@ buildFunc() {
 
     if [[ $debug -eq 1 ]]; then
         cmake -S okular/ -B build/debug/ -DCMAKE_BUILD_TYPE=Debug --install-prefix $PWD/usr/debug/ -DCMAKE_CXX_FLAGS="-U NDEBUG"
+        cmake --build build/debug/ --target v3dCommon
         cmake --build build/debug/ --target okularGenerator_v3d
         cmake --build build/debug/ --target okularGenerator_poppler
     fi
 
     if [[ $release -eq 1 ]]; then
         cmake -S okular/ -B build/release/ -DCMAKE_BUILD_TYPE=Release --install-prefix $PWD/usr/release -DCMAKE_CXX_FLAGS="-U NDEBUG"
+        cmake --build build/release/ --target v3dCommon
         cmake --build build/release/ --target okularGenerator_v3d
         cmake --build build/release/ --target okularGenerator_poppler
     fi
