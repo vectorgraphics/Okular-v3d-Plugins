@@ -1161,7 +1161,7 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
         QStringLiteral("IBL Environment Map Missing"),
         msg,
         QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No
+        QMessageBox::Yes
     );
     QApplication::restoreOverrideCursor();
 
