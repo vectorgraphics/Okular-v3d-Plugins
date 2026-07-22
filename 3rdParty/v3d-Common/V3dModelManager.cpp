@@ -4,6 +4,7 @@
 #include <QColorSpace>
 #include <QScrollBar>
 #include <QPainter>
+#include <QStandardPaths>
 #include <QWindow>
 #include <cstdlib>
 #include <fstream>
@@ -1048,13 +1049,8 @@ std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool d
     auto getIBLBase = []() -> std::string {
         const char* envDir = std::getenv("OKULAR_V3D_IMAGE_DIR");
         if (envDir && strlen(envDir) > 0) return std::string(envDir);
-        const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
-        if (xdgDataHome && strlen(xdgDataHome) > 0) {
-            return std::string(xdgDataHome) + "/okular/ibl";
-        }
-        const char* home = std::getenv("HOME");
-        if (home) return std::string(home) + "/.local/share/okular/ibl";
-        return "";
+        QString dataDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+        return QString(QStringLiteral("%1/okular/ibl")).arg(dataDir).toStdString();
     };
 
     std::string iblBase = getIBLBase();
@@ -1126,10 +1122,10 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
 
     QString qImageName = QString::fromStdString(name);
     QString qIblBase = iblBase.empty()
-        ? QDir::homePath() + QStringLiteral("/.local/share/okular/ibl")
+        ? QString(QStringLiteral("%1/okular/ibl")).arg(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
         : QString::fromStdString(iblBase);
 
-    // Download directory: <iblBase>/<imageName>/  (e.g., ~/.local/share/okular/ibl/snowyField/)
+    // Download directory: <iblBase>/<imageName>/  (e.g., $XDG_DATA_HOME/okular/ibl/snowyField/)
     QString envDir = qIblBase + QLatin1Char('/') + qImageName;
 
     // Files to download:
@@ -1312,13 +1308,8 @@ void V3dModelManager::onIBLDownloadComplete() {
 std::string V3dModelManager::getIBLBase() const {
     const char* envDir = std::getenv("OKULAR_V3D_IMAGE_DIR");
     if (envDir && strlen(envDir) > 0) return std::string(envDir);
-    const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
-    if (xdgDataHome && strlen(xdgDataHome) > 0) {
-        return std::string(xdgDataHome) + "/okular/ibl";
-    }
-    const char* home = std::getenv("HOME");
-    if (home) return std::string(home) + "/.local/share/okular/ibl";
-    return "";
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    return QString(QStringLiteral("%1/okular/ibl")).arg(dataDir).toStdString();
 }
 
 void V3dModelManager::scheduleIBLPrompt(const std::string& imageName, const std::string& iblBase) {
