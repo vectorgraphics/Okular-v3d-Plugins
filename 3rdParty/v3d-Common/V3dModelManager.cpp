@@ -1112,12 +1112,19 @@ void V3dModelManager::scheduleIBLDownload(const std::string& imageName, const st
 }
 
 void V3dModelManager::performIBLDownload(const std::string& imageName, const std::string& iblBase) {
+    // If the name contains an absolute path, extract just the filename; relative paths are ok.
+    std::string name = imageName;
+    if (!name.empty() && name[0] == '/') {
+        size_t lastSlash = name.rfind('/');
+        name = (lastSlash != 0) ? name.substr(lastSlash + 1) : name.substr(1);
+    }
+
     const char* imageUrlEnv = std::getenv("OKULAR_V3D_IMAGE_URL");
     std::string baseUrl = imageUrlEnv && strlen(imageUrlEnv) > 0
         ? std::string(imageUrlEnv)
         : "https://vectorgraphics.gitlab.io/asymptote/ibl";
 
-    QString qImageName = QString::fromStdString(imageName);
+    QString qImageName = QString::fromStdString(name);
     QString qIblBase = iblBase.empty()
         ? QDir::homePath() + QStringLiteral("/.local/share/okular/ibl")
         : QString::fromStdString(iblBase);
