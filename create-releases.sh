@@ -27,6 +27,7 @@ for d in build/*/ ; do
 
     cp $d/build/release/bin/okular_generators/okularGenerator_v3d.so ./${releaseDir}
     cp $d/build/release/bin/okular_generators/okularGenerator_poppler.so ./${releaseDir}
+    cp $d/build/release/bin/okular_generators/libv3dCommon.so ./${releaseDir}
 
     cp ./3rdParty/asymptote/base/shaders/*.glsl ./${releaseDir}
 

@@ -64,3 +64,5 @@ set_target_properties(v3dCommon PROPERTIES
     CMAKE_CXX_VISIBILITY_PRESET default
 )
 
+install(TARGETS v3dCommon LIBRARY DESTINATION lib64/qt6/plugins/okular_generators)
+
