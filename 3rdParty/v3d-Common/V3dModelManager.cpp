@@ -1209,7 +1209,6 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
     for (const auto& task : tasks) {
         // Skip refl.exr if it already exists.
         if (task.localPath == reflLocal && QFile::exists(task.localPath)) {
-            std::cout << "IBL: refl.exr already present at " << task.localPath.toStdString() << std::endl;
             continue;
         }
 
