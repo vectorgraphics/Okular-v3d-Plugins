@@ -238,8 +238,17 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     m_Models[pageNumber][modelIndex].setProjection(canvasSize);
 
-    triple sceneMinBound = m_Models[pageNumber][modelIndex].viewParam.minValues;
-    triple sceneMaxBound = m_Models[pageNumber][modelIndex].viewParam.maxValues;
+    // Scene bounds for QueueMesh culling (use headerInfo when frustum params invalid)
+    float Zmin = m_Models[pageNumber][modelIndex].file->headerInfo.minBound.z;
+    float Zmax = m_Models[pageNumber][modelIndex].file->headerInfo.maxBound.z;
+    triple sceneMinBound(
+        m_Models[pageNumber][modelIndex].xmin,
+        m_Models[pageNumber][modelIndex].ymin,
+        Zmin);
+    triple sceneMaxBound(
+        m_Models[pageNumber][modelIndex].xmax,
+        m_Models[pageNumber][modelIndex].ymax,
+        Zmax);
 
     if(sceneMinBound.getx() >= sceneMaxBound.getx() || sceneMinBound.gety() >= sceneMaxBound.gety() || sceneMinBound.getz() >= sceneMaxBound.getz()) {
         sceneMinBound = m_Models[pageNumber][modelIndex].file->headerInfo.minBound;
@@ -249,44 +258,34 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     using namespace std;
     using namespace camp;
 
-    static glm::mat4 const verticalFlipMat = glm::scale(glm::dmat4(1.0f), glm::dvec3(1.0f, -1.0f, 1.0f));
+    // Match vkrender.cc: projViewMat = projMat * viewMat
+    projViewMat = m_Models[pageNumber][modelIndex].projMat * m_Models[pageNumber][modelIndex].viewMat;
 
-    projViewMat = glm::dmat4{ verticalFlipMat * m_Models[pageNumber][modelIndex].projectionMatrix * m_Models[pageNumber][modelIndex].viewMatrix };
-
-    auto valPtr = glm::value_ptr(projViewMat);
-
-    normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMatrix) };
+    normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMat) };
 
     if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
-        // Always clean up existing mesh data on the GPU before uploading new data.
-        // Using the renderer's own flag ensures we also catch stale data left over
-        // from a previous document (where the per-model 'initialized' flag is false
-        // for the newly-added model but the GPU still holds the old mesh).
-        if (m_HeadlessRenderer->meshInitialized) {
-            m_HeadlessRenderer->cleanupMeshData();
-
-            materialData.clear();
-            colorData.clear();
-        }
+        // Clear global VertexBuffers before re-queuing (matches vkrender.cc: data
+        // accumulates in persistent VertexBuffers; clear before each frame).
+        materialData.clear();
+        colorData.clear();
+        lineData.clear();
+        transparentData.clear();
 
         bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic);
-    }
+        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
 
-    Mesh mesh = m_Models[pageNumber][modelIndex].file->GetMesh();
+        // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
+        bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty();
 
-    if (mesh.vertices.empty() || mesh.indices.empty()) {
-        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        if (!hasRenderableData) {
+            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+            image.fill(Qt::black);
+            return image;
+        }
 
-        image.fill(Qt::black);
-
-        return image;
-    }
-
-    if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
-        m_HeadlessRenderer->copyMeshToGPU(mesh);
-
+        // Upload happens inside recordCommandBuffer (vkrender.cc: drawBuffer records
+        // upload + draw into the same command buffer session).
         m_Models[pageNumber][modelIndex].remesh = false;
         m_ReQueueModels = false;
     }
@@ -304,18 +303,29 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     // IBL is enabled when the v3d header contains an environment map name.
     // Already resolved above -- use the values from the early check.
+    // Derive pipeline mode from global VertexBuffers (vkrender.cc: each data type
+    // drawn independently; no intermediate Mesh struct needed).
+    MeshPipelineMode pipelineMode = MeshPipelineMode::MaterialOnly;
+    if (!colorData.indices.empty() && !materialData.indices.empty()) {
+        pipelineMode = MeshPipelineMode::Mixed;
+    } else if (!colorData.indices.empty()) {
+        pipelineMode = MeshPipelineMode::ColorOnly;
+    }
+
     unsigned char* imageData = m_HeadlessRenderer->render(
         glm::ivec2{ imageWidth, imageHeight }, 
         &imageSubresourceLayout, 
-        m_Models[pageNumber][modelIndex].viewMatrix, 
-        m_Models[pageNumber][modelIndex].projectionMatrix,
+        m_Models[pageNumber][modelIndex].viewMat, 
+        m_Models[pageNumber][modelIndex].projMat,
+        m_Models[pageNumber][modelIndex].normMat,
         m_Models[pageNumber][modelIndex].file->materials,
         std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
-        mesh.pipelineMode,
+        pipelineMode,
         bgColor,
         m_Models[pageNumber][modelIndex].file->headerInfo.orthographic,
         useIBL,
-        iblPath
+        iblPath,
+        m_Models[pageNumber][modelIndex].drawMode
     );
 
     unsigned char* imgDataTmp = imageData;
@@ -352,7 +362,9 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // With no managed color space, Qt treats pixel values as-is.
     image.setColorSpace(QColorSpace());
 
-    image = image.mirrored(false, true);
+    // No vertical mirror needed: viewport {0,H,W,-H} maps NDC Y=+1 to
+    // framebuffer row 0, and QImage row 0 = top of screen.
+    // So scene +Y naturally appears at the top.
 
     // Force all pixels to fully opaque so Okular draws them directly
     // without alpha compositing over its paperColor background.
@@ -625,18 +637,18 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
     }
 
     if (event->angleDelta().y() < 0) {
-        targetModel->zoom /= targetModel->file->headerInfo.zoomFactor;
+        targetModel->Zoom /= targetModel->file->headerInfo.zoomFactor;
     } else {
-        targetModel->zoom *= targetModel->file->headerInfo.zoomFactor;
+        targetModel->Zoom *= targetModel->file->headerInfo.zoomFactor;
     }
 
     float maxZoom = std::sqrt(std::numeric_limits<float>::max());
     float minZoom = 1 / maxZoom;
 
-    if (targetModel->zoom < minZoom) {
-        targetModel->zoom = minZoom;
-    } else if (targetModel->zoom > maxZoom) {
-        targetModel->zoom = maxZoom;
+    if (targetModel->Zoom < minZoom) {
+        targetModel->Zoom = minZoom;
+    } else if (targetModel->Zoom > maxZoom) {
+        targetModel->Zoom = maxZoom;
     }
 
     float dpr = GetDevicePixelRatio();
@@ -671,6 +683,24 @@ bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
 
             if (horizontallyOnModel && verticallyOnModel) {
                 model.home();
+                requestPixmapRefresh(pageMouseIsOver);
+                break;
+            }
+        }
+        return true;
+    }
+
+    if (event->key() == Qt::Key_M) {
+        int pageMouseIsOver = GetPageMouseIsOver();
+        if (pageMouseIsOver == -1 || pageMouseIsOver >= (int)m_Models.size()) return false;
+
+        glm::vec2 normalizedMousePositionOnPage = GetNormalizedPositionRelativeToPage(m_MousePosition, pageMouseIsOver);
+        for (auto& model : m_Models[pageMouseIsOver]) {
+            bool horizontallyOnModel = normalizedMousePositionOnPage.x > model.minBound.x && normalizedMousePositionOnPage.x < model.maxBound.x;
+            bool verticallyOnModel = normalizedMousePositionOnPage.y > model.minBound.y && normalizedMousePositionOnPage.y < model.maxBound.y;
+
+            if (horizontallyOnModel && verticallyOnModel) {
+                model.cycleMode();
                 requestPixmapRefresh(pageMouseIsOver);
                 break;
             }

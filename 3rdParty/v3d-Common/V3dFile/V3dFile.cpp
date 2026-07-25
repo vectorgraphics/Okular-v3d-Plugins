@@ -11,6 +11,11 @@
 
 #include "rgba.h"
 #include "bezierpatch.h"
+#include "beziercurve.h"
+
+// V3dObjects.cpp declares camp::materials; bring the declaration into scope.
+struct V3dMaterial;
+namespace camp { extern const std::vector<V3dMaterial>* materials; }
 
 // Billboard transform: rotate vertex positions around a center point using the
 // normal matrix (inverse-transpose of view rotation) so that billboard objects
@@ -374,14 +379,19 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile.close();
 }
 
-void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic) {
+void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    // Set global materials pointer so V3dObject::QueueMesh can check material alpha.
+    // Matches Asymptote: drawBezierPatch::render() reads diffuse.A from the current
+    // material to set transparent = (diffuse.A < 1.0).
+    camp::materials = &materials;
+
     for (auto& object : objects) {
         // Record buffer sizes before this object adds its vertices.
         size_t matBefore = materialData.materialVertices.size();
         size_t colBefore = colorData.colorVertices.size();
         size_t lineBefore = lineData.materialVertices.size();
 
-        object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic);
+        object->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
 
         // Apply billboard transform if this object has a center index.
         // In the v3d format, centerIndex == 0 means "no billboarding",
@@ -408,69 +418,3 @@ void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, t
     }
 }
 
-Mesh V3dFile::GetMesh() {
-    bool hasColorData = !colorData.colorVertices.empty();
-    bool hasMaterialData = !materialData.materialVertices.empty();
-
-    Mesh mesh{ };
-
-    if (hasColorData && hasMaterialData) {
-        mesh.pipelineMode = MeshPipelineMode::Mixed;
-
-        std::vector<ColorVertex> vertices;
-        vertices.reserve(materialData.materialVertices.size() + colorData.colorVertices.size());
-
-        uint32_t colorOffset = static_cast<uint32_t>(materialData.materialVertices.size());
-
-        for (const auto& mv : materialData.materialVertices) {
-            ColorVertex v;
-            v.position = mv.position;
-            v.normal = mv.normal;
-            v.material = mv.material + 1;
-            v.color = glm::vec4{ 0.0f };
-            vertices.push_back(v);
-        }
-
-        // Add color vertices with negative indices
-        for (const auto& cv : colorData.colorVertices) {
-            ColorVertex v;
-            v.position = cv.position;
-            v.normal = cv.normal;
-            v.material = -cv.material - 1;
-            v.color = cv.color;
-            vertices.push_back(v);
-        }
-
-        // Remap color indices to account for the prepended material vertices
-        auto colorIndices = colorData.indices;
-        for (auto& idx : colorIndices) {
-            idx += colorOffset;
-        }
-
-        mesh.vertices.resize(vertices.size() * sizeof(ColorVertex));
-        std::memcpy((void*)mesh.vertices.data(), (void*)vertices.data(), mesh.vertices.size());
-        mesh.indices = materialData.indices;
-        mesh.indices.insert(mesh.indices.end(), colorIndices.begin(), colorIndices.end());
-
-    } else if (hasColorData) {
-        mesh.pipelineMode = MeshPipelineMode::ColorOnly;
-
-        auto colorVerts = colorData.colorVertices;
-        for (auto& v : colorVerts) {
-            v.material = -v.material - 1;
-        }
-        mesh.vertices.resize(colorVerts.size() * (sizeof(ColorVertex)));
-        std::memcpy((void*)mesh.vertices.data(), (void*)colorVerts.data(), mesh.vertices.size());
-        mesh.indices = colorData.indices;
-    } else if (hasMaterialData) {
-        mesh.pipelineMode = MeshPipelineMode::MaterialOnly;
-
-        mesh.vertices.resize(materialData.materialVertices.size() * sizeof(MaterialVertex));
-        std::memcpy((void*)mesh.vertices.data(), (void*)materialData.materialVertices.data(), mesh.vertices.size());
-        mesh.indices = materialData.indices;
-    } else {
-        std::cout << "ERROR: Model is made up entirely of objects that cannot currently give vertices. It wont be rendered." << std::endl;
-    }
-
-    return mesh;
-}

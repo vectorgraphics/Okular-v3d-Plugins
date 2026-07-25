@@ -14,7 +14,7 @@ layout(binding = 0) uniform UniformBufferObject
 {
   mat4 projViewMat;
   mat4 viewMat;
-  mat4 normMat;
+  mat3 normMat;
 } ubo;
 
 layout(binding = 1, std430) buffer MaterialBuffer

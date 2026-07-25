@@ -2,6 +2,8 @@
 
 #include "V3dFile/V3dFile.h"
 
+// Variable names match Asymptote renderBase.cc exactly.
+
 struct V3dModel {
     friend class V3dModelManager;
 
@@ -16,9 +18,11 @@ struct V3dModel {
     void initProjection();
     void setProjection(const glm::vec2& displayDimensions);
 
-    void setDimensions(float width, float height, float X, float Y);
+    // Match Asymptote: setDimensions(Width, Height, X, Y)
+    void setDimensions(float Width, float Height, float X, float Y);
     void updateViewMatrix();
     void home();
+    void cycleMode();
 
     void dragModeShift  (const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize);
     void dragModeZoom   (const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize);
@@ -28,31 +32,38 @@ struct V3dModel {
     glm::vec2 minBound; // Normalized [0.0, 1.0] bounds of the model on its page
     glm::vec2 maxBound;
 
-    float zoom{ 1.0f };
-    float lastZoom{ zoom };
-    float initialZoom{ 1.0f };
+    // Zoom state (matches Asymptote renderBase.cc naming)
+    float Zoom{ 1.0f };
+    float lastzoom{ 1.0f };
+    float Zoom0{ 1.0f };
 
-    glm::mat4 rotationMatrix{ 1.0f };
-    glm::mat4 viewMatrix{ 1.0f };
-    glm::mat4 projectionMatrix{ 1.0f };
+    // Transform matrices (matches Asymptote naming)
+    glm::dmat4 rotateMat{ 1.0 };
+    glm::dmat4 viewMat{ 1.0 };
+    glm::dmat4 projMat{ 1.0 };
+    glm::dmat3 normMat{ 1.0 };
 
-    float xShift;
-    float yShift;
+    // Frustum bounds computed by setDimensions (matches Asymptote naming)
+    float xmin{ 0.0f }, xmax{ 0.0f };
+    float ymin{ 0.0f }, ymax{ 0.0f };
 
-    float h{ };
-    glm::vec3 center{ };
-    glm::vec2 shift{ };
+    // Perspective half-height (matches Asymptote: H = -tan(0.5*Angle)*Zmax)
+    float H{ 0.0f };
 
-    struct ViewParam {
-        glm::vec3 minValues{ };
-        glm::vec3 maxValues{ };
-    } viewParam;
+    // Scene center: only cz is non-zero initially; cx,cy shift via pan
+    double cx{ 0.0 }, cy{ 0.0 }, cz{ 0.0 };
+
+    // Shift state for drag-mode panning (normalized by Zoom0, like Asymptote's Shift)
+    float Xshift{ 0.0f }, Yshift{ 0.0f };
 
     std::unique_ptr<V3dFile> file{ };
 
     bool remesh{ true };
     bool initialized{ false };
 
+    DrawMode drawMode{ DRAWMODE_NORMAL };
+
 private:
     bool m_HasChanged{ true };
 };
+

@@ -23,8 +23,8 @@ public:
 
     V3dHeaderInfo headerInfo;
 
-    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic);
-    Mesh GetMesh();
+    void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode);
+
 
 private:
     void load(xdr::ixstream& xdrFile);

@@ -17,7 +17,7 @@ public:
     V3dObject(UINT objectType);
     virtual ~V3dObject() = default;
 
-    virtual void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic = false) { }
+    virtual void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) { }
 
     UINT objectType;
 
@@ -27,7 +27,9 @@ public:
     UINT centerIndex{ 0 };
 
     bool fullyOnscreen{ false };
+    bool isTransparent{ false };
 
 protected:
     camp::VertexBuffer vertexData{ };
+    camp::VertexBuffer lineData{ };
 };

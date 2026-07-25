@@ -1,7 +1,7 @@
 #include "V3dModel.h"
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+// glmCommon.h (via V3dObject.h -> render.h) defines GLM_FORCE_DEPTH_ZERO_TO_ONE
+// before including glm.  Include it first to ensure our glm calls match vkrender.cc.
 
 #include "Utility/Arcball.h"
 #include "xstream.h"
@@ -23,117 +23,148 @@ V3dModel::V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound, const g
     initProjection();
 }
 
+// Match Asymptote renderBase.cc constructor exactly:
+//   Shift = args.shift / Zoom0;
+//   H = orthographic ? 0.0 : -tan(0.5*Angle)*Zmax;
+//   cz = 0.5*(Zmin+Zmax)
 void V3dModel::initProjection() {
-    h = -std::tan(0.5f * file->headerInfo.angleOfView) * file->headerInfo.maxBound.z;
+    H = -std::tan(0.5f * file->headerInfo.angleOfView) * file->headerInfo.maxBound.z;
 
-    center.x = 0.0f;
-    center.y = 0.0f;
+    cx = 0.0;
+    cy = 0.0;
+    cz = 0.5 * (file->headerInfo.minBound.z + file->headerInfo.maxBound.z);
 
-    center.z = 0.5f * (file->headerInfo.minBound.z + file->headerInfo.maxBound.z);
+    Zoom = file->headerInfo.initialZoom;
+    lastzoom = Zoom;
+    Zoom0 = file->headerInfo.initialZoom;
 
-    zoom = file->headerInfo.initialZoom;
-    lastZoom = file->headerInfo.initialZoom;
-    initialZoom = file->headerInfo.initialZoom;
-
-    viewParam.minValues.z = file->headerInfo.minBound.z;
-    viewParam.maxValues.z = file->headerInfo.maxBound.z;
-
-    shift.x = 0.0f;
-    shift.y = 0.0f;
+    // Normalize shift by Zoom0, exactly like Asymptote: Shift = args.shift / Zoom0
+    Xshift = file->headerInfo.viewportShift.x / Zoom0;
+    Yshift = file->headerInfo.viewportShift.y / Zoom0;
 }
 
 void V3dModel::home() {
-    center.x = 0.0f;
-    center.y = 0.0f;
+    cx = 0.0;
+    cy = 0.0;
 
-    zoom = initialZoom;
-    lastZoom = initialZoom;
+    Zoom = Zoom0;
+    lastzoom = Zoom0;
 
-    rotationMatrix = glm::mat4{ 1.0f };
+    rotateMat = glm::dmat4{ 1.0 };
 
-    shift.x = 0.0f;
-    shift.y = 0.0f;
+    Xshift = 0.0f;
+    Yshift = 0.0f;
 
     m_HasChanged = true;
     remesh = true;
 }
 
+void V3dModel::cycleMode() {
+    drawMode = DrawMode((drawMode + 1) % NUM_DRAW_MODES);
+    m_HasChanged = true;
+    remesh = true;
+}
+
+// Match Asymptote renderBase.cc setProjection():
+//   setDimensions(Width, Height, X, Y);
+//   ortho/frustum(xmin,xmax,ymin,ymax,-Zmax,-Zmin);
 void V3dModel::setProjection(const glm::vec2& displayDimensions) {
-    setDimensions(displayDimensions.x, displayDimensions.y, shift.x, shift.y);
+    setDimensions(displayDimensions.x, displayDimensions.y, 0.0f, 0.0f);
+
+    float Zmin = file->headerInfo.minBound.z;
+    float Zmax = file->headerInfo.maxBound.z;
 
     if (file->headerInfo.orthographic) {
-        projectionMatrix = glm::orthoRH_ZO(viewParam.minValues.x, viewParam.maxValues.x, viewParam.minValues.y, viewParam.maxValues.y, -viewParam.maxValues.z, -viewParam.minValues.z);
-
+        projMat = glm::ortho(xmin, xmax, ymin, ymax, -Zmax, -Zmin);
     } else {
-        projectionMatrix = glm::frustumRH_ZO(viewParam.minValues.x, viewParam.maxValues.x, viewParam.minValues.y, viewParam.maxValues.y, -viewParam.maxValues.z, -viewParam.minValues.z);
+        projMat = glm::frustum(xmin, xmax, ymin, ymax, -Zmax, -Zmin);
     }
 
     updateViewMatrix();
 }
 
-void V3dModel::setDimensions(float width, float height, float X, float Y) {
-    float Aspect = width / height;
+// Match Asymptote renderBase.cc setDimensions() exactly.
+// Variable names: Width, Height, X, Y, aspect, zoom, xshift, yshift, zoominv
+void V3dModel::setDimensions(float Width, float Height, float X, float Y) {
+    float aspect = Width / Height;
 
-    xShift = (X / width + file->headerInfo.viewportShift.x) * zoom;
-    yShift = (Y / height + file->headerInfo.viewportShift.y) * zoom;
+    // Asymptote: double zoom = Zoom * zoomFactor;  (zoomFactor defaults to 1.0)
+    float zoom = Zoom;
 
-    float zoomInv = 1.0f / zoom;
+    // Asymptote: Shift is already normalized by Zoom0 in constructor
+    //            xshift = (X/Width + Shift.x * Xfactor) * zoom
+    // We match this: Xshift = viewportShift.x / Zoom0, Xfactor=1.0
+    float xshift = (X / Width + Xshift) * zoom;
+    float yshift = (Y / Height + Yshift) * zoom;
+
+    float zoominv = 1.0f / zoom;
+
+    // Scene bounds (matches Asymptote: Xmin, Xmax, Ymin, Ymax)
+    float Xmin = file->headerInfo.minBound.x;
+    float Xmax = file->headerInfo.maxBound.x;
+    float Ymin = file->headerInfo.minBound.y;
+    float Ymax = file->headerInfo.maxBound.y;
 
     if (file->headerInfo.orthographic) {
-        float xsize = file->headerInfo.maxBound.x - file->headerInfo.minBound.x;
-        float ysize = file->headerInfo.maxBound.y - file->headerInfo.minBound.y;
+        float xsize = Xmax - Xmin;
+        float ysize = Ymax - Ymin;
 
-        if (xsize < ysize * Aspect) {
-            float r = 0.5f * ysize * Aspect * zoomInv;
+        if (xsize < ysize * aspect) {
+            float r = 0.5f * ysize * aspect * zoominv;
 
-            float X0 = 2.0f * r * xShift;
-            float Y0 = ysize * zoomInv * yShift;
+            float X0 = 2.0f * r * xshift;
+            float Y0 = ysize * zoominv * yshift;
 
-            viewParam.minValues.x = -r - X0;
-            viewParam.maxValues.x = r - X0;
-            viewParam.minValues.y = file->headerInfo.minBound.y * zoomInv - Y0;
-            viewParam.maxValues.y = file->headerInfo.maxBound.y * zoomInv - Y0;
+            xmin = -r - X0;
+            xmax = r - X0;
+            ymin = Ymin * zoominv - Y0;
+            ymax = Ymax * zoominv - Y0;
         } else {
-            float r = 0.5f * xsize * zoomInv / Aspect;
+            float r = 0.5f * xsize * zoominv / aspect;
 
-            float X0 = xsize * zoomInv * xShift;
-            float Y0 = 2 * r * yShift;
+            float X0 = xsize * zoominv * xshift;
+            float Y0 = 2.0f * r * yshift;
 
-            viewParam.minValues.x = file->headerInfo.minBound.x * zoomInv - X0;
-            viewParam.maxValues.x = file->headerInfo.maxBound.x * zoomInv - X0;
-            viewParam.minValues.y = -r -Y0;
-            viewParam.maxValues.y = r - Y0;
+            xmin = Xmin * zoominv - X0;
+            xmax = Xmax * zoominv - X0;
+            ymin = -r - Y0;
+            ymax = r - Y0;
         }
     } else {
-        float r = h * zoomInv;
-        float rAspect = r * Aspect;
+        float r = H * zoominv;
+        float rAspect = r * aspect;
 
-        float X0 = 2.0f * rAspect * xShift;
-        float Y0 = 2 * r * yShift;
+        float X0 = 2.0f * rAspect * xshift;
+        float Y0 = 2.0f * r * yshift;
 
-        viewParam.minValues.x = -rAspect-X0;
-        viewParam.maxValues.x = rAspect-X0;
-        viewParam.minValues.y = -r - Y0;
-        viewParam.maxValues.y = r - Y0;
+        xmin = -rAspect - X0;
+        xmax = rAspect - X0;
+        ymin = -r - Y0;
+        ymax = r - Y0;
     }
 }
 
+// Match Asymptote renderBase.cc update():
+//   viewMat = translate(translate(dmat4(1.0), dvec3(cx, cy, cz)) * rotateMat, dvec3(0, 0, -cz));
+// Match Asymptote renderBase.cc: normMat = dmat3(inverse(viewMat));
 void V3dModel::updateViewMatrix() {
-    glm::mat4 temp{ 1.0f };
-    temp = glm::translate(temp, center);
-    glm::mat4 cjmatInv = glm::inverse(temp);
-
-    viewMatrix = rotationMatrix * cjmatInv;
-    viewMatrix = temp * viewMatrix;
-
-    viewMatrix = glm::translate(viewMatrix, { center.x, center.y, 0.0f });
+    glm::dvec3 c(cx, cy, cz);
+    viewMat = glm::translate(glm::dmat4{ 1.0 }, c);
+    viewMat = viewMat * rotateMat;
+    viewMat = glm::translate(viewMat, glm::dvec3(0.0, 0.0, -cz));
+    normMat = glm::dmat3(glm::inverse(viewMat));
     m_HasChanged = true;
 }
 
-void V3dModel::dragModeShift(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& displayDimensions) {
-    float zoomInv = 1 / zoom;
-    shift.x += (normalizedMousePosition.x - lastNormalizedMousePosition.x) * zoomInv * (displayDimensions.x / 2.0f);
-    shift.y -= (normalizedMousePosition.y - lastNormalizedMousePosition.y) * zoomInv * (displayDimensions.y / 2.0f);
+void V3dModel::dragModeShift(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& /*displayDimensions*/) {
+    // Match vkrender.cc shift(): X += dx * Zoominv, then xshift = (X/Width) * zoom.
+    // Our inputs are already normalized [0,1] within the model area, so:
+    //   deltaNorm * Width = pixel delta
+    //   frustum_shift = (pixel_delta / Zoom) / Width * zoom = deltaNorm
+    // The zoom factors cancel since setDimensions multiplies by zoom.
+    // No displayDimensions scaling needed — that was causing "images fly off screen".
+    Xshift += (normalizedMousePosition.x - lastNormalizedMousePosition.x);
+    Yshift -= (normalizedMousePosition.y - lastNormalizedMousePosition.y);
 
     m_HasChanged = true;
 }
@@ -145,15 +176,15 @@ void V3dModel::dragModeZoom(const glm::vec2& normalizedMousePosition, const glm:
     const float limit = std::log(0.1f * std::numeric_limits<float>::max()) / std::log(file->headerInfo.zoomFactor);
 
     if (std::abs(stepPower) < limit) {
-        zoom *= std::pow(file->headerInfo.zoomFactor, stepPower);
+        Zoom *= std::pow(file->headerInfo.zoomFactor, stepPower);
 
         float maxZoom = std::sqrt(std::numeric_limits<float>::max());
         float minZoom = 1 / maxZoom;
 
-        if (zoom <= minZoom) {
-            zoom = minZoom;
-        } else if (zoom >= maxZoom) {
-            zoom = maxZoom;
+        if (Zoom <= minZoom) {
+            Zoom = minZoom;
+        } else if (Zoom >= maxZoom) {
+            Zoom = maxZoom;
         }
 
         m_HasChanged = true;
@@ -165,8 +196,8 @@ void V3dModel::dragModePan(const glm::vec2& normalizedMousePosition, const glm::
     if (file->headerInfo.orthographic) {
         dragModeShift(normalizedMousePosition, lastNormalizedMousePosition, pageViewSize);
     } else {
-        center.x += (normalizedMousePosition.x - lastNormalizedMousePosition.x) * (viewParam.maxValues.x - viewParam.minValues.x);
-        center.y -= (normalizedMousePosition.y - lastNormalizedMousePosition.y) * (viewParam.maxValues.y - viewParam.minValues.y);
+        cx += (normalizedMousePosition.x - lastNormalizedMousePosition.x) * (xmax - xmin);
+        cy -= (normalizedMousePosition.y - lastNormalizedMousePosition.y) * (ymax - ymin);
     }
 
     m_HasChanged = true;
@@ -194,9 +225,10 @@ void V3dModel::dragModeRotate(const glm::vec2& normalizedMousePosition, const gl
 
     if (glm::length(axis) < 0.001f) { return; }
 
-    float angleRadians = 2.0f * angle / zoom * arcballFactor;
-    glm::mat4 temp = glm::rotate(glm::mat4(1.0f), angleRadians, axis);
-    rotationMatrix = temp * rotationMatrix;
+    float angleRadians = 2.0f * angle / Zoom * arcballFactor;
+    glm::dmat4 temp = glm::rotate(glm::dmat4(1.0), static_cast<double>(angleRadians), glm::dvec3(axis.x, axis.y, axis.z));
+    rotateMat = temp * rotateMat;
 
     m_HasChanged = true;
 }
+

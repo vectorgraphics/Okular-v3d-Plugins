@@ -20,6 +20,10 @@
 #include <tinyexr.h>
 #include <cstdlib>
 
+// Global VertexBuffers from asymptote/render.h (declared extern, defined in bezierpatch.cc / beziercurve.cc).
+// Accessible transitively via V3dObject.h → render.h.
+using namespace camp;
+
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) { 
 		if (!glslang::InitializeProcess()) {
@@ -51,10 +55,6 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	}
 
 HeadlessRenderer::~HeadlessRenderer() { 
-	if (meshInitialized) {
-		cleanupMeshData();
-	}
-
 	if (hostReadableDestinationImageInitalized) {
 		destroyHostReadableDestinationImage();
 	}
@@ -163,7 +163,7 @@ void HeadlessRenderer::createInstance() {
 	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	appInfo.pApplicationName = "Vulkan headless example";
 	appInfo.pEngineName = "VulkanExample";
-	appInfo.apiVersion = VK_API_VERSION_1_0;
+	appInfo.apiVersion = VK_API_VERSION_1_4;
 	
 	// Vulkan instance creation (without surface extensions)
 	VkInstanceCreateInfo instanceCreateInfo = {};
@@ -267,6 +267,7 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 	VkPhysicalDeviceFeatures deviceFeatures = {};
 	deviceFeatures.vertexPipelineStoresAndAtomics = VK_TRUE;
 	deviceFeatures.fragmentStoresAndAtomics = VK_TRUE;
+	deviceFeatures.fillModeNonSolid = VK_TRUE;
 
 	VkDeviceCreateInfo deviceCreateInfo = {};
 	deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -301,93 +302,6 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 	deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
 	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
 	VK_CHECK_RESULT(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
-}
-
-void HeadlessRenderer::copyDataToGPU(const std::vector<unsigned char>& data, VkBuffer& buffer, VkDeviceMemory& deviceMemory) {
-	const VkDeviceSize dataSize = data.size() * sizeof(unsigned char);
-
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingMemory;
-
-	// Command buffer for copy commands (reused)
-	VkCommandBufferAllocateInfo cmdBufAllocateInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer copyCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocateInfo, &copyCmd));
-	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
-
-	createBuffer(
-		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-		&stagingBuffer,
-		&stagingMemory,
-		dataSize,
-		(void*)data.data()
-	);
-
-	createBuffer(
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		&buffer,
-		&deviceMemory,
-		dataSize
-	);
-
-	VK_CHECK_RESULT(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
-	VkBufferCopy copyRegion = {};
-	copyRegion.size = dataSize;
-	vkCmdCopyBuffer(copyCmd, stagingBuffer, buffer, 1, &copyRegion);
-	VK_CHECK_RESULT(vkEndCommandBuffer(copyCmd));
-
-	submitWork(copyCmd, queue);
-
-	vkFreeCommandBuffers(device, commandPool, 1, &copyCmd);
-	vkDestroyBuffer(device, stagingBuffer, nullptr);
-	vkFreeMemory(device, stagingMemory, nullptr);	
-}
-
-
-void HeadlessRenderer::copyIndexDataToGPU(const std::vector<unsigned int>& indices) {
-	const VkDeviceSize indexBufferSize = indices.size() * sizeof(unsigned int);
-
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingMemory;
-
-	// Command buffer for copy commands (reused)
-	VkCommandBufferAllocateInfo cmdBufAllocateInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer copyCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocateInfo, &copyCmd));
-	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
-
-	// Indices
-	createBuffer(
-		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-		&stagingBuffer,
-		&stagingMemory,
-		indexBufferSize,
-		(void*)indices.data()
-	);
-
-	meshInitialized = true;
-	createBuffer(
-		VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		&indexBuffer,
-		&indexMemory,
-		indexBufferSize
-	);
-
-	VK_CHECK_RESULT(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
-	VkBufferCopy copyRegion = {};
-	copyRegion.size = indexBufferSize;
-	vkCmdCopyBuffer(copyCmd, stagingBuffer, indexBuffer, 1, &copyRegion);
-	VK_CHECK_RESULT(vkEndCommandBuffer(copyCmd));
-
-	submitWork(copyCmd, queue);
-
-	vkFreeCommandBuffers(device, commandPool, 1, &copyCmd);
-	vkDestroyBuffer(device, stagingBuffer, nullptr);
-	vkFreeMemory(device, stagingMemory, nullptr);
 }
 
 void HeadlessRenderer::createUniformBuffer() {
@@ -821,81 +735,31 @@ void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFor
 	depthStencilView.subresourceRange.layerCount = 1;
 	depthStencilView.image = depthAttachment.image;
 	VK_CHECK_RESULT(vkCreateImageView(device, &depthStencilView, nullptr, &depthAttachment.view));
-}
 
-void HeadlessRenderer::createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight) {
-	std::array<VkAttachmentDescription, 2> attchmentDescriptions = {};
-	// Color attachment
-	attchmentDescriptions[0].format = colorFormat;
-	attchmentDescriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
-	attchmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attchmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	attchmentDescriptions[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attchmentDescriptions[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attchmentDescriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	attchmentDescriptions[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	// Depth attachment
-	attchmentDescriptions[1].format = depthFormat;
-	attchmentDescriptions[1].samples = VK_SAMPLE_COUNT_1_BIT;
-	attchmentDescriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attchmentDescriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attchmentDescriptions[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attchmentDescriptions[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attchmentDescriptions[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	attchmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	// Resolve attachment: final composited output for the graphics render pass.
+	// The blend shader (subpass 2) writes here; copyToHost reads from this image.
+	// Matches vkrender.cc's colorResolveAttachment pattern (non-MSAA path).
+	image.format = colorFormat;
+	image.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
-	VkAttachmentReference colorReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-	VkAttachmentReference depthReference = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+	VK_CHECK_RESULT(vkCreateImage(device, &image, nullptr, &resolveAttachment.image));
+	vkGetImageMemoryRequirements(device, resolveAttachment.image, &memReqs);
+	memAlloc.allocationSize = memReqs.size;
+	memAlloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &resolveAttachment.memory));
+	VK_CHECK_RESULT(vkBindImageMemory(device, resolveAttachment.image, resolveAttachment.memory, 0));
 
-	VkSubpassDescription subpassDescription = {};
-	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpassDescription.colorAttachmentCount = 1;
-	subpassDescription.pColorAttachments = &colorReference;
-	subpassDescription.pDepthStencilAttachment = &depthReference;
-
-	// Use subpass dependencies for layout transitions
-	std::array<VkSubpassDependency, 2> dependencies;
-
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	dependencies[1].srcSubpass = 0;
-	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	// Create the actual renderpass
-	VkRenderPassCreateInfo renderPassInfo = {};
-	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(attchmentDescriptions.size());
-	renderPassInfo.pAttachments = attchmentDescriptions.data();
-	renderPassInfo.subpassCount = 1;
-	renderPassInfo.pSubpasses = &subpassDescription;
-	renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
-	renderPassInfo.pDependencies = dependencies.data();
-	VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
-
-	VkImageView attachments[2];
-	attachments[0] = colorAttachment.view;
-	attachments[1] = depthAttachment.view;
-
-	VkFramebufferCreateInfo framebufferCreateInfo = vks::initializers::framebufferCreateInfo();
-	framebufferCreateInfo.renderPass = renderPass;
-	framebufferCreateInfo.attachmentCount = 2;
-	framebufferCreateInfo.pAttachments = attachments;
-	framebufferCreateInfo.width = targetWidth;
-	framebufferCreateInfo.height = targetHeight;
-	framebufferCreateInfo.layers = 1;
-
-	VK_CHECK_RESULT(vkCreateFramebuffer(device, &framebufferCreateInfo, nullptr, &framebuffer));
+	VkImageViewCreateInfo resolveImageView = vks::initializers::imageViewCreateInfo();
+	resolveImageView.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	resolveImageView.format = colorFormat;
+	resolveImageView.subresourceRange = {};
+	resolveImageView.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	resolveImageView.subresourceRange.baseMipLevel = 0;
+	resolveImageView.subresourceRange.levelCount = 1;
+	resolveImageView.subresourceRange.baseArrayLayer = 0;
+	resolveImageView.subresourceRange.layerCount = 1;
+	resolveImageView.image = resolveAttachment.image;
+	VK_CHECK_RESULT(vkCreateImageView(device, &resolveImageView, nullptr, &resolveAttachment.view));
 }
 
 void HeadlessRenderer::createCountRenderPass(int targetWidth, int targetHeight) {
@@ -948,96 +812,178 @@ void HeadlessRenderer::createCountRenderPass(int targetWidth, int targetHeight) 
 	VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbInfo, nullptr, &countFramebuffer));
 }
 
-void HeadlessRenderer::createTransparentRenderPass(int targetWidth, int targetHeight) {
+void HeadlessRenderer::createGraphicsRenderPass(int targetWidth, int targetHeight) {
+	// Matches vkrender.cc createGraphicsRenderPass() non-MSAA path exactly.
+	// 3 attachments: color(0), depth(1), colorResolve(2).
+	// Non-MSAA: subpass 0 uses colorResolve as its sole color attachment (no resolve).
+
+	VkFormat colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	VkFormat depthFormat;
+	vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
+
+	// Attachment 0: color — MSAA target (unused in non-MSAA path)
 	VkAttachmentDescription colorAttachmentDesc = {};
-	colorAttachmentDesc.format = VK_FORMAT_B8G8R8A8_UNORM;
+	colorAttachmentDesc.format = colorFormat;
 	colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // non-MSAA: don't care
 	colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	colorAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	// Attachment 1: depth
 	VkAttachmentDescription depthAttachmentDesc = {};
-	VkFormat depthFormat;
-	vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
 	depthAttachmentDesc.format = depthFormat;
 	depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
 	depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depthAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-	VkAttachmentReference colorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-	VkAttachmentReference depthRef = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+	// Attachment 2: colorResolve — final composited output
+	VkAttachmentDescription resolveAttachmentDesc = {};
+	resolveAttachmentDesc.format = colorFormat;
+	resolveAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
+	resolveAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // non-MSAA: clear
+	resolveAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	resolveAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	resolveAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	resolveAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	resolveAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
-	VkSubpassDescription subpasses[2] = {};
-	// Subpass 0: transparent draw (color + depth)
+	VkAttachmentReference colorRef       = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference depthRef       = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference resolveRef     = { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+
+	// Subpasses (non-MSAA path: colorResolve is the active color target)
+	VkSubpassDescription subpasses[3] = {};
+
+	// Subpass 0: all geometry — resolve attachment + depth
+	// Non-MSAA: write directly to colorResolve (matches vkrender.cc line 3137:
+	// subpasses[0].pColorAttachments = &colorResolveAttachmentRef).
+	// With interlock, opaque geometry writes outColor here AND to opaqueColor buffer.
+	// Without interlock, fragments are discarded but the attachment is cleared anyway.
 	subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpasses[0].colorAttachmentCount = 1;
-	subpasses[0].pColorAttachments = &colorRef;
+	subpasses[0].pColorAttachments = &resolveRef;
+	subpasses[0].pResolveAttachments = nullptr; // non-MSAA: no resolve
 	subpasses[0].pDepthStencilAttachment = &depthRef;
-	// Subpass 1: blend quad (color only)
-	subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpasses[1].colorAttachmentCount = 1;
-	subpasses[1].pColorAttachments = &colorRef;
 
+	// Subpass 1: transparentData — no attachments (vkrender.cc pattern)
+	subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+	// Subpass 2: blend quad — colorResolve only, no depth
+	subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpasses[2].colorAttachmentCount = 1;
+	subpasses[2].pColorAttachments = &resolveRef;
+	subpasses[2].pResolveAttachments = nullptr; // non-MSAA: no resolve
+
+	// Dependencies matching vkrender.cc
 	VkSubpassDependency dependencies[3] = {};
+
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = 0;
+	dependencies[0].dstAccessMask = 0;
 
 	dependencies[1].srcSubpass = 0;
 	dependencies[1].dstSubpass = 1;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
 	dependencies[2].srcSubpass = 1;
-	dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[2].dstSubpass = 2;
 	dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[2].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[2].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 	dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[2].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	dependencies[2].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-	VkAttachmentDescription attachments_desc[2];
+	VkAttachmentDescription attachments_desc[3];
 	attachments_desc[0] = colorAttachmentDesc;
 	attachments_desc[1] = depthAttachmentDesc;
+	attachments_desc[2] = resolveAttachmentDesc;
 
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.attachmentCount = 3;
 	renderPassInfo.pAttachments = attachments_desc;
-	renderPassInfo.subpassCount = 2;
+	renderPassInfo.subpassCount = 3;
 	renderPassInfo.pSubpasses = subpasses;
 	renderPassInfo.dependencyCount = 3;
 	renderPassInfo.pDependencies = dependencies;
-	VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &transparentRenderPass));
+	VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &graphicsRenderPass));
 
-	VkImageView attachments[2];
-	attachments[0] = colorAttachment.view;
-	attachments[1] = depthAttachment.view;
+	// Create opaque render pass: color + depth, 1 subpass.
+	VkAttachmentDescription opaqueAttachments[2];
+	opaqueAttachments[0] = colorAttachmentDesc;
+	opaqueAttachments[1] = depthAttachmentDesc;
+	opaqueAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // opaque: clear the color
+
+	VkSubpassDescription opaqueSubpass = {};
+	opaqueSubpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	opaqueSubpass.colorAttachmentCount = 1;
+	VkAttachmentReference opaqueColorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference opaqueDepthRef = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+	opaqueSubpass.pColorAttachments = &opaqueColorRef;
+	opaqueSubpass.pDepthStencilAttachment = &opaqueDepthRef;
+
+	VkSubpassDependency opaqueDep = {};
+	opaqueDep.srcSubpass = VK_SUBPASS_EXTERNAL;
+	opaqueDep.dstSubpass = 0;
+	opaqueDep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	opaqueDep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	opaqueDep.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+	opaqueDep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+	VkRenderPassCreateInfo opaqueRenderPassInfo = {};
+	opaqueRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	opaqueRenderPassInfo.attachmentCount = 2;
+	opaqueRenderPassInfo.pAttachments = opaqueAttachments;
+	opaqueRenderPassInfo.subpassCount = 1;
+	opaqueRenderPassInfo.pSubpasses = &opaqueSubpass;
+	opaqueRenderPassInfo.dependencyCount = 1;
+	opaqueRenderPassInfo.pDependencies = &opaqueDep;
+	VK_CHECK_RESULT(vkCreateRenderPass(device, &opaqueRenderPassInfo, nullptr, &opaqueRenderPass));
+
+	// Framebuffer for opaque path: [colorAttachment.view, depthAttachment.view]
+	VkImageView opaqueAttachmentsViews[2];
+	opaqueAttachmentsViews[0] = colorAttachment.view;
+	opaqueAttachmentsViews[1] = depthAttachment.view;
 
 	VkFramebufferCreateInfo fbInfo = vks::initializers::framebufferCreateInfo();
-	fbInfo.renderPass = transparentRenderPass;
 	fbInfo.attachmentCount = 2;
-	fbInfo.pAttachments = attachments;
+	fbInfo.pAttachments = opaqueAttachmentsViews;
 	fbInfo.width = (uint32_t)targetWidth;
 	fbInfo.height = (uint32_t)targetHeight;
 	fbInfo.layers = 1;
-	VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbInfo, nullptr, &transparentFramebuffer));
+	fbInfo.renderPass = opaqueRenderPass;
+	VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbInfo, nullptr, &opaqueFramebuffer));
+
+	// Framebuffer for graphics path: [colorAttachment.view, depthAttachment.view, resolveAttachment.view]
+	VkImageView graphicsAttachmentsViews[3];
+	graphicsAttachmentsViews[0] = colorAttachment.view;
+	graphicsAttachmentsViews[1] = depthAttachment.view;
+	graphicsAttachmentsViews[2] = resolveAttachment.view;
+
+	fbInfo.attachmentCount = 3;
+	fbInfo.pAttachments = graphicsAttachmentsViews;
+	fbInfo.renderPass = graphicsRenderPass;
+	VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbInfo, nullptr, &graphicsFramebuffer));
 }
 
 std::vector<char> readFile(const std::string& filename);
 
-void HeadlessRenderer::createTransparencyPipelineLayout() {
+void HeadlessRenderer::createGraphicsPipelineLayout() {
+	// Single shared pipeline layout for ALL graphics pipelines (opaque + transparent + count + blend).
+	// Matches vkrender.cc: createGraphicsPipelineLayout() creates ONE graphicsPipelineLayout
+	// used by all pipeline types. Push constants = uvec4(constants) + vec4(background) = 32 bytes.
 	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::uvec4) + sizeof(glm::vec4), 0);
 
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
@@ -1045,7 +991,7 @@ void HeadlessRenderer::createTransparencyPipelineLayout() {
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
-	VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &transparencyPipelineLayout));
+	VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &graphicsPipelineLayout));
 }
 
 void HeadlessRenderer::createComputeDescriptorSetLayout() {
@@ -1222,16 +1168,15 @@ void HeadlessRenderer::createComputePipelines() {
 	vkDestroyShaderModule(device, sum3Module, nullptr);
 }
 
-void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int targetHeight) {
-	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
-	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-	VK_CHECK_RESULT(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, nullptr, &countPipelineCache));
-
+void HeadlessRenderer::createMaterialCountPipeline(int targetWidth, int targetHeight) {
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
 		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
-		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
 		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
@@ -1242,7 +1187,7 @@ void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int t
 	VkPipelineDepthStencilStateCreateInfo depthStencilState =
 		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	VkViewport viewport = { 0, 0, (float)targetWidth, (float)targetHeight, 0.0f, 1.0f };
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
 	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
 	VkPipelineViewportStateCreateInfo viewportState{};
 	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1255,7 +1200,7 @@ void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int t
 		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
 
 	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
-		vks::initializers::pipelineCreateInfo(transparencyPipelineLayout, countRenderPass);
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, countRenderPass);
 	pipelineCreateInfo.basePipelineIndex = -1;
 	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
 
@@ -1270,21 +1215,11 @@ void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int t
 	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 	pipelineCreateInfo.pStages = shaderStages.data();
 
-	// Count pipeline uses full stride vertex input but only position attribute
-	std::vector<VkVertexInputBindingDescription> vertexInputBindings;
-	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes;
-
-	if (useColor) {
-		vertexInputBindings = {
-			vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		};
-	} else {
-		vertexInputBindings = {
-			vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		};
-	}
-	// Only position attribute at location 0 for count pipeline
-	vertexInputAttributes = {
+	// MaterialVertex stride, only position attribute at location 0
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
 		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0)
 	};
 
@@ -1303,7 +1238,6 @@ void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int t
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-	// Count pipeline uses empty options {}
 	std::vector<std::string> countOptions{};
 	if (m_Orthographic) {
 		countOptions.push_back("ORTHOGRAPHIC");
@@ -1313,19 +1247,18 @@ void HeadlessRenderer::createCountPipeline(bool useColor, int targetWidth, int t
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "count.glsl", countOptions);
 
 	countShaderModules = { shaderStages[0].module, shaderStages[1].module };
-	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, countPipelineCache, 1, &pipelineCreateInfo, nullptr, &countPipeline));
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &materialCountPipeline));
 }
 
-void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth, int targetHeight) {
-	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
-	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-	VK_CHECK_RESULT(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, nullptr, &transparentPipelineCache));
-
+void HeadlessRenderer::createColorCountPipeline(int targetWidth, int targetHeight) {
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
 		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
-		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
 		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
@@ -1334,9 +1267,9 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
 
 	VkPipelineDepthStencilStateCreateInfo depthStencilState =
-		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS);
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	VkViewport viewport = { 0, 0, (float)targetWidth, (float)targetHeight, 0.0f, 1.0f };
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
 	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
 	VkPipelineViewportStateCreateInfo viewportState{};
 	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1349,8 +1282,7 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
 
 	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
-		vks::initializers::pipelineCreateInfo(transparencyPipelineLayout, transparentRenderPass);
-	pipelineCreateInfo.subpass = 0;
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, countRenderPass);
 	pipelineCreateInfo.basePipelineIndex = -1;
 	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
 
@@ -1365,29 +1297,13 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 	pipelineCreateInfo.pStages = shaderStages.data();
 
-	std::vector<VkVertexInputBindingDescription> vertexInputBindings;
-	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes;
-
-	if (useColor) {
-		vertexInputBindings = {
-			vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		};
-		vertexInputAttributes = {
-			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
-			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
-			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),
-			vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)
-		};
-	} else {
-		vertexInputBindings = {
-			vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		};
-		vertexInputAttributes = {
-			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
-			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
-			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)
-		};
-	}
+	// ColorVertex stride, only position attribute at location 0
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0)
+	};
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
 	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
@@ -1404,42 +1320,29 @@ void HeadlessRenderer::createTransparentPipeline(bool useColor, int targetWidth,
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-
-	std::vector<std::string> options{ "NORMAL", "TRANSPARENT", "MATERIAL" };
-	if (ibl) {
-		options.push_back("USE_IBL");
-	}
-	if (srgb) {
-		options.push_back("OUTPUT_AS_SRGB");
-	}
-	if (interlock) {
-		options.push_back("HAVE_INTERLOCK");
-	}
-	if (useColor) {
-		options.push_back("GENERAL");
-		options.push_back("COLOR");
-	}
+	std::vector<std::string> countOptions{};
 	if (m_Orthographic) {
-		options.push_back("ORTHOGRAPHIC");
+		countOptions.push_back("ORTHOGRAPHIC");
 	}
 
-	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
-	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", countOptions);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "count.glsl", countOptions);
 
-	transparentShaderModules = { shaderStages[0].module, shaderStages[1].module };
-	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, transparentPipelineCache, 1, &pipelineCreateInfo, nullptr, &transparentPipeline));
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &colorCountPipeline));
 }
 
-void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
-	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
-	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-	VK_CHECK_RESULT(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, nullptr, &blendPipelineCache));
-
+// Triangle count pipeline: ColorVertex+GENERAL, countRenderPass subpass 0.
+// Matches vkrender.cc: trianglePipelines[PIPELINE_COUNT] — used in refreshBuffers()
+// to draw triangleData in subpass 0 of the count pass (inside if (!interlock)).
+void HeadlessRenderer::createTriangleCountPipeline(int targetWidth, int targetHeight) {
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
 		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
-		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
 		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
@@ -1450,7 +1353,7 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 	VkPipelineDepthStencilStateCreateInfo depthStencilState =
 		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	VkViewport viewport = { 0, 0, (float)targetWidth, (float)targetHeight, 0.0f, 1.0f };
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
 	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
 	VkPipelineViewportStateCreateInfo viewportState{};
 	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1463,8 +1366,625 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
 
 	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
-		vks::initializers::pipelineCreateInfo(transparencyPipelineLayout, transparentRenderPass);
-	pipelineCreateInfo.subpass = 1;
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, countRenderPass);
+	pipelineCreateInfo.subpass = 0;
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// ColorVertex stride + all 4 attributes (position, normal, material, color)
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),
+		vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	std::vector<std::string> countOptions{};
+	if (m_Orthographic) {
+		countOptions.push_back("ORTHOGRAPHIC");
+	}
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", countOptions);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "count.glsl", countOptions);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &triangleCountPipeline));
+}
+
+// Transparent count pipeline: ColorVertex, countRenderPass subpass 1.
+// Matches vkrender.cc: transparentPipelines[PIPELINE_COUNT] — used in refreshBuffers()
+// to draw transparentData in subpass 1 of the count pass (after nextSubpass).
+void HeadlessRenderer::createTransparentCountPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, countRenderPass);
+	pipelineCreateInfo.subpass = 1;  // subpass 1 — matches vkrender.cc transparentPipelines config.graphicsSubpass=1
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// ColorVertex stride, only position attribute at location 0 (same as colorCountPipeline)
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	std::vector<std::string> countOptions{};
+	if (m_Orthographic) {
+		countOptions.push_back("ORTHOGRAPHIC");
+	}
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", countOptions);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "count.glsl", countOptions);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &transparentCountPipeline));
+}
+
+void HeadlessRenderer::createMaterialTransparentPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, graphicsRenderPass);
+	pipelineCreateInfo.subpass = 0;  // Matches vkrender.cc: materialPipelines[PIPELINE_TRANSPARENT] uses config.graphicsSubpass=0
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// MaterialVertex stride + attributes
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	std::vector<std::string> options{ "NORMAL", "MATERIAL" };
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &materialTransparentPipeline));
+}
+
+void HeadlessRenderer::createColorTransparentPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, graphicsRenderPass);
+	pipelineCreateInfo.subpass = 0;  // Matches vkrender.cc: materialPipelines[PIPELINE_TRANSPARENT] uses config.graphicsSubpass=0
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// ColorVertex stride + attributes
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),
+		vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	// Color-transparent pipeline: COLOR objects in colorData always have POSITIVE
+	// material indices (MaterialIndex=materialIndex for non-transparent patches).
+	// Transparent COLOR objects go to transparentData, not colorData.
+	// Therefore GENERAL is NOT needed here — it would cause an off-by-one error
+	// (materials[abs(inMaterial)-1]) and skip the per-vertex color path.
+	std::vector<std::string> options{ "NORMAL", "MATERIAL", "COLOR" };
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &colorTransparentPipeline));
+}
+
+// Triangle-transparent pipeline: ColorVertex+GENERAL, TRIANGLE_LIST, graphicsRenderPass subpass 0.
+// Matches vkrender.cc: trianglePipelines[PIPELINE_TRANSPARENT] with triangleShaderOptions = {"COLOR","NORMAL","GENERAL"}.
+// Used for triangleData (V3dTriangleGroup) in the transparent path.
+void HeadlessRenderer::createTriangleTransparentPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, graphicsRenderPass);
+	pipelineCreateInfo.subpass = 0;
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// ColorVertex stride + all 4 attributes (position, normal, material, color)
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),
+		vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	// Matches vkrender.cc triangleShaderOptions + MATERIAL: COLOR + NORMAL + GENERAL + MATERIAL
+	std::vector<std::string> options{ "NORMAL", "MATERIAL", "COLOR", "GENERAL" };
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &triangleTransparentPipeline));
+}
+
+// Line-transparent pipeline: MaterialVertex with LINE_LIST topology for lineData
+// in the transparent path (subpass 0).  Matches vkrender.cc: linePipelines[PIPELINE_TRANSPARENT]
+// which uses eLineList topology regardless of opaque/transparent mode.
+void HeadlessRenderer::createLineTransparentPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_LINE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, graphicsRenderPass);
+	pipelineCreateInfo.subpass = 0;  // lineData drawn in subpass 0 alongside material/color data
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// MaterialVertex stride + attributes (same as materialTransparentPipeline)
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	// Same shader options as vkrender.cc linePipelines[PIPELINE_TRANSPARENT]:
+	// NORMAL + MATERIAL (no TRANSPARENT, no OPAQUE).  The fragment shader selects
+	// the interlock path when HAVE_INTERLOCK is defined and OPAQUE is not,
+	// or the A-buffer atomic+discard path when neither INTERLOCK nor OPAQUE is set.
+	std::vector<std::string> options{ "NORMAL", "MATERIAL" };
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	options.push_back("LOCALSIZE " + std::to_string(localSize));
+	options.push_back("BLOCKSIZE " + std::to_string(blockSize));
+	options.push_back("ARRAYSIZE " + std::to_string(maxSize));
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &lineTransparentPipeline));
+}
+
+// Transparent pipeline for transparentData in subpass 1.
+// Matches vkrender.cc: transparentPipelines[PIPELINE_TRANSPARENT] uses graphicsSubpass=1.
+void HeadlessRenderer::createTransparentPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, graphicsRenderPass);
+	pipelineCreateInfo.subpass = 1;  // transparentData drawn in subpass 1 (after nextSubpass)
+	pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// ColorVertex stride + attributes (same as colorTransparentPipeline)
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),
+		vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	std::vector<std::string> options{ "NORMAL", "TRANSPARENT", "MATERIAL", "COLOR", "GENERAL" };
+	// Matches vkrender.cc transparentShaderOptions + MATERIAL — HAS GENERAL for negative material indices.
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &transparentPipeline));
+}
+
+void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(
+			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
+				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, graphicsRenderPass);
+	pipelineCreateInfo.subpass = 2;  // Blend quad in subpass 2
 	pipelineCreateInfo.basePipelineIndex = -1;
 	pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
 
@@ -1508,7 +2028,7 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "blend.glsl", options);
 
 	blendShaderModules = { shaderStages[0].module, shaderStages[1].module };
-	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, blendPipelineCache, 1, &pipelineCreateInfo, nullptr, &blendPipeline));
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &blendPipeline));
 }
 
 void HeadlessRenderer::createDescriptorSetLayout() {
@@ -1684,26 +2204,17 @@ VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::strin
 
 	return shaderModule;
 }
-void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, int targetHeight) {
-	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
-		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
+void HeadlessRenderer::createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight) {
+	// Material pipeline: MaterialVertex, no GENERAL/COLOR (matches vkrender.cc materialPipelines)
+	VkPrimitiveTopology primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	VkPolygonMode polygonMode = (drawMode == DRAWMODE_WIREFRAME || drawMode == DRAWMODE_OUTLINE)
+		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 
-	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::uvec4) + sizeof(glm::vec4), 0);
-	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
-	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
-
-	VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
-
-	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
-	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-	VK_CHECK_RESULT(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, nullptr, &pipelineCache));
-
-	// Create pipeline
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
-		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(primitiveTopology, 0, VK_FALSE);
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
-		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+		vks::initializers::pipelineRasterizationStateCreateInfo(polygonMode, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
 		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
@@ -1712,9 +2223,9 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
 
 	VkPipelineDepthStencilStateCreateInfo depthStencilState =
-		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS_OR_EQUAL);
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
 
-	VkViewport viewport = { 0, 0, (float)targetWidth, (float)targetHeight, 0.0f, 1.0f };
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
 	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
 	VkPipelineViewportStateCreateInfo viewportState{};
 	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1727,8 +2238,8 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
 
 	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
-		vks::initializers::pipelineCreateInfo(pipelineLayout, renderPass);
-
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, opaqueRenderPass);
+	pipelineCreateInfo.subpass = 0;
 	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
 
 	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
@@ -1740,30 +2251,15 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 	pipelineCreateInfo.pStages = shaderStages.data();
 
-	// Vertex bindings and attributes
-	std::vector<VkVertexInputBindingDescription> vertexInputBindings;
-	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes;
-
-	if (useColor) {
-		vertexInputBindings = {
-			vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		};
-		vertexInputAttributes = {
-			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 					// Position
-			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),		// Normal
-			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),				// Material Index
-			vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)	// Color
-		};
-	} else {
-		vertexInputBindings = {
-			vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		};
-		vertexInputAttributes = {
-			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 				// Position
-			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),	// Normal
-			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)			// Material Index
-		};
-	}
+	// MaterialVertex: position(12) + normal(12) + material(4) = 28 bytes
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 				// Position
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),	// Normal
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)			// Material Index
+	};
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
 	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
@@ -1780,16 +2276,13 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
+	// Material shader options: NORMAL + OPAQUE + MATERIAL (no GENERAL, no COLOR)
 	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
 	if (ibl) {
 		options.push_back("USE_IBL");
 	}
 	if (interlock) {
 		options.push_back("HAVE_INTERLOCK");
-	}
-	if (useColor) {
-		options.push_back("GENERAL");
-		options.push_back("COLOR");
 	}
 	if (m_Orthographic) {
 		options.push_back("ORTHOGRAPHIC");
@@ -1798,11 +2291,107 @@ void HeadlessRenderer::createGraphicsPipeline(bool useColor, int targetWidth, in
 	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
 	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
 
-	shaderModules = { shaderStages[0].module, shaderStages[1].module };
-	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipeline));
+	materialShaderModules = { shaderStages[0].module, shaderStages[1].module };
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &materialPipeline));
 }
 
-void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, size_t lightCount) {
+void HeadlessRenderer::createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight) {
+	// Color pipeline: ColorVertex, with COLOR (matches vkrender.cc colorPipelines)
+	VkPrimitiveTopology primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	VkPolygonMode polygonMode = (drawMode == DRAWMODE_WIREFRAME || drawMode == DRAWMODE_OUTLINE)
+		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(primitiveTopology, 0, VK_FALSE);
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(polygonMode, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, opaqueRenderPass);
+	pipelineCreateInfo.subpass = 0;
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// ColorVertex: position(12) + normal(12) + material(4) + color(16) = 44 bytes
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(ColorVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 					// Position
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),		// Normal
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6),				// Material Index
+		vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(float)*7)	// Color
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	// Color shader options: NORMAL + OPAQUE + MATERIAL + COLOR (no GENERAL)
+	// Opaque COLOR objects store POSITIVE material indices (MaterialIndex=materialIndex),
+	// so materials[inMaterial] works directly. GENERAL would cause an off-by-one error
+	// (materials[abs(inMaterial)-1]) and skip the per-vertex color path.
+	// GENERAL is only needed for transparent COLOR objects which store negative indices.
+	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL", "COLOR" };
+	if (ibl) {
+		options.push_back("USE_IBL");
+	}
+	if (interlock) {
+		options.push_back("HAVE_INTERLOCK");
+	}
+	if (m_Orthographic) {
+		options.push_back("ORTHOGRAPHIC");
+	}
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	colorShaderModules = { shaderStages[0].module, shaderStages[1].module };
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &colorPipeline));
+}
+
+void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, size_t lightCount) {
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &cmdBufInfo));
 
@@ -1814,44 +2403,261 @@ void HeadlessRenderer::recordCommandBuffer(int targetWidth, int targetHeight, si
 	clearValues[1].depthStencil.depth = 1.0f;
 	clearValues[1].depthStencil.stencil = 0;
 
+	// Upload global VertexBuffers to persistent GPU buffers BEFORE the render pass.
+	// Matches vkrender.cc: uploadPersistentBuffer records into a separate transfer
+	// command buffer that is submitted and completed (via semaphore) before the
+	// graphics render pass begins.  We record directly into our single command
+	// buffer but outside the render pass, followed by a pipeline barrier.
+	if (!materialData.indices.empty() && !materialData.materialVertices.empty()) {
+		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
+		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(commandBuffer, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
+		                         materialData.materialVertices.data(), vsize, true);
+		uploadToPersistentBuffer(commandBuffer, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
+		                         materialData.indices.data(), isize, false);
+	}
+
+	if (!lineData.indices.empty() && !lineData.materialVertices.empty()) {
+		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
+		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(commandBuffer, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
+		                         lineData.materialVertices.data(), vsize, true);
+		uploadToPersistentBuffer(commandBuffer, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
+		                         lineData.indices.data(), isize, false);
+	}
+
+	// Memory barrier: ensure all vkCmdCopyBuffer transfers complete before
+	// vertex/index buffers are read by the draw calls inside the render pass.
+	VkBufferMemoryBarrier bufBarrier = {};
+	bufBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	bufBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+	bufBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bufBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bufBarrier.offset = 0;
+	bufBarrier.size = VK_WHOLE_SIZE;
+
+	if (materialVertexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = materialVertexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+	if (materialIndexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = materialIndexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+	if (lineVertexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = lineVertexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+	if (lineIndexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = lineIndexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+
+	// Upload colorData to persistent GPU buffers (vkrender.cc: drawColors draws from colorBuffers)
+	if (!colorData.indices.empty() && !colorData.colorVertices.empty()) {
+		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(commandBuffer, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
+		                         colorData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(commandBuffer, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
+		                         colorData.indices.data(), isize, false);
+	}
+
+	// Memory barrier for color buffers too
+	if (colorVertexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = colorVertexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+	if (colorIndexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = colorIndexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+
+	// Upload transparentData to persistent GPU buffers (vkrender.cc: drawTransparent draws from transparentBuffers)
+	if (!transparentData.indices.empty() && !transparentData.colorVertices.empty()) {
+		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(commandBuffer, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
+		                         transparentData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(commandBuffer, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
+		                         transparentData.indices.data(), isize, false);
+	}
+
+	// Memory barrier for transparent buffers too
+	if (transparentVertexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = transparentVertexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+	if (transparentIndexBuffer != VK_NULL_HANDLE) {
+		bufBarrier.buffer = transparentIndexBuffer;
+		vkCmdPipelineBarrier(commandBuffer,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+		                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
+	}
+
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassBeginInfo.renderArea.extent.width = targetWidth;
 	renderPassBeginInfo.renderArea.extent.height = targetHeight;
 	renderPassBeginInfo.clearValueCount = 2;
 	renderPassBeginInfo.pClearValues = clearValues;
-	renderPassBeginInfo.renderPass = renderPass;
-	renderPassBeginInfo.framebuffer = framebuffer;
+	renderPassBeginInfo.renderPass = opaqueRenderPass;
+	renderPassBeginInfo.framebuffer = opaqueFramebuffer;
 
 	vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+	// Match vkrender.cc buildPushConstants(): push 64 bytes (uvec4 constants + vec4 background).
+	// nlights = 0 for OUTLINE/WIREFRAME disables the BRDF lighting loop.
+	struct PushConstants { glm::uvec4 constants; glm::vec4 background; } pushConsts{};
+	pushConsts.constants.x = (currentDrawMode != DRAWMODE_NORMAL) ? 0u : static_cast<uint32_t>(lightCount);
+	pushConsts.background = m_BackgroundColor;
 
-	// Render scene
-	VkDeviceSize offsets[1] = { 0 };
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, offsets);
-	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
 
-	glm::uvec4 constants{ 0 };
-	constants.x = lightCount;
-	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+	// --- Draw materialData (material Bezier patches & triangles) ---
+	// Follows vkrender.cc drawBuffer: skip if indices empty, upload + draw otherwise.
+	if (!materialData.indices.empty()) {
+		VkDeviceSize offsets[1] = { 0 };
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &materialVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
+	}
 
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+	// --- Draw colorData (vertex-dependent colors) ---
+	// Follows vkrender.cc drawColors: separate draw call from colorBuffers using colorPipelines.
+	// In Mixed mode, materialData is drawn first, then colorData overlays the colored elements.
+	if (!colorData.indices.empty()) {
+		VkDeviceSize offsets[1] = { 0 };
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &colorVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
+	}
 
-	vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
-
+	// --- Draw lineData (BezierCurve edges, V3dLineSegment) via LINE_LIST pipeline ---
+	// Follows vkrender.cc drawBuffers order: drawLines() after drawMaterials().
+	if (!lineData.indices.empty() && linePipeline != VK_NULL_HANDLE) {
+		VkDeviceSize lineOffsets[1] = { 0 };
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &lineVertexBuffer, lineOffsets);
+		vkCmdBindIndexBuffer(commandBuffer, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
+	}
 
 	vkCmdEndRenderPass(commandBuffer);
 	VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer));
 }
 
-void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightCount) {
+VkCommandBuffer HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightCount) {
 	VkCommandBufferAllocateInfo cmdBufAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
 	VkCommandBuffer countCmd;
 	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocInfo, &countCmd));
 
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(countCmd, &cmdBufInfo));
+
+	// Upload vertex data into the count command buffer (vkrender.cc: drawBuffer does inline upload).
+	// This ensures GPU buffers exist before any bind/draw calls in this or later command buffers.
+	VkBufferMemoryBarrier countBarrier = {};
+	countBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	countBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	countBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+	countBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	countBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	countBarrier.offset = 0;
+	countBarrier.size = VK_WHOLE_SIZE;
+
+	if (!materialData.indices.empty() && !materialData.materialVertices.empty()) {
+		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
+		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(countCmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
+		                         materialData.materialVertices.data(), vsize, true);
+		uploadToPersistentBuffer(countCmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
+		                         materialData.indices.data(), isize, false);
+	}
+	if (!lineData.indices.empty() && !lineData.materialVertices.empty()) {
+		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
+		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(countCmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
+		                         lineData.materialVertices.data(), vsize, true);
+		uploadToPersistentBuffer(countCmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
+		                         lineData.indices.data(), isize, false);
+	}
+	if (!colorData.indices.empty() && !colorData.colorVertices.empty()) {
+		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(countCmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
+		                         colorData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(countCmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
+		                         colorData.indices.data(), isize, false);
+	}
+	if (!transparentData.indices.empty() && !transparentData.colorVertices.empty()) {
+		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(countCmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
+		                         transparentData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(countCmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
+		                         transparentData.indices.data(), isize, false);
+	}
+	if (!triangleData.indices.empty() && !triangleData.colorVertices.empty()) {
+		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(countCmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
+		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
+		                         triangleData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(countCmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
+		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
+		                         triangleData.indices.data(), isize, false);
+	}
+
+	// Barriers: ensure uploads complete before count draw reads vertex/index data.
+	VkBuffer* allBuffers[] = { &materialVertexBuffer, &materialIndexBuffer,
+	                           &lineVertexBuffer, &lineIndexBuffer,
+	                           &colorVertexBuffer, &colorIndexBuffer,
+	                           &transparentVertexBuffer, &transparentIndexBuffer,
+	                           &triangleVertexBuffer, &triangleIndexBuffer };
+	for (auto* b : allBuffers) {
+		if (*b != VK_NULL_HANDLE) {
+			countBarrier.buffer = *b;
+			vkCmdPipelineBarrier(countCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+			                     0, 0, nullptr, 1, &countBarrier, 0, nullptr);
+		}
+	}
 
 	// Begin count render pass (no clear values, no framebuffer)
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
@@ -1866,44 +2672,84 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	vkCmdBeginRenderPass(countCmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	// Bind descriptor sets once for all subpasses
-	vkCmdBindDescriptorSets(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparencyPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+	vkCmdBindDescriptorSets(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
 
-	// Bind pipeline and buffers
-	vkCmdBindPipeline(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, countPipeline);
-
-	VkDeviceSize offsets[1] = { 0 };
-	vkCmdBindVertexBuffers(countCmd, 0, 1, &vertexBuffer, offsets);
-	vkCmdBindIndexBuffer(countCmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
+	// Bind material count pipeline and buffers (vkrender.cc: drawBuffer returns early if indices empty)
 	glm::uvec4 constants{ 0 };
 	constants.x = lightCount;
 	constants.y = currentTargetSize.x;
-	vkCmdPushConstants(countCmd, transparencyPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
 
-	// Draw indexed (subpass 0: opaque count)
-	vkCmdDrawIndexed(countCmd, indexCount, 1, 0, 0, 0);
+	// When interlock=true, opaque geometry writes directly to opaqueColor/opaqueDepth
+	// in the graphics pass via fragment shader interlock.  Do NOT also count them
+	// here via atomics, or we double-count and get stale A-buffer garbage during rotation.
+	// Matches vkrender.cc: refreshBuffers() wraps these draws in "if (!interlock)".
+	if (!interlock) {
+		if (indexCount > 0) {
+			vkCmdBindPipeline(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
 
-	// Advance to subpass 1 (transparent count) and subpass 2
+			VkDeviceSize offsets[1] = { 0 };
+			vkCmdBindVertexBuffers(countCmd, 0, 1, &materialVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(countCmd, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+			vkCmdPushConstants(countCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+
+			// Draw indexed (subpass 0: opaque count)
+			vkCmdDrawIndexed(countCmd, indexCount, 1, 0, 0, 0);
+		}
+
+		// Also count colorData vertices (vkrender.cc: drawBuffer for colorBuffers in count pass)
+		if (!colorData.indices.empty()) {
+			VkDeviceSize offsets[1] = { 0 };
+			vkCmdBindPipeline(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, colorCountPipeline);
+			vkCmdBindVertexBuffers(countCmd, 0, 1, &colorVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(countCmd, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdPushConstants(countCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+			vkCmdDrawIndexed(countCmd, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
+		}
+
+		// Also count lineData vertices (vkrender.cc: drawBuffer for lineBuffers in count pass)
+		if (!lineData.indices.empty()) {
+			VkDeviceSize offsets[1] = { 0 };
+			vkCmdBindPipeline(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
+			vkCmdBindVertexBuffers(countCmd, 0, 1, &lineVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(countCmd, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdPushConstants(countCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+			vkCmdDrawIndexed(countCmd, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
+		}
+
+		// Also count triangleData vertices (vkrender.cc: drawBuffer for triangleBuffers in count pass)
+		if (!triangleData.indices.empty()) {
+			VkDeviceSize offsets[1] = { 0 };
+			vkCmdBindPipeline(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleCountPipeline);
+			vkCmdBindVertexBuffers(countCmd, 0, 1, &triangleVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(countCmd, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdPushConstants(countCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+			vkCmdDrawIndexed(countCmd, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
+		}
+	}
+
+	// Advance to subpass 1 for transparentData counting (vkrender.cc: nextSubpass + drawTransparent)
 	vkCmdNextSubpass(countCmd, VK_SUBPASS_CONTENTS_INLINE);
+
+	if (!transparentData.indices.empty()) {
+		VkDeviceSize offsets[1] = { 0 };
+		vkCmdBindPipeline(countCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
+		vkCmdBindVertexBuffers(countCmd, 0, 1, &transparentVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(countCmd, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(countCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+		vkCmdDrawIndexed(countCmd, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
+	}
+
+	// Advance to subpass 2 (empty, just like vkrender.cc)
 	vkCmdNextSubpass(countCmd, VK_SUBPASS_CONTENTS_INLINE);
 
 	vkCmdEndRenderPass(countCmd);
 	VK_CHECK_RESULT(vkEndCommandBuffer(countCmd));
 
-	VkSubmitInfo submitInfo = vks::initializers::submitInfo();
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &countCmd;
-	VkFenceCreateInfo fenceInfo = vks::initializers::fenceCreateInfo();
-	VkFence fence;
-	VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, fence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
-	vkDestroyFence(device, fence, nullptr);
-
-	vkFreeCommandBuffers(device, commandPool, 1, &countCmd);
+	return countCmd;
 }
 
-void HeadlessRenderer::recordComputeCommandBuffer() {
+VkCommandBuffer HeadlessRenderer::recordComputeCommandBuffer() {
 	VkCommandBufferAllocateInfo cmdBufAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
 	VkCommandBuffer computeCmd;
 	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocInfo, &computeCmd));
@@ -1963,9 +2809,25 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 
 	VK_CHECK_RESULT(vkEndCommandBuffer(computeCmd));
 
+	// Do NOT submit here.  refreshBuffers() batch-submits count + compute
+	// together in a single vkQueueSubmit(commandBufferCount=2), ensuring proper
+	// storage buffer visibility.  Submitting independently causes atomicAdd on
+	// offsetBuffer to deadlock (Bug #2: GPU hang when interlock=false).
+
+	return computeCmd;
+}
+
+void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
+	VkCommandBuffer countCmd = recordCountCommandBuffer(indexCount, lightCount);
+	VkCommandBuffer computeCmd = recordComputeCommandBuffer();
+
+	// Batch submit: count + compute in a single vkQueueSubmit.
+	// This ensures proper storage buffer visibility across the two passes.
+	// Without batching, atomicAdd on offsetBuffer in the transparent graphics pass deadlocks.
+	VkCommandBuffer cmds[2] = { countCmd, computeCmd };
 	VkSubmitInfo submitInfo = vks::initializers::submitInfo();
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &computeCmd;
+	submitInfo.commandBufferCount = 2;
+	submitInfo.pCommandBuffers = cmds;
 	VkFenceCreateInfo fenceInfo = vks::initializers::fenceCreateInfo();
 	VkFence fence;
 	VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
@@ -1973,6 +2835,7 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
 	vkDestroyFence(device, fence, nullptr);
 
+	vkFreeCommandBuffers(device, commandPool, 1, &countCmd);
 	vkFreeCommandBuffers(device, commandPool, 1, &computeCmd);
 
 	// Read feedback
@@ -2030,84 +2893,11 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	}
 }
 
-void HeadlessRenderer::recordTransparentCommandBuffer(size_t indexCount, size_t lightCount) {
-	VkCommandBufferAllocateInfo cmdBufAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer transCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocInfo, &transCmd));
-
-	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
-	VK_CHECK_RESULT(vkBeginCommandBuffer(transCmd, &cmdBufInfo));
-
-	VkRenderPassBeginInfo renderPassBeginInfo = {};
-	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassBeginInfo.renderArea.extent.width = currentTargetSize.x;
-	renderPassBeginInfo.renderArea.extent.height = currentTargetSize.y;
-
-	VkClearValue clearValues[2];
-	clearValues[0].color.float32[0] = m_BackgroundColor.r;
-	clearValues[0].color.float32[1] = m_BackgroundColor.g;
-	clearValues[0].color.float32[2] = m_BackgroundColor.b;
-	clearValues[0].color.float32[3] = m_BackgroundColor.a;
-	clearValues[1].depthStencil.depth = 1.0f;
-	clearValues[1].depthStencil.stencil = 0;
-	renderPassBeginInfo.clearValueCount = 2;
-	renderPassBeginInfo.pClearValues = clearValues;
-	renderPassBeginInfo.renderPass = transparentRenderPass;
-	renderPassBeginInfo.framebuffer = transparentFramebuffer;
-
-	vkCmdBeginRenderPass(transCmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-	// Subpass 0: Transparent draw
-	vkCmdBindDescriptorSets(transCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparencyPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
-	vkCmdBindPipeline(transCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline);
-
-	VkDeviceSize offsets[1] = { 0 };
-	vkCmdBindVertexBuffers(transCmd, 0, 1, &vertexBuffer, offsets);
-	vkCmdBindIndexBuffer(transCmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-	glm::uvec4 constants{ 0 };
-	constants.x = lightCount;
-	constants.y = currentTargetSize.x;
-	vkCmdPushConstants(transCmd, transparencyPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
-
-	vkCmdDrawIndexed(transCmd, indexCount, 1, 0, 0, 0);
-
-	// Advance to subpass 1: Blend
-	vkCmdNextSubpass(transCmd, VK_SUBPASS_CONTENTS_INLINE);
-
-	vkCmdBindPipeline(transCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blendPipeline);
-	glm::vec4 background;
-	background.r = m_BackgroundColor.r;
-	background.g = m_BackgroundColor.g;
-	background.b = m_BackgroundColor.b;
-	background.a = m_BackgroundColor.a;
-	VkDeviceSize pushSize = sizeof(glm::uvec4) + sizeof(glm::vec4);
-	uint8_t* pushData = new uint8_t[pushSize];
-	memcpy(pushData, &constants, sizeof(glm::uvec4));
-	memcpy(pushData + sizeof(glm::uvec4), &background, sizeof(glm::vec4));
-	vkCmdPushConstants(transCmd, transparencyPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-	delete[] pushData;
-
-	vkCmdDraw(transCmd, 3, 1, 0, 0);
-
-	vkCmdEndRenderPass(transCmd);
-	VK_CHECK_RESULT(vkEndCommandBuffer(transCmd));
-
-	VkSubmitInfo submitInfo = vks::initializers::submitInfo();
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &transCmd;
-	VkFenceCreateInfo fenceInfo = vks::initializers::fenceCreateInfo();
-	VkFence fence;
-	VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, fence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
-	vkDestroyFence(device, fence, nullptr);
-
-	vkFreeCommandBuffers(device, commandPool, 1, &transCmd);
-}
-
-unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout) {
-	// Copy framebuffer image to host visible image
+unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve) {
+	// Copy framebuffer image to host visible image.
+	// When useResolve=true, reads from resolveAttachment (final composite from blend pass).
+	// When useResolve=false, reads from colorAttachment (opaque path).
+	VkImage srcImage = useResolve ? resolveAttachment.image : colorAttachment.image;
 	unsigned char* returnData;
 	
 	if (targetSize.x != hostReadableDestinationImageSize.x || targetSize.y != hostReadableDestinationImageSize.y) {
@@ -2132,16 +2922,19 @@ unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresource
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
 
-	// Transition source image from COLOR_ATTACHMENT_OPTIMAL to TRANSFER_SRC_OPTIMAL
+	// Transition source image to TRANSFER_SRC_OPTIMAL.
+	// For resolve path (useResolve=true), finalLayout is already TRANSFER_SRC_OPTIMAL,
+	// so oldLayout matches and no actual transition occurs.
+	// For opaque path (useResolve=false), transitions from COLOR_ATTACHMENT_OPTIMAL.
 	VkImageMemoryBarrier srcBarrier = {};
 	srcBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	srcBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	srcBarrier.oldLayout = useResolve ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	srcBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	srcBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	srcBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 	srcBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	srcBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	srcBarrier.image = colorAttachment.image;
+	srcBarrier.image = srcImage;
 	srcBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	srcBarrier.subresourceRange.baseMipLevel = 0;
 	srcBarrier.subresourceRange.levelCount = 1;
@@ -2174,7 +2967,7 @@ unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresource
 
 	vkCmdCopyImage(
 		copyCmd,
-		colorAttachment.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		hostReadableDestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
 		&imageCopyRegion);
@@ -2189,6 +2982,19 @@ unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresource
 		VK_IMAGE_LAYOUT_GENERAL,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
+
+	// Transition source image back to COLOR_ATTACHMENT_OPTIMAL
+	// (vkrender.cc: exportSingleTile transitions back after copy).
+	vks::tools::insertImageMemoryBarrier(
+		copyCmd,
+		srcImage,
+		VK_ACCESS_TRANSFER_READ_BIT,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
 
 	VK_CHECK_RESULT(vkEndCommandBuffer(copyCmd));
@@ -2586,36 +3392,56 @@ void HeadlessRenderer::cleanup() {
 	vkDestroyImageView(device, depthAttachment.view, nullptr);
 	vkDestroyImage(device, depthAttachment.image, nullptr);
 	vkFreeMemory(device, depthAttachment.memory, nullptr);
-	vkDestroyRenderPass(device, renderPass, nullptr);
-	vkDestroyFramebuffer(device, framebuffer, nullptr);
-	vkDestroyPipeline(device, pipeline, nullptr);
-	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-	vkDestroyPipelineCache(device, pipelineCache, nullptr);
+	vkDestroyImageView(device, resolveAttachment.view, nullptr);
+	vkDestroyImage(device, resolveAttachment.image, nullptr);
+	vkFreeMemory(device, resolveAttachment.memory, nullptr);
+	vkDestroyPipeline(device, materialPipeline, nullptr);
+	vkDestroyPipeline(device, colorPipeline, nullptr);
 
-
-	for (auto shadermodule : shaderModules) {
+	for (auto shadermodule : materialShaderModules) {
 		vkDestroyShaderModule(device, shadermodule, nullptr);
 	}
+	materialShaderModules.clear();
+	for (auto shadermodule : colorShaderModules) {
+		vkDestroyShaderModule(device, shadermodule, nullptr);
+	}
+	colorShaderModules.clear();
+
+	// Cleanup line pipeline resources
+	if (linePipeline) vkDestroyPipeline(device, linePipeline, nullptr);
+	for (auto m : lineShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	lineShaderModules.clear();
+	if (lineVertexBuffer) { vkDestroyBuffer(device, lineVertexBuffer, nullptr); vkFreeMemory(device, lineVertexMemory, nullptr); }
+	if (lineIndexBuffer) { vkDestroyBuffer(device, lineIndexBuffer, nullptr); vkFreeMemory(device, lineIndexMemory, nullptr); }
+	linePipeline = VK_NULL_HANDLE;
+	lineVertexBuffer = VK_NULL_HANDLE;
+	lineVertexMemory = VK_NULL_HANDLE;
+	lineIndexBuffer = VK_NULL_HANDLE;
+	lineIndexMemory = VK_NULL_HANDLE;
 
 	// Cleanup transparency resources
 	if (countRenderPass) vkDestroyRenderPass(device, countRenderPass, nullptr);
 	if (countFramebuffer) vkDestroyFramebuffer(device, countFramebuffer, nullptr);
-	if (transparentRenderPass) vkDestroyRenderPass(device, transparentRenderPass, nullptr);
-	if (transparentFramebuffer) vkDestroyFramebuffer(device, transparentFramebuffer, nullptr);
-	if (transparencyPipelineLayout) vkDestroyPipelineLayout(device, transparencyPipelineLayout, nullptr);
+	if (opaqueRenderPass) vkDestroyRenderPass(device, opaqueRenderPass, nullptr);
+	if (opaqueFramebuffer) vkDestroyFramebuffer(device, opaqueFramebuffer, nullptr);
+	if (graphicsRenderPass) vkDestroyRenderPass(device, graphicsRenderPass, nullptr);
+	if (graphicsFramebuffer) vkDestroyFramebuffer(device, graphicsFramebuffer, nullptr);
+	if (graphicsPipelineLayout) vkDestroyPipelineLayout(device, graphicsPipelineLayout, nullptr);
 
-	if (countPipeline) vkDestroyPipeline(device, countPipeline, nullptr);
-	if (countPipelineCache) vkDestroyPipelineCache(device, countPipelineCache, nullptr);
+	if (materialCountPipeline) vkDestroyPipeline(device, materialCountPipeline, nullptr);
+	if (colorCountPipeline) vkDestroyPipeline(device, colorCountPipeline, nullptr);
+	if (transparentCountPipeline) vkDestroyPipeline(device, transparentCountPipeline, nullptr);
 	for (auto m : countShaderModules) vkDestroyShaderModule(device, m, nullptr);
 	countShaderModules.clear();
 
+	if (materialTransparentPipeline) vkDestroyPipeline(device, materialTransparentPipeline, nullptr);
+	if (colorTransparentPipeline) vkDestroyPipeline(device, colorTransparentPipeline, nullptr);
+	if (lineTransparentPipeline) vkDestroyPipeline(device, lineTransparentPipeline, nullptr);
 	if (transparentPipeline) vkDestroyPipeline(device, transparentPipeline, nullptr);
-	if (transparentPipelineCache) vkDestroyPipelineCache(device, transparentPipelineCache, nullptr);
 	for (auto m : transparentShaderModules) vkDestroyShaderModule(device, m, nullptr);
 	transparentShaderModules.clear();
 
 	if (blendPipeline) vkDestroyPipeline(device, blendPipeline, nullptr);
-	if (blendPipelineCache) vkDestroyPipelineCache(device, blendPipelineCache, nullptr);
 	for (auto m : blendShaderModules) vkDestroyShaderModule(device, m, nullptr);
 	blendShaderModules.clear();
 
@@ -2641,15 +3467,15 @@ void HeadlessRenderer::cleanup() {
 
 	countRenderPass = VK_NULL_HANDLE;
 	countFramebuffer = VK_NULL_HANDLE;
-	transparentRenderPass = VK_NULL_HANDLE;
-	transparentFramebuffer = VK_NULL_HANDLE;
-	transparencyPipelineLayout = VK_NULL_HANDLE;
-	countPipeline = VK_NULL_HANDLE;
-	countPipelineCache = VK_NULL_HANDLE;
+	graphicsRenderPass = VK_NULL_HANDLE;
+	graphicsFramebuffer = VK_NULL_HANDLE;
+	graphicsPipelineLayout = VK_NULL_HANDLE;
+	materialCountPipeline = VK_NULL_HANDLE;
+	colorCountPipeline = VK_NULL_HANDLE;
+	materialTransparentPipeline = VK_NULL_HANDLE;
+	colorTransparentPipeline = VK_NULL_HANDLE;
 	transparentPipeline = VK_NULL_HANDLE;
-	transparentPipelineCache = VK_NULL_HANDLE;
 	blendPipeline = VK_NULL_HANDLE;
-	blendPipelineCache = VK_NULL_HANDLE;
 	computeSum1Pipeline = VK_NULL_HANDLE;
 	computeSum2Pipeline = VK_NULL_HANDLE;
 	computeSum3Pipeline = VK_NULL_HANDLE;
@@ -2666,29 +3492,277 @@ void HeadlessRenderer::cleanup() {
 	feedbackBuffer = VK_NULL_HANDLE; feedbackBufferMemory = VK_NULL_HANDLE;
 	feedbackMappedPtr = nullptr;
 
+	// Cleanup persistent VertexBuffer GPU buffers.
+	// CRITICAL: must nullify BOTH buffer AND memory handles after freeing.
+	// If memory handles are left dangling, uploadToPersistentBuffer() will
+	// vkMapMemory() on already-freed memory on the next frame, silently
+	// corrupting vertex/index data and breaking rendering permanently.
+	if (materialVertexBuffer) { vkDestroyBuffer(device, materialVertexBuffer, nullptr); vkFreeMemory(device, materialVertexMemory, nullptr); }
+	materialVertexBuffer = VK_NULL_HANDLE; materialVertexMemory = VK_NULL_HANDLE; materialVertexBufferSize = 0;
+	if (materialIndexBuffer) { vkDestroyBuffer(device, materialIndexBuffer, nullptr); vkFreeMemory(device, materialIndexMemory, nullptr); }
+	materialIndexBuffer = VK_NULL_HANDLE; materialIndexMemory = VK_NULL_HANDLE; materialIndexBufferSize = 0;
+	if (colorVertexBuffer) { vkDestroyBuffer(device, colorVertexBuffer, nullptr); vkFreeMemory(device, colorVertexMemory, nullptr); }
+	colorVertexBuffer = VK_NULL_HANDLE; colorVertexMemory = VK_NULL_HANDLE; colorVertexBufferSize = 0;
+	if (colorIndexBuffer) { vkDestroyBuffer(device, colorIndexBuffer, nullptr); vkFreeMemory(device, colorIndexMemory, nullptr); }
+	colorIndexBuffer = VK_NULL_HANDLE; colorIndexMemory = VK_NULL_HANDLE; colorIndexBufferSize = 0;
+	if (transparentVertexBuffer) { vkDestroyBuffer(device, transparentVertexBuffer, nullptr); vkFreeMemory(device, transparentVertexMemory, nullptr); }
+	transparentVertexBuffer = VK_NULL_HANDLE; transparentVertexMemory = VK_NULL_HANDLE; transparentVertexBufferSize = 0;
+	if (transparentIndexBuffer) { vkDestroyBuffer(device, transparentIndexBuffer, nullptr); vkFreeMemory(device, transparentIndexMemory, nullptr); }
+	transparentIndexBuffer = VK_NULL_HANDLE; transparentIndexMemory = VK_NULL_HANDLE; transparentIndexBufferSize = 0;
+	if (lineVertexBuffer) { vkDestroyBuffer(device, lineVertexBuffer, nullptr); vkFreeMemory(device, lineVertexMemory, nullptr); }
+	lineVertexBuffer = VK_NULL_HANDLE; lineVertexMemory = VK_NULL_HANDLE; lineVertexBufferSize = 0;
+	if (lineIndexBuffer) { vkDestroyBuffer(device, lineIndexBuffer, nullptr); vkFreeMemory(device, lineIndexMemory, nullptr); }
+	lineIndexBuffer = VK_NULL_HANDLE; lineIndexMemory = VK_NULL_HANDLE; lineIndexBufferSize = 0;
+	// Triangle persistent buffers
+	if (triangleVertexBuffer) { vkDestroyBuffer(device, triangleVertexBuffer, nullptr); vkFreeMemory(device, triangleVertexMemory, nullptr); }
+	triangleVertexBuffer = VK_NULL_HANDLE; triangleVertexMemory = VK_NULL_HANDLE; triangleVertexBufferSize = 0;
+	if (triangleIndexBuffer) { vkDestroyBuffer(device, triangleIndexBuffer, nullptr); vkFreeMemory(device, triangleIndexMemory, nullptr); }
+	triangleIndexBuffer = VK_NULL_HANDLE; triangleIndexMemory = VK_NULL_HANDLE; triangleIndexBufferSize = 0;
+
+	// Cleanup persistent staging buffers (prevents leaks on full resource recreation).
+	if (materialVertexStagingBuffer) { vkDestroyBuffer(device, materialVertexStagingBuffer, nullptr); vkFreeMemory(device, materialVertexStagingMemory, nullptr); }
+	materialVertexStagingBuffer = VK_NULL_HANDLE; materialVertexStagingMemory = VK_NULL_HANDLE; materialVertexStgSize = 0;
+	if (materialIndexStagingBuffer) { vkDestroyBuffer(device, materialIndexStagingBuffer, nullptr); vkFreeMemory(device, materialIndexStagingMemory, nullptr); }
+	materialIndexStagingBuffer = VK_NULL_HANDLE; materialIndexStagingMemory = VK_NULL_HANDLE; materialIndexStgSize = 0;
+	if (colorVertexStagingBuffer) { vkDestroyBuffer(device, colorVertexStagingBuffer, nullptr); vkFreeMemory(device, colorVertexStagingMemory, nullptr); }
+	colorVertexStagingBuffer = VK_NULL_HANDLE; colorVertexStagingMemory = VK_NULL_HANDLE; colorVertexStgSize = 0;
+	if (colorIndexStagingBuffer) { vkDestroyBuffer(device, colorIndexStagingBuffer, nullptr); vkFreeMemory(device, colorIndexStagingMemory, nullptr); }
+	colorIndexStagingBuffer = VK_NULL_HANDLE; colorIndexStagingMemory = VK_NULL_HANDLE; colorIndexStgSize = 0;
+	if (transparentVertexStagingBuffer) { vkDestroyBuffer(device, transparentVertexStagingBuffer, nullptr); vkFreeMemory(device, transparentVertexStagingMemory, nullptr); }
+	transparentVertexStagingBuffer = VK_NULL_HANDLE; transparentVertexStagingMemory = VK_NULL_HANDLE; transparentVertexStgSize = 0;
+	if (transparentIndexStagingBuffer) { vkDestroyBuffer(device, transparentIndexStagingBuffer, nullptr); vkFreeMemory(device, transparentIndexStagingMemory, nullptr); }
+	transparentIndexStagingBuffer = VK_NULL_HANDLE; transparentIndexStagingMemory = VK_NULL_HANDLE; transparentIndexStgSize = 0;
+	if (lineVertexStagingBuffer) { vkDestroyBuffer(device, lineVertexStagingBuffer, nullptr); vkFreeMemory(device, lineVertexStagingMemory, nullptr); }
+	lineVertexStagingBuffer = VK_NULL_HANDLE; lineVertexStagingMemory = VK_NULL_HANDLE; lineVertexStgSize = 0;
+	if (lineIndexStagingBuffer) { vkDestroyBuffer(device, lineIndexStagingBuffer, nullptr); vkFreeMemory(device, lineIndexStagingMemory, nullptr); }
+	lineIndexStagingBuffer = VK_NULL_HANDLE; lineIndexStagingMemory = VK_NULL_HANDLE; lineIndexStgSize = 0;
+	if (triangleVertexStagingBuffer) { vkDestroyBuffer(device, triangleVertexStagingBuffer, nullptr); vkFreeMemory(device, triangleVertexStagingMemory, nullptr); }
+	triangleVertexStagingBuffer = VK_NULL_HANDLE; triangleVertexStagingMemory = VK_NULL_HANDLE; triangleVertexStgSize = 0;
+	if (triangleIndexStagingBuffer) { vkDestroyBuffer(device, triangleIndexStagingBuffer, nullptr); vkFreeMemory(device, triangleIndexStagingMemory, nullptr); }
+	triangleIndexStagingBuffer = VK_NULL_HANDLE; triangleIndexStagingMemory = VK_NULL_HANDLE; triangleIndexStgSize = 0;
+
 	// Cleanup IBL resources
 	destroyIBLResources();
 }
 
-void HeadlessRenderer::copyMeshToGPU(const Mesh& mesh) {
-	copyDataToGPU(mesh.vertices, vertexBuffer, vertexMemory);
-	copyIndexDataToGPU(mesh.indices);
+void HeadlessRenderer::createLinePipeline(int targetWidth, int targetHeight) {
+	// Line pipeline: LINE_LIST + POLYGON_MODE_LINE (matches vkrender.cc linePipelines exactly)
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState =
+		vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_LINE_LIST, 0, VK_FALSE);
 
-	m_IndexCount = mesh.indices.size();
+	VkPipelineRasterizationStateCreateInfo rasterizationState =
+		vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+
+	VkPipelineColorBlendAttachmentState blendAttachmentState =
+		vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState =
+		vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentState);
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState =
+		vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+
+	VkViewport viewport = { 0.0f, (float)targetHeight, (float)targetWidth, -(float)targetHeight, 0.0f, 1.0f };
+	VkRect2D scissor = { { 0, 0 }, { (uint32_t)targetWidth, (uint32_t)targetHeight } };
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState =
+		vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo =
+		vks::initializers::pipelineCreateInfo(graphicsPipelineLayout, opaqueRenderPass);
+	pipelineCreateInfo.subpass = 0;
+	std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages{};
+
+	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineCreateInfo.pRasterizationState = &rasterizationState;
+	pipelineCreateInfo.pColorBlendState = &colorBlendState;
+	pipelineCreateInfo.pMultisampleState = &multisampleState;
+	pipelineCreateInfo.pViewportState = &viewportState;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+	pipelineCreateInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+	pipelineCreateInfo.pStages = shaderStages.data();
+
+	// Line pipeline uses MaterialVertex (same as main material pipeline)
+	std::vector<VkVertexInputBindingDescription> vertexInputBindings = {
+		vks::initializers::vertexInputBindingDescription(0, sizeof(MaterialVertex), VK_VERTEX_INPUT_RATE_VERTEX),
+	};
+	std::vector<VkVertexInputAttributeDescription> vertexInputAttributes = {
+		vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), 				// Position
+		vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float)*3),	// Normal
+		vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, sizeof(float)*6)			// Material Index
+	};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
+	vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
+	vertexInputState.pVertexBindingDescriptions = vertexInputBindings.data();
+	vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
+	vertexInputState.pVertexAttributeDescriptions = vertexInputAttributes.data();
+
+	pipelineCreateInfo.pVertexInputState = &vertexInputState;
+
+	shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[0].pName = "main";
+	shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[1].pName = "main";
+
+	// Same shader options as the main material pipeline (no COLOR)
+	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
+	if (ibl) {
+		options.push_back("USE_IBL");
+	}
+	if (interlock) {
+		options.push_back("HAVE_INTERLOCK");
+	}
+	if (m_Orthographic) {
+		options.push_back("ORTHOGRAPHIC");
+	}
+
+	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "vertex.glsl", options);
+	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "fragment.glsl", options);
+
+	lineShaderModules = { shaderStages[0].module, shaderStages[1].module };
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &linePipeline));
 }
 
-unsigned char* HeadlessRenderer::render(
+
+// Matches vkrender.cc createGraphicsPipelines(): destroy and recreate ALL pipeline
+// objects only. Attachments, descriptor sets, buffers, render passes, and the
+// graphicsPipelineLayout survive.  Only VkPipeline + VkShaderModule objects change.
+void HeadlessRenderer::recreateGraphicsPipelines(DrawMode drawMode, int targetWidth, int targetHeight) {
+	// Update currentDrawMode BEFORE creating pipelines so all create*() functions
+	// that read currentDrawMode (e.g., transparent pipelines) see the correct mode.
+	// Matches vkrender.cc: mode is updated in cycleMode() before createGraphicsPipelines().
+	currentDrawMode = drawMode;
+
+	// Matches vkrender.cc: device->waitIdle() waits for ALL queues before
+	// destroying pipelines, not just vkQueueWaitIdle(queue).
+	VkResult res = vkDeviceWaitIdle(device);
+	if (res != VK_SUCCESS) {
+		std::cerr << "[v3d-error] vkDeviceWaitIdle failed: " << res << std::endl;
+	}
+
+	// Destroy all pipeline objects + shader modules
+	vkDestroyPipeline(device, materialPipeline, nullptr);
+	for (auto& m : materialShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	materialShaderModules.clear();
+	vkDestroyPipeline(device, colorPipeline, nullptr);
+	for (auto& m : colorShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	colorShaderModules.clear();
+	if (linePipeline) vkDestroyPipeline(device, linePipeline, nullptr);
+	for (auto m : lineShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	lineShaderModules.clear();
+
+	if (materialCountPipeline) vkDestroyPipeline(device, materialCountPipeline, nullptr);
+	if (colorCountPipeline) vkDestroyPipeline(device, colorCountPipeline, nullptr);
+	if (triangleCountPipeline) vkDestroyPipeline(device, triangleCountPipeline, nullptr);
+	if (transparentCountPipeline) vkDestroyPipeline(device, transparentCountPipeline, nullptr);
+	for (auto m : countShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	countShaderModules.clear();
+
+	if (materialTransparentPipeline) vkDestroyPipeline(device, materialTransparentPipeline, nullptr);
+	if (colorTransparentPipeline) vkDestroyPipeline(device, colorTransparentPipeline, nullptr);
+	if (triangleTransparentPipeline) vkDestroyPipeline(device, triangleTransparentPipeline, nullptr);
+	if (lineTransparentPipeline) vkDestroyPipeline(device, lineTransparentPipeline, nullptr);
+	if (transparentPipeline) vkDestroyPipeline(device, transparentPipeline, nullptr);
+	for (auto m : transparentShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	transparentShaderModules.clear();
+
+	if (blendPipeline) vkDestroyPipeline(device, blendPipeline, nullptr);
+	for (auto m : blendShaderModules) vkDestroyShaderModule(device, m, nullptr);
+	blendShaderModules.clear();
+
+	// Recreate all pipelines with correct polygon mode using the shared layout.
+	// Matches vkrender.cc: createGraphicsPipelines() creates ALL pipeline objects
+	// using the existing graphicsPipelineLayout; no new layouts or caches created.
+	createMaterialPipeline(drawMode, targetWidth, targetHeight);
+	createColorPipeline(drawMode, targetWidth, targetHeight);
+	createLinePipeline(targetWidth, targetHeight);
+	createMaterialCountPipeline(targetWidth, targetHeight);
+	createColorCountPipeline(targetWidth, targetHeight);
+	createTriangleCountPipeline(targetWidth, targetHeight);
+	createTransparentCountPipeline(targetWidth, targetHeight);
+	createMaterialTransparentPipeline(targetWidth, targetHeight);
+	createColorTransparentPipeline(targetWidth, targetHeight);
+	createTriangleTransparentPipeline(targetWidth, targetHeight);
+	createLineTransparentPipeline(targetWidth, targetHeight);
+	createTransparentPipeline(targetWidth, targetHeight);
+	createBlendPipeline(targetWidth, targetHeight);
+}
+
+// Upload CPU data to a persistent GPU buffer (grows as needed), recording the copy
+// into the already-begun commandBuffer.  Follows vkrender.cc uploadPersistentBuffer:
+// allocate device-local dst once, reuse; staging buffer created per-upload.
+void HeadlessRenderer::uploadToPersistentBuffer(
+    VkCommandBuffer cmd,
+    VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
+    VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
+    const void* data, VkDeviceSize dataSize, bool isVertex)
+{
+	// Vulkan doesn't allow zero-size buffers
+	dataSize = std::max<VkDeviceSize>(16, dataSize);
+
+	// Grow persistent device buffer if needed
+	if (dstBuf == VK_NULL_HANDLE || dstSize < dataSize) {
+		if (dstBuf != VK_NULL_HANDLE) {
+			vkDestroyBuffer(device, dstBuf, nullptr);
+			vkFreeMemory(device, dstMem, nullptr);
+		}
+		VkBufferUsageFlags dstUsage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+		                            (isVertex ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT : VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+		createBuffer(dstUsage,
+		             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &dstBuf, &dstMem, dataSize);
+		dstSize = dataSize;
+	}
+
+	// Grow persistent staging buffer if needed (double each time, like vkrender.cc)
+	if (data != nullptr) {
+		if (stgBuf == VK_NULL_HANDLE || stgSize < dataSize) {
+			if (stgBuf != VK_NULL_HANDLE) {
+				vkDestroyBuffer(device, stgBuf, nullptr);
+				vkFreeMemory(device, stgMem, nullptr);
+			}
+			VkDeviceSize newSize = 16;
+			while (newSize < dataSize) newSize *= 2;
+			createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			             &stgBuf, &stgMem, newSize, nullptr);
+			stgSize = newSize;
+		}
+
+		// Copy data into the persistent staging buffer on the CPU side
+		void* stgPtr;
+		vkMapMemory(device, stgMem, 0, dataSize, 0, &stgPtr);
+		memcpy(stgPtr, data, dataSize);
+		vkUnmapMemory(device, stgMem);
+
+		// Record the GPU copy command
+		VkBufferCopy region{ 0, 0, dataSize };
+		vkCmdCopyBuffer(cmd, stgBuf, dstBuf, 1, &region);
+	}
+}
+
+	unsigned char* HeadlessRenderer::render(
 	glm::ivec2 targetSize, 
 	VkSubresourceLayout* imageSubresourceLayout, 
-	const glm::mat4& view, 
-	const glm::mat4& proj, 
+	const glm::dmat4& view, 
+	const glm::dmat4& proj, 
+	const glm::dmat3& normMat,
 	const std::vector<V3dMaterial>& materials, 
 	const std::vector<V3dHeaderInfo::Light>& lights,
-	MeshPipelineMode pipelineMode,
+	MeshPipelineMode /*pipelineMode*/,  // Unused: unified path uses hasTransparency instead of pipelineMode
 	const glm::vec4& bgColor,
 	bool orthographic,
 	bool useIBL,
-	const std::string& iblPath
+	const std::string& iblPath,
+	DrawMode drawMode
 ) {
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
@@ -2705,20 +3779,27 @@ unsigned char* HeadlessRenderer::render(
 	targetSize.x = std::min(targetSize.x, (int)maxFramebufferWidth);
 	targetSize.y = std::min(targetSize.y, (int)maxFramebufferHeight);
 
-	if (m_IndexCount == 0) {
-		std::cout << "ERROR, no mesh sent to GPU" << std::endl;
+	// Unify with vkrender.cc: use a single Opaque boolean instead of pipelineMode.
+	// pipelineMode oscillates between OUTLINE(MaterialOnly) and NORMAL(Mixed), causing
+	// full resource recreation on every draw mode cycle. vkrender.cc avoids this by
+	// using only the Opaque flag to choose pipelines at draw time.
+	bool drawModeChanged = (drawMode != currentDrawMode);
+
+	// Full recreation needed: size changed, IBL toggled, or first initialization.
+	// Matches vkrender.cc: full recreate only on resize/IBL change, not draw mode.
+	bool needsFullRecreate = (currentTargetSize != targetSize) || iblChanged;
+	if (!initialized) {
+		needsFullRecreate = true;
 	}
 
-	// Check if we need to recreate the pipeline due to content type change or IBL toggle
-	bool pipelineModeChanged = (pipelineMode != currentPipelineMode) || iblChanged;
-
-	if (m_IndexCount > 0 && !meshInitialized) {
-		pipelineModeChanged = true;
-	}
-
-	bool recreatedResources{ false };
-
-	if (currentTargetSize != targetSize || pipelineModeChanged) {
+	// If ONLY draw mode changed, do lightweight pipeline recreation.
+	// Matches vkrender.cc: cycleMode → recreatePipeline=true → createGraphicsPipelines()
+	// which destroys/recreates ALL VkPipeline objects only; attachments, descriptor
+	// sets, buffers, render passes all survive.
+	if (drawModeChanged && currentTargetSize == targetSize && !iblChanged) {
+		recreateGraphicsPipelines(drawMode, targetSize.x, targetSize.y);
+		currentDrawMode = drawMode;
+	} else if (needsFullRecreate) {
 		if (initialized) {
 			cleanup();
 
@@ -2748,8 +3829,6 @@ unsigned char* HeadlessRenderer::render(
 
 		createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y);
 
-		createRenderPipeline(colorFormat, depthFormat, targetSize.x, targetSize.y);
-
 		createDescriptorSetLayout();
 
 		// Initialize IBL resources before creating pipelines (shaders need USE_IBL define)
@@ -2757,7 +3836,15 @@ unsigned char* HeadlessRenderer::render(
 			initIBL(iblPath);
 		}
 
-		createGraphicsPipeline(pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed, targetSize.x, targetSize.y);
+		// Create render passes BEFORE any pipeline that references them.
+		// Matches vkrender.cc: createCountRenderPass -> createGraphicsRenderPass -> createGraphicsPipelines
+		createCountRenderPass(targetSize.x, targetSize.y);
+		createGraphicsRenderPass(targetSize.x, targetSize.y);
+
+		createGraphicsPipelineLayout();
+		createMaterialPipeline(drawMode, targetSize.x, targetSize.y);
+		createColorPipeline(drawMode, targetSize.x, targetSize.y);
+		createLinePipeline(targetSize.x, targetSize.y);
 
 		createUniformBuffer();
 		// TODO potentially move
@@ -2772,7 +3859,7 @@ unsigned char* HeadlessRenderer::render(
 				mat.shininess,   // roughness
 				mat.metallic,    // metallic
 				mat.fresnel0,    // fresnel
-				pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed ? 1.0f : 0.0f
+				mat.lightOn   // lightOn flag (was incorrectly derived from pipelineMode)
 			);
 			++i;
 		}
@@ -2791,35 +3878,54 @@ unsigned char* HeadlessRenderer::render(
 		// Create transparency resources
 		createTransparencyBuffers(targetSize.x, targetSize.y);
 		updateTransparencyDescriptors();
-		createCountRenderPass(targetSize.x, targetSize.y);
-		createTransparentRenderPass(targetSize.x, targetSize.y);
-		createTransparencyPipelineLayout();
 		createComputeDescriptorSetLayout();
 		createComputeDescriptorPool();
 		createComputeDescriptorSet();
 		createComputePipelineLayout();
 		createComputePipelines();
 
-		bool useColor = pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed;
-		createCountPipeline(useColor, targetSize.x, targetSize.y);
-		createTransparentPipeline(useColor, targetSize.x, targetSize.y);
+		createMaterialCountPipeline(targetSize.x, targetSize.y);
+		createColorCountPipeline(targetSize.x, targetSize.y);
+		createTriangleCountPipeline(targetSize.x, targetSize.y);
+		createTransparentCountPipeline(targetSize.x, targetSize.y);
+
+		// Set currentDrawMode BEFORE creating draw-mode-dependent pipelines.
+		// Transparent pipelines read currentDrawMode for polygon mode selection.
+		currentDrawMode = drawMode;
+
+		createMaterialTransparentPipeline(targetSize.x, targetSize.y);
+		createColorTransparentPipeline(targetSize.x, targetSize.y);
+		createTriangleTransparentPipeline(targetSize.x, targetSize.y);
+		createLineTransparentPipeline(targetSize.x, targetSize.y);
+		createTransparentPipeline(targetSize.x, targetSize.y);
 		createBlendPipeline(targetSize.x, targetSize.y);
 
 		initialized = true;
-		currentPipelineMode = pipelineMode;
 		currentTargetSize = targetSize;
-
-		recreatedResources = true;
+	} else {
+		// No recreation needed.
 	}
 
-	UniformBufferObject ubo;
-	ubo.projViewMat = proj * view;
-	ubo.viewMat = view;
-	ubo.normMat = glm::inverse(view);
+	UniformBufferObject ubo{ };
+	// Match vkrender.cc byte-for-byte: use pre-computed dmat3 normMat member.
+	glm::dmat4 projView = proj * view;
+	ubo.projViewMat = glm::mat4(projView);
+	ubo.viewMat = glm::mat4(view);
+	// Fill normMat as 3 vec4 columns for std140 mat3 layout (48 bytes)
+	ubo.normMat[0] = glm::vec4(normMat[0], 0.0);
+	ubo.normMat[1] = glm::vec4(normMat[1], 0.0);
+	ubo.normMat[2] = glm::vec4(normMat[2], 0.0);
 
 	// Update UBO whenever ANY matrix changes (|| not &&).
 	// Multiple scenes share the same renderer; each has its own view/projection.
-	if (cachedUbo.projViewMat != ubo.projViewMat || cachedUbo.viewMat != ubo.viewMat || cachedUbo.normMat != ubo.normMat) {
+	bool uboChanged = (cachedUbo.projViewMat != ubo.projViewMat) ||
+	                  (cachedUbo.viewMat != ubo.viewMat);
+	if (!uboChanged) {
+		for (int i = 0; i < 3; ++i) {
+			if (cachedUbo.normMat[i] != ubo.normMat[i]) { uboChanged = true; break; }
+		}
+	}
+	if (uboChanged) {
 		std::memcpy(uniformBufferMapped, &ubo, sizeof(UniformBufferObject));
 		cachedUbo = ubo;
 	}
@@ -2828,9 +3934,12 @@ unsigned char* HeadlessRenderer::render(
 	// destroying + recreating.  Multiple models share a single HeadlessRenderer
 	// instance; if the target size hasn't changed the recreation block above is
 	// skipped, but each model can have its own materials and lighting.  Using
-	// the already-mapped pointers avoids per-frame GPU memory allocation churn
-	// that fragments device memory under sustained dragging.
-	if (initialized && !recreatedResources) {
+	// Update material and light buffers via mapped memory every frame.
+	// Multiple models share a single HeadlessRenderer; each can have its own
+	// materials and lighting.  The GPU buffer must be refreshed before drawing,
+	// even after pipeline recreation (recreatedResources=true), otherwise the
+	// first frame renders with stale/zero material data.
+	if (initialized) {
 		std::vector<GPUMaterial> mats(materials.size());
 		for (size_t i = 0; i < materials.size(); ++i) {
 			mats[i].diffuse    = glm::vec4{ materials[i].diffuse.r, materials[i].diffuse.g, materials[i].diffuse.b, materials[i].diffuse.a };
@@ -2840,7 +3949,7 @@ unsigned char* HeadlessRenderer::render(
 				materials[i].shininess,
 				materials[i].metallic,
 				materials[i].fresnel0,
-				pipelineMode == MeshPipelineMode::ColorOnly || pipelineMode == MeshPipelineMode::Mixed ? 1.0f : 0.0f
+				materials[i].lightOn
 			);
 		}
 		VkDeviceSize matSize = mats.empty() ? sizeof(GPUMaterial) : sizeof(GPUMaterial) * mats.size();
@@ -2860,111 +3969,243 @@ unsigned char* HeadlessRenderer::render(
 		}
 	}
 
-	// Detect if the scene has any transparent materials
-	bool hasTransparency = false;
-	for (const auto& mat : materials) {
-		if (mat.diffuse.a < 1.0f) {
-			hasTransparency = true;
-			break;
-		}
-	}
 
-	if (!hasTransparency) {
-		// Fully opaque scene: use only the opaque pass.
-		// The render pass transitions color from UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
-		// (via its initialLayout/dependencies) and ends in TRANSFER_SRC_OPTIMAL.
-		recordCommandBuffer(targetSize.x, targetSize.y, m_IndexCount, lights.size());
-		submitWork(commandBuffer, queue);
-	} else {
-		// Scene has transparency: use the A-buffer path (count -> compute -> blend).
-		// The transparent render pass uses initialLayout=COLOR_ATTACHMENT_OPTIMAL for
-		// color and DEPTH_STENCIL_ATTACHMENT_OPTIMAL for depth.  When switching from an
-		// opaque frame, the color image is in TRANSFER_SRC_OPTIMAL and depth is in
-		// DEPTH_STENCIL_ATTACHMENT_OPTIMAL.  We must transition color back to
-		// COLOR_ATTACHMENT_OPTIMAL before beginning the transparent render pass.
+	// Detect if the scene needs the A-buffer compositing path.
+	// Matches vkrender.cc: Opaque = transparentData.indices.empty()
+	bool hasTransparency = !transparentData.indices.empty();
+
+	// === UNIFIED RENDER PATH ===
+	// Matches vkrender.cc drawBuffers() exactly:
+	//   - beginGraphicsFrameRender picks opaque or transparent render pass based on Opaque flag
+	//   - ALL geometry drawn in the same render pass subpass 0
+	//   - Each draw call uses the appropriate pipeline (opaque or transparent)
+	//   - If not Opaque: nextSubpass → drawTransparent → nextSubpass → blendFrame
+
+	bool isOpaque = !hasTransparency;
+
+	// For transparent scenes: zero buffers and run count+compute passes first.
+	if (!isOpaque) {
 		zeroTransparencyBuffers();
-
-		VkCommandBufferAllocateInfo transAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-		VkCommandBuffer layoutCmd;
-		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &transAllocInfo, &layoutCmd));
-		VkCommandBufferBeginInfo transBufInfo = vks::initializers::commandBufferBeginInfo();
-		VK_CHECK_RESULT(vkBeginCommandBuffer(layoutCmd, &transBufInfo));
-
-		// Transition color image: the previous frame may have left it in
-		// TRANSFER_SRC_OPTIMAL (opaque path) or COLOR_ATTACHMENT_OPTIMAL (prior
-		// transparent path).  Use a general barrier that works from any layout.
-		VkImageMemoryBarrier colorBarrier = {};
-		colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		colorBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		colorBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		colorBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		colorBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		colorBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		colorBarrier.image = colorAttachment.image;
-		colorBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		colorBarrier.subresourceRange.baseMipLevel = 0;
-		colorBarrier.subresourceRange.levelCount = 1;
-		colorBarrier.subresourceRange.baseArrayLayer = 0;
-		colorBarrier.subresourceRange.layerCount = 1;
-
-		vkCmdPipelineBarrier(layoutCmd,
-			VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &colorBarrier);
-
-		VkImageMemoryBarrier depthBarrier = {};
-		depthBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		depthBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		depthBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-		depthBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-		depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		depthBarrier.image = depthAttachment.image;
-		depthBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-		depthBarrier.subresourceRange.baseMipLevel = 0;
-		depthBarrier.subresourceRange.levelCount = 1;
-		depthBarrier.subresourceRange.baseArrayLayer = 0;
-		depthBarrier.subresourceRange.layerCount = 1;
-
-		vkCmdPipelineBarrier(layoutCmd,
-			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
-
-		VK_CHECK_RESULT(vkEndCommandBuffer(layoutCmd));
-		VkSubmitInfo layoutSubmit = vks::initializers::submitInfo();
-		layoutSubmit.commandBufferCount = 1;
-		layoutSubmit.pCommandBuffers = &layoutCmd;
-		VkFenceCreateInfo layoutFenceInfo = vks::initializers::fenceCreateInfo();
-		VkFence layoutFence;
-		VK_CHECK_RESULT(vkCreateFence(device, &layoutFenceInfo, nullptr, &layoutFence));
-		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &layoutSubmit, layoutFence));
-		VK_CHECK_RESULT(vkWaitForFences(device, 1, &layoutFence, VK_TRUE, UINT64_MAX));
-		vkDestroyFence(device, layoutFence, nullptr);
-		vkFreeCommandBuffers(device, commandPool, 1, &layoutCmd);
-
 		elements = pixels;
-		recordCountCommandBuffer(m_IndexCount, lights.size());
-		recordComputeCommandBuffer();
-		if (fragments > 0) {
-			recordTransparentCommandBuffer(m_IndexCount, lights.size());
+		refreshBuffers(materialData.indices.size(), lights.size());
+	}
+
+	// Allocate a fresh command buffer for this frame (vkrender.cc pattern).
+	VkCommandBufferAllocateInfo cmdAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
+	VkCommandBuffer gfxCmd;
+	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdAllocInfo, &gfxCmd));
+
+	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
+	VK_CHECK_RESULT(vkBeginCommandBuffer(gfxCmd, &cmdBufInfo));
+
+	// --- Upload ALL vertex data before the render pass ---
+	VkBufferMemoryBarrier bufBarrier = {};
+	bufBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	bufBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+	bufBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bufBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bufBarrier.offset = 0;
+	bufBarrier.size = VK_WHOLE_SIZE;
+
+	if (!materialData.indices.empty() && !materialData.materialVertices.empty()) {
+		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
+		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(gfxCmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
+		                         materialData.materialVertices.data(), vsize, true);
+		uploadToPersistentBuffer(gfxCmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
+		                         materialData.indices.data(), isize, false);
+	}
+
+	if (!lineData.indices.empty() && !lineData.materialVertices.empty()) {
+		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
+		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(gfxCmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
+		                         lineData.materialVertices.data(), vsize, true);
+		uploadToPersistentBuffer(gfxCmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
+		                         lineData.indices.data(), isize, false);
+	}
+
+	if (!colorData.indices.empty() && !colorData.colorVertices.empty()) {
+		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(gfxCmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
+		                         colorData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(gfxCmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
+		                         colorData.indices.data(), isize, false);
+	}
+
+	if (!transparentData.indices.empty() && !transparentData.colorVertices.empty()) {
+		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(gfxCmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
+		                         transparentData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(gfxCmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
+		                         transparentData.indices.data(), isize, false);
+	}
+
+	if (!triangleData.indices.empty() && !triangleData.colorVertices.empty()) {
+		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
+		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(gfxCmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
+		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
+		                         triangleData.colorVertices.data(), vsize, true);
+		uploadToPersistentBuffer(gfxCmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
+		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
+		                         triangleData.indices.data(), isize, false);
+	}
+
+	// Pipeline barriers: ensure all uploads complete before vertex fetch.
+	VkBuffer* barrierBuffers[] = { &materialVertexBuffer, &materialIndexBuffer,
+	                               &lineVertexBuffer, &lineIndexBuffer,
+	                               &colorVertexBuffer, &colorIndexBuffer,
+	                               &transparentVertexBuffer, &transparentIndexBuffer,
+	                               &triangleVertexBuffer, &triangleIndexBuffer };
+	for (auto* bufPtr : barrierBuffers) {
+		if (*bufPtr != VK_NULL_HANDLE) {
+			bufBarrier.buffer = *bufPtr;
+			vkCmdPipelineBarrier(gfxCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+			                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
 		}
 	}
 
-	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout);
+	// --- Begin render pass (matches vkrender.cc beginGraphicsFrameRender) ---
+	VkClearValue clearValues[3];
+	clearValues[0].color.float32[0] = m_BackgroundColor.r;
+	clearValues[0].color.float32[1] = m_BackgroundColor.g;
+	clearValues[0].color.float32[2] = m_BackgroundColor.b;
+	clearValues[0].color.float32[3] = m_BackgroundColor.a;
+	clearValues[1].depthStencil.depth = 1.0f;
+	clearValues[1].depthStencil.stencil = 0;
+	clearValues[2].color.float32[0] = m_BackgroundColor.r;
+	clearValues[2].color.float32[1] = m_BackgroundColor.g;
+	clearValues[2].color.float32[2] = m_BackgroundColor.b;
+	clearValues[2].color.float32[3] = m_BackgroundColor.a;
 
-	vkQueueWaitIdle(queue);
+	VkRenderPassBeginInfo renderPassBeginInfo = {};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderArea.extent.width = targetSize.x;
+	renderPassBeginInfo.renderArea.extent.height = targetSize.y;
+	// Opaque: 2 clear values (color + depth). Transparent: 3 (color + depth + resolve).
+	renderPassBeginInfo.clearValueCount = isOpaque ? 2 : 3;
+	renderPassBeginInfo.pClearValues = clearValues;
+	// Matches vkrender.cc: Opaque ? opaqueGraphicsRenderPass : graphicsRenderPass
+	renderPassBeginInfo.renderPass = isOpaque ? opaqueRenderPass : graphicsRenderPass;
+	renderPassBeginInfo.framebuffer = isOpaque ? opaqueFramebuffer : graphicsFramebuffer;
+
+	vkCmdBeginRenderPass(gfxCmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	// Push constants for all draw calls: uvec4 constants + vec4 background (32 bytes).
+	VkDeviceSize pushSize = sizeof(glm::uvec4) + sizeof(glm::vec4);
+	uint8_t* pushData = new uint8_t[pushSize];
+	glm::uvec4 transConstants{ 0 };
+	transConstants.x = (currentDrawMode != DRAWMODE_NORMAL) ? 0u : static_cast<uint32_t>(lights.size());
+	transConstants.y = targetSize.x;
+	memcpy(pushData, &transConstants, sizeof(glm::uvec4));
+	glm::vec4 background = m_BackgroundColor;
+	memcpy(pushData + sizeof(glm::uvec4), &background, sizeof(glm::vec4));
+
+	vkCmdBindDescriptorSets(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+
+	VkDeviceSize offsets[1] = { 0 };
+
+	// === SUBPASS 0: ALL geometry ===
+	// Matches vkrender.cc drawBuffers(): getPipelineType() selects opaque or transparent pipeline.
+	// materialData → (isOpaque ? materialPipeline : materialTransparentPipeline)
+	VkPipeline matPipeline = isOpaque ? materialPipeline : materialTransparentPipeline;
+	VkPipeline colPipeline = isOpaque ? colorPipeline : colorTransparentPipeline;
+	VkPipeline lnPipeline  = isOpaque ? linePipeline : lineTransparentPipeline;
+
+	// materialData (MaterialVertex format)
+	if (!materialData.indices.empty() && materialVertexBuffer != VK_NULL_HANDLE) {
+		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, matPipeline);
+		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &materialVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(gfxCmd, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
+	}
+
+	// colorData (ColorVertex format) — matches vkrender.cc drawColors()
+	if (!colorData.indices.empty() && colorVertexBuffer != VK_NULL_HANDLE) {
+		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, colPipeline);
+		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &colorVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(gfxCmd, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
+	}
+
+	// lineData (LINE_LIST topology, MaterialVertex format) — matches vkrender.cc drawLines()
+	if (!lineData.indices.empty() && lineVertexBuffer != VK_NULL_HANDLE) {
+		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lnPipeline);
+		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &lineVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(gfxCmd, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
+	}
+
+	// triangleData (ColorVertex+GENERAL format) — always uses transparent pipeline since it needs GENERAL path
+	// Matches vkrender.cc: drawTriangles() uses getPipelineType(trianglePipelines)
+	if (!triangleData.indices.empty() && triangleVertexBuffer != VK_NULL_HANDLE) {
+		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleTransparentPipeline);
+		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &triangleVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(gfxCmd, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
+	}
+
+	// === If transparent: subpass 1 (transparentData) + subpass 2 (blend quad) ===
+	if (!isOpaque) {
+		vkCmdNextSubpass(gfxCmd, VK_SUBPASS_CONTENTS_INLINE);
+
+		if (!transparentData.indices.empty() && transparentVertexBuffer != VK_NULL_HANDLE) {
+			vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline);
+			vkCmdBindVertexBuffers(gfxCmd, 0, 1, &transparentVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(gfxCmd, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+			vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
+		}
+
+		vkCmdNextSubpass(gfxCmd, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blendPipeline);
+		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		delete[] pushData;
+
+		vkCmdDraw(gfxCmd, 3, 1, 0, 0);
+	} else {
+		delete[] pushData;
+	}
+
+	vkCmdEndRenderPass(gfxCmd);
+	VK_CHECK_RESULT(vkEndCommandBuffer(gfxCmd));
+
+	VkSubmitInfo submitInfo = vks::initializers::submitInfo();
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &gfxCmd;
+	VkFenceCreateInfo fenceInfo = vks::initializers::fenceCreateInfo();
+	VkFence fence;
+	VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, fence));
+	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+	vkDestroyFence(device, fence, nullptr);
+	vkFreeCommandBuffers(device, commandPool, 1, &gfxCmd);
+
+	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
+
+	// Matches vkrender.cc: device->waitIdle() ensures ALL GPU work is complete
+	// before returning, not just one queue.
+	VkResult res = vkDeviceWaitIdle(device);
+	if (res != VK_SUCCESS) {
+		std::cerr << "[v3d-error] vkDeviceWaitIdle failed: " << res << std::endl;
+	}
 
 	return returnData;
-}
-
-void HeadlessRenderer::cleanupMeshData() {
-	vkDestroyBuffer(device, vertexBuffer, nullptr);
-	vkFreeMemory(device, vertexMemory, nullptr);
-	vkDestroyBuffer(device, indexBuffer, nullptr);
-	vkFreeMemory(device, indexMemory, nullptr);
-
-	meshInitialized = false;
 }

@@ -11,6 +11,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -20,6 +21,7 @@
 #include "../V3dFile/Mesh.h"
 #include "../V3dFile/V3dObjects.h"
 #include "../V3dFile/V3dHeaderInfo.h"
+#include "V3dModel.h"
 #include "Public/ShaderLang.h"
 
 #define BUFFER_ELEMENTS 32
@@ -35,9 +37,10 @@ static inline bool v3dDebugEnabled() {
 #define LOG(...) do { if (v3dDebugEnabled()) printf(__VA_ARGS__); } while(0)
 
 struct UniformBufferObject {
-	glm::mat4 projViewMat { };
-	glm::mat4 viewMat { };
-	glm::mat4 normMat { };
+	glm::mat4 projViewMat{ };
+	glm::mat4 viewMat{ };
+	// GLSL mat3 in std140 = 3 columns of vec4 (48 bytes)
+	glm::vec4 normMat[3];
 };
 
 struct GPUMaterial
@@ -66,21 +69,91 @@ public:
 	uint32_t maxFramebufferWidth{ 16384 };
 	uint32_t maxFramebufferHeight{ 16384 };
 	uint32_t queueFamilyIndex;
-	VkPipelineCache pipelineCache;
 	VkQueue queue;
 	VkCommandPool commandPool{ VK_NULL_HANDLE };
 	VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };
 	VkDescriptorSetLayout descriptorSetLayout;
-	VkPipelineLayout pipelineLayout;
-	VkPipeline pipeline;
-	std::vector<VkShaderModule> shaderModules;
+	VkPipelineLayout graphicsPipelineLayout{ VK_NULL_HANDLE };  // Single shared layout for ALL graphics pipelines (matches vkrender.cc)
+	VkPipeline materialPipeline{ VK_NULL_HANDLE };  // Opaque pipeline: MaterialVertex, no GENERAL/COLOR
+	VkPipeline colorPipeline{ VK_NULL_HANDLE };     // Opaque pipeline: ColorVertex, with GENERAL+COLOR
+	std::vector<VkShaderModule> materialShaderModules;
+	std::vector<VkShaderModule> colorShaderModules;
 
-	bool meshInitialized{ false };
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexMemory;
+	// Line pipeline: LINE_LIST topology for lineData (BezierCurve edges, V3dLineSegment)
+	VkPipeline linePipeline{ VK_NULL_HANDLE };
+	std::vector<VkShaderModule> lineShaderModules;
 
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexMemory;
+	// Persistent GPU buffers per VertexBuffer type, following vkrender.cc FrameBufferPair pattern.
+	// Each pair (vertex+index) is allocated once and grows as needed; data is uploaded
+	// via staging buffer + vkCmdCopyBuffer inside the recorded command buffer.
+	VkBuffer materialVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory materialVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize materialVertexBufferSize{ 0 };
+	VkBuffer materialIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory materialIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize materialIndexBufferSize{ 0 };
+
+	VkBuffer lineVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory lineVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize lineVertexBufferSize{ 0 };
+	VkBuffer lineIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory lineIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize lineIndexBufferSize{ 0 };
+
+	// Persistent staging buffers (vkrender.cc: FrameBufferPair vertexStagingBuffer / indexStagingBuffer)
+	VkBuffer materialVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory materialVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize materialVertexStgSize{ 0 };
+	VkBuffer materialIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory materialIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize materialIndexStgSize{ 0 };
+
+	// Color vertex buffers (vkrender.cc: colorBuffers — separate from materialBuffers)
+	VkBuffer colorVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory colorVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize colorVertexBufferSize{ 0 };
+	VkBuffer colorIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory colorIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize colorIndexBufferSize{ 0 };
+	VkBuffer colorVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory colorVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize colorVertexStgSize{ 0 };
+	VkBuffer colorIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory colorIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize colorIndexStgSize{ 0 };
+
+	// Transparent vertex buffers (vkrender.cc: transparentBuffers — ColorVertex format)
+	VkBuffer transparentVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory transparentVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize transparentVertexBufferSize{ 0 };
+	VkBuffer transparentIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory transparentIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize transparentIndexBufferSize{ 0 };
+	VkBuffer transparentVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory transparentVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize transparentVertexStgSize{ 0 };
+	VkBuffer transparentIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory transparentIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize transparentIndexStgSize{ 0 };
+	// Triangle vertex buffers (vkrender.cc: triangleBuffers — ColorVertex format, GENERAL path)
+	VkBuffer triangleVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory triangleVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize triangleVertexBufferSize{ 0 };
+	VkBuffer triangleIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory triangleIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize triangleIndexBufferSize{ 0 };
+	VkBuffer triangleVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory triangleVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize triangleVertexStgSize{ 0 };
+	VkBuffer triangleIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory triangleIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize triangleIndexStgSize{ 0 };
+	VkBuffer lineVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory lineVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize lineVertexStgSize{ 0 };
+	VkBuffer lineIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory lineIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize lineIndexStgSize{ 0 };
 
 	UniformBufferObject cachedUbo{ };
 	VkBuffer uniformBuffer;
@@ -115,10 +188,10 @@ public:
 	bool interlock{ false };
 	bool srgb{ false }; // TODO: control via env var
 	MeshPipelineMode currentPipelineMode{ MeshPipelineMode::MaterialOnly };
+	DrawMode currentDrawMode{ DRAWMODE_NORMAL };
+	bool currentUseColor{ false };
 
-	VkFramebuffer framebuffer;
-	FrameBufferAttachment colorAttachment, depthAttachment;
-	VkRenderPass renderPass;
+	FrameBufferAttachment colorAttachment, depthAttachment, resolveAttachment;
 
 	// Transparency buffers
 	VkBuffer countBuffer{ VK_NULL_HANDLE };
@@ -158,21 +231,25 @@ public:
 	// Transparency graphics resources
 	VkRenderPass countRenderPass{ VK_NULL_HANDLE };
 	VkFramebuffer countFramebuffer{ VK_NULL_HANDLE };
-	VkRenderPass transparentRenderPass{ VK_NULL_HANDLE };
-	VkFramebuffer transparentFramebuffer{ VK_NULL_HANDLE };
+	VkRenderPass opaqueRenderPass{ VK_NULL_HANDLE };
+	VkFramebuffer opaqueFramebuffer{ VK_NULL_HANDLE };
+	VkRenderPass graphicsRenderPass{ VK_NULL_HANDLE };  // 3-subpass: opaque(0) + transparent(1) + blend(2)
+	VkFramebuffer graphicsFramebuffer{ VK_NULL_HANDLE };
 
-	VkPipelineLayout transparencyPipelineLayout{ VK_NULL_HANDLE };
-
-	VkPipeline countPipeline{ VK_NULL_HANDLE };
-	VkPipelineCache countPipelineCache{ VK_NULL_HANDLE };
+	VkPipeline materialCountPipeline{ VK_NULL_HANDLE };
+	VkPipeline colorCountPipeline{ VK_NULL_HANDLE };
+	VkPipeline triangleCountPipeline{ VK_NULL_HANDLE };    // ColorVertex+GENERAL, countRenderPass subpass 0 (for triangleData count)
+	VkPipeline transparentCountPipeline{ VK_NULL_HANDLE };  // ColorVertex, countRenderPass subpass 1 (for transparentData count)
 	std::vector<VkShaderModule> countShaderModules;
 
-	VkPipeline transparentPipeline{ VK_NULL_HANDLE };
-	VkPipelineCache transparentPipelineCache{ VK_NULL_HANDLE };
+	VkPipeline materialTransparentPipeline{ VK_NULL_HANDLE };  // MaterialVertex, TRIANGLE_LIST, graphicsRenderPass subpass 0
+	VkPipeline colorTransparentPipeline{ VK_NULL_HANDLE };     // ColorVertex, TRIANGLE_LIST, graphicsRenderPass subpass 0
+	VkPipeline triangleTransparentPipeline{ VK_NULL_HANDLE };  // ColorVertex+GENERAL, TRIANGLE_LIST, graphicsRenderPass subpass 0 (for triangleData)
+	VkPipeline lineTransparentPipeline{ VK_NULL_HANDLE };      // MaterialVertex, LINE_LIST, graphicsRenderPass subpass 0 (for lineData)
+	VkPipeline transparentPipeline{ VK_NULL_HANDLE };          // ColorVertex, graphicsRenderPass subpass 1 (transparentData)
 	std::vector<VkShaderModule> transparentShaderModules;
 
 	VkPipeline blendPipeline{ VK_NULL_HANDLE };
-	VkPipelineCache blendPipelineCache{ VK_NULL_HANDLE };
 	std::vector<VkShaderModule> blendShaderModules;
 
 	// IBL (Image-Based Lighting) resources
@@ -224,14 +301,19 @@ private:
 	void createDescirptorSets();
 	void createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
-	void createRenderPipeline(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	void createDescriptorSetLayout();
-	void createGraphicsPipeline(bool useColor, int targetWidth, int targetHeight);
-	void recordCommandBuffer(int targetWidth, int targetHeight, size_t indexCount, size_t lightCount);
-	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
-	void recordComputeCommandBuffer();
-	void recordTransparentCommandBuffer(size_t indexCount, size_t lightCount);
-	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout);
+	void createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
+	void createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
+	void createLinePipeline(int targetWidth, int targetHeight);
+	void recreateGraphicsPipelines(DrawMode drawMode, int targetWidth, int targetHeight);
+	void uploadToPersistentBuffer(VkCommandBuffer cmd, VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
+	                              VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
+	                              const void* data, VkDeviceSize dataSize, bool isVertex);
+	void recordCommandBuffer(int targetWidth, int targetHeight, size_t lightCount);
+	VkCommandBuffer recordCountCommandBuffer(size_t indexCount, size_t lightCount);
+	VkCommandBuffer recordComputeCommandBuffer();
+	void refreshBuffers(size_t indexCount, size_t lightCount);
+	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 
 	void createHostReadableDestinationImage(glm::ivec2 size);
 	void destroyHostReadableDestinationImage();
@@ -242,15 +324,22 @@ private:
 	VkShaderModule createComputeShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void updateTransparencyDescriptors();
 	void createCountRenderPass(int targetWidth, int targetHeight);
-	void createTransparentRenderPass(int targetWidth, int targetHeight);
-	void createTransparencyPipelineLayout();
+	void createGraphicsRenderPass(int targetWidth, int targetHeight);
+	void createGraphicsPipelineLayout();  // Single shared layout for ALL graphics pipelines (matches vkrender.cc)
 	void createComputeDescriptorSetLayout();
 	void createComputeDescriptorPool();
 	void createComputeDescriptorSet();
 	void createComputePipelineLayout();
 	void createComputePipelines();
-	void createCountPipeline(bool useColor, int targetWidth, int targetHeight);
-	void createTransparentPipeline(bool useColor, int targetWidth, int targetHeight);
+	void createMaterialCountPipeline(int targetWidth, int targetHeight);
+	void createColorCountPipeline(int targetWidth, int targetHeight);
+	void createTriangleCountPipeline(int targetWidth, int targetHeight);
+	void createTransparentCountPipeline(int targetWidth, int targetHeight);
+	void createMaterialTransparentPipeline(int targetWidth, int targetHeight);
+	void createColorTransparentPipeline(int targetWidth, int targetHeight);
+	void createTriangleTransparentPipeline(int targetWidth, int targetHeight);
+	void createLineTransparentPipeline(int targetWidth, int targetHeight);
+	void createTransparentPipeline(int targetWidth, int targetHeight);
 	void createBlendPipeline(int targetWidth, int targetHeight);
 
 	// IBL (Image-Based Lighting)
@@ -270,23 +359,21 @@ private:
 	void cleanup();
 
 public:
-	void copyMeshToGPU(const Mesh& mesh);
-
 	unsigned char* render(
 		glm::ivec2 targetSize, 
 		VkSubresourceLayout* imageSubresourceLayout, 
-		const glm::mat4& view, 
-		const glm::mat4& proj, 
+		const glm::dmat4& view, 
+		const glm::dmat4& proj, 
+		const glm::dmat3& normMat,
 		const std::vector<V3dMaterial>& materials,
 		const std::vector<V3dHeaderInfo::Light>& lights,
 		MeshPipelineMode pipelineMode,
 		const glm::vec4& background,
 		bool orthographic = false,
 		bool useIBL = false,
-		const std::string& iblPath = ""
+		const std::string& iblPath = "",
+		DrawMode drawMode = DRAWMODE_NORMAL
 	);
-
-	void cleanupMeshData();
 
 	uint32_t getMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties);
 
@@ -295,7 +382,6 @@ public:
     // Submit command buffer to a queue and wait for fence until queue operations have been finished
 	void submitWork(VkCommandBuffer cmdBuffer, VkQueue queue);
 
-	unsigned int m_IndexCount{ 0 };
 	glm::vec4 m_BackgroundColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 	bool m_Orthographic{ false };
 };

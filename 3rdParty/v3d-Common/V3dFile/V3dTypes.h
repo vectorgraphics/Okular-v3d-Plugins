@@ -1,5 +1,9 @@
 #pragma once
 
+// Must define GLM flags BEFORE first glm include (matches asymptote/glmCommon.h)
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <stdio.h>
 
@@ -15,3 +19,11 @@ using FLOAT = float;
 using RGB = glm::vec3;      // FLOAT * 3
 using RGBA = glm::vec4;     // FLOAT * 4
 using V3D_WORD = uint32_t;
+
+// Mirrors asymptote/renderBase.h DrawMode enum.
+enum DrawMode : int {
+    DRAWMODE_NORMAL,
+    DRAWMODE_OUTLINE,
+    DRAWMODE_WIREFRAME,
+    NUM_DRAW_MODES = 3
+};
