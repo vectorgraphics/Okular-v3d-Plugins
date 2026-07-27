@@ -504,12 +504,10 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
         };
 
         model.dragModeShift(normalizedPositionOnModel, lastNormalizedPositionOnModel, canvasSize);
-        m_ReQueueModels = true;
     } else if (!controlKey && shiftKey && !altKey) {
         model.dragModeZoom(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     } else if (!controlKey && !shiftKey && altKey) {
         model.dragModePan(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
-        m_ReQueueModels = true;
     } else {
         model.dragModeRotate(normalizedPositionOnModel, lastNormalizedPositionOnModel, pageViewSize);
     }
