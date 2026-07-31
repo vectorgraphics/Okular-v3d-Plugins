@@ -347,6 +347,7 @@ private:
 	                              const void* data, VkDeviceSize dataSize, bool isVertex);
 	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
 	void recordComputeCommandBuffer();
+	void uploadVertexData();
 	void refreshBuffers(size_t indexCount, size_t lightCount);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 

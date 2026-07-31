@@ -1815,81 +1815,8 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(countCommandBuffer, &cmdBufInfo));
 
-	// Upload vertex data into the count command buffer (vkrender.cc: drawBuffer does inline upload).
-	// This ensures GPU buffers exist before any bind/draw calls in this or later command buffers.
-	VkBufferMemoryBarrier countBarrier = {};
-	countBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	countBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	countBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
-	countBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	countBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	countBarrier.offset = 0;
-	countBarrier.size = VK_WHOLE_SIZE;
-
-	if (!materialData.indices.empty() && !materialData.materialVertices.empty()) {
-		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
-		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(countCommandBuffer, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
-		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
-		                         materialData.materialVertices.data(), vsize, true);
-		uploadToPersistentBuffer(countCommandBuffer, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
-		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
-		                         materialData.indices.data(), isize, false);
-	}
-	if (!lineData.indices.empty() && !lineData.materialVertices.empty()) {
-		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
-		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(countCommandBuffer, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
-		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
-		                         lineData.materialVertices.data(), vsize, true);
-		uploadToPersistentBuffer(countCommandBuffer, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
-		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
-		                         lineData.indices.data(), isize, false);
-	}
-	if (!colorData.indices.empty() && !colorData.colorVertices.empty()) {
-		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
-		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(countCommandBuffer, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
-		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
-		                         colorData.colorVertices.data(), vsize, true);
-		uploadToPersistentBuffer(countCommandBuffer, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
-		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
-		                         colorData.indices.data(), isize, false);
-	}
-	if (!transparentData.indices.empty() && !transparentData.colorVertices.empty()) {
-		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
-		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(countCommandBuffer, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
-		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
-		                         transparentData.colorVertices.data(), vsize, true);
-		uploadToPersistentBuffer(countCommandBuffer, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
-		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
-		                         transparentData.indices.data(), isize, false);
-	}
-	if (!triangleData.indices.empty() && !triangleData.colorVertices.empty()) {
-		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
-		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(countCommandBuffer, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
-		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
-		                         triangleData.colorVertices.data(), vsize, true);
-		uploadToPersistentBuffer(countCommandBuffer, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
-		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
-		                         triangleData.indices.data(), isize, false);
-	}
-
-	// Barriers: ensure uploads complete before count draw reads vertex/index data.
-	VkBuffer* allBuffers[] = { &materialVertexBuffer, &materialIndexBuffer,
-	                           &lineVertexBuffer, &lineIndexBuffer,
-	                           &colorVertexBuffer, &colorIndexBuffer,
-	                           &transparentVertexBuffer, &transparentIndexBuffer,
-	                           &triangleVertexBuffer, &triangleIndexBuffer };
-	for (auto* b : allBuffers) {
-		if (*b != VK_NULL_HANDLE) {
-			countBarrier.buffer = *b;
-			vkCmdPipelineBarrier(countCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-			                     0, 0, nullptr, 1, &countBarrier, 0, nullptr);
-		}
-	}
+	// NO uploads here -- vertex data is uploaded once before refreshBuffers via
+	// uploadVertexData(), matching vkrender.cc updateBuffers() -> drawBuffer(copy=false).
 
 	// Begin count render pass (no clear values, no framebuffer)
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
@@ -2037,6 +1964,95 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 		0, 1, &hostReadBarrier, 0, nullptr, 0, nullptr);
 
 	VK_CHECK_RESULT(vkEndCommandBuffer(computeCommandBuffer));
+}
+
+// Upload ALL vertex data ONCE into GPU persistent buffers (matches vkrender.cc updateBuffers()).
+// Records uploads into a one-time transfer command buffer, submits+waits via fence.
+// Called once per frame BEFORE refreshBuffers and graphics recording.
+void HeadlessRenderer::uploadVertexData() {
+	VkCommandBufferAllocateInfo cmdAlloc = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
+	VkCommandBuffer uploadCmd;
+	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdAlloc, &uploadCmd));
+
+	VkCommandBufferBeginInfo beginInfo = vks::initializers::commandBufferBeginInfo();
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK_RESULT(vkBeginCommandBuffer(uploadCmd, &beginInfo));
+
+	// Upload each vertex buffer type
+	if (!materialData.materialVertices.empty()) {
+		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
+		uploadToPersistentBuffer(uploadCmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
+		                         materialData.materialVertices.data(), vsize, true);
+	}
+	if (!materialData.indices.empty()) {
+		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(uploadCmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
+		                         materialData.indices.data(), isize, false);
+	}
+	if (!lineData.materialVertices.empty()) {
+		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
+		uploadToPersistentBuffer(uploadCmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
+		                         lineData.materialVertices.data(), vsize, true);
+	}
+	if (!lineData.indices.empty()) {
+		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(uploadCmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
+		                         lineData.indices.data(), isize, false);
+	}
+	if (!colorData.colorVertices.empty()) {
+		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
+		uploadToPersistentBuffer(uploadCmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
+		                         colorData.colorVertices.data(), vsize, true);
+	}
+	if (!colorData.indices.empty()) {
+		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(uploadCmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
+		                         colorData.indices.data(), isize, false);
+	}
+	if (!transparentData.colorVertices.empty()) {
+		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
+		uploadToPersistentBuffer(uploadCmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
+		                         transparentData.colorVertices.data(), vsize, true);
+	}
+	if (!transparentData.indices.empty()) {
+		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(uploadCmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
+		                         transparentData.indices.data(), isize, false);
+	}
+	if (!triangleData.colorVertices.empty()) {
+		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
+		uploadToPersistentBuffer(uploadCmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
+		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
+		                         triangleData.colorVertices.data(), vsize, true);
+	}
+	if (!triangleData.indices.empty()) {
+		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(uploadCmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
+		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
+		                         triangleData.indices.data(), isize, false);
+	}
+
+	VK_CHECK_RESULT(vkEndCommandBuffer(uploadCmd));
+
+	// Submit and wait (matches vkrender.cc: endAndSubmitTransfers before count pass).
+	VkSubmitInfo submit = vks::initializers::submitInfo();
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &uploadCmd;
+	VkFenceCreateInfo fenceCI = vks::initializers::fenceCreateInfo();
+	VkFence fence;
+	VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &fence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submit, fence));
+	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+	vkDestroyFence(device, fence, nullptr);
+	vkFreeCommandBuffers(device, commandPool, 1, &uploadCmd);
 }
 
 void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
@@ -3172,84 +3188,12 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(gfxCmd, &cmdBufInfo));
 
-	// --- Upload ALL vertex data before the render pass ---
-	VkBufferMemoryBarrier bufBarrier = {};
-	bufBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	bufBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
-	bufBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	bufBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	bufBarrier.offset = 0;
-	bufBarrier.size = VK_WHOLE_SIZE;
+	// Upload vertex data ONCE into GPU buffers (matches vkrender.cc updateBuffers()).
+	// Recorded into a one-time transfer command buffer, submitted+waited before
+	// count/compute and graphics passes.  No redundant uploads in countCmd or gfxCmd.
+	uploadVertexData();
 
-	if (!materialData.indices.empty() && !materialData.materialVertices.empty()) {
-		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
-		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(gfxCmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
-		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
-		                         materialData.materialVertices.data(), vsize, true);
-		uploadToPersistentBuffer(gfxCmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
-		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
-		                         materialData.indices.data(), isize, false);
-	}
-
-	if (!lineData.indices.empty() && !lineData.materialVertices.empty()) {
-		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
-		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(gfxCmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
-		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
-		                         lineData.materialVertices.data(), vsize, true);
-		uploadToPersistentBuffer(gfxCmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
-		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
-		                         lineData.indices.data(), isize, false);
-	}
-
-	if (!colorData.indices.empty() && !colorData.colorVertices.empty()) {
-		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
-		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(gfxCmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
-		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
-		                         colorData.colorVertices.data(), vsize, true);
-		uploadToPersistentBuffer(gfxCmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
-		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
-		                         colorData.indices.data(), isize, false);
-	}
-
-	if (!transparentData.indices.empty() && !transparentData.colorVertices.empty()) {
-		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
-		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(gfxCmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
-		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
-		                         transparentData.colorVertices.data(), vsize, true);
-		uploadToPersistentBuffer(gfxCmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
-		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
-		                         transparentData.indices.data(), isize, false);
-	}
-
-	if (!triangleData.indices.empty() && !triangleData.colorVertices.empty()) {
-		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
-		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(gfxCmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
-		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
-		                         triangleData.colorVertices.data(), vsize, true);
-		uploadToPersistentBuffer(gfxCmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
-		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
-		                         triangleData.indices.data(), isize, false);
-	}
-
-	// Pipeline barriers: ensure all uploads complete before vertex fetch.
-	VkBuffer* barrierBuffers[] = { &materialVertexBuffer, &materialIndexBuffer,
-	                               &lineVertexBuffer, &lineIndexBuffer,
-	                               &colorVertexBuffer, &colorIndexBuffer,
-	                               &transparentVertexBuffer, &transparentIndexBuffer,
-	                               &triangleVertexBuffer, &triangleIndexBuffer };
-	for (auto* bufPtr : barrierBuffers) {
-		if (*bufPtr != VK_NULL_HANDLE) {
-			bufBarrier.buffer = *bufPtr;
-			vkCmdPipelineBarrier(gfxCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-			                     0, 0, nullptr, 1, &bufBarrier, 0, nullptr);
-		}
-	}
+	VkDeviceSize offsets[1] = { 0 };
 
 	// --- Begin render pass (matches vkrender.cc beginGraphicsFrameRender) ---
 	VkClearValue clearValues[3];
@@ -3288,8 +3232,6 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	memcpy(pushData + sizeof(glm::uvec4), &background, sizeof(glm::vec4));
 
 	vkCmdBindDescriptorSets(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
-
-	VkDeviceSize offsets[1] = { 0 };
 
 	// === SUBPASS 0: ALL geometry ===
 	// Matches vkrender.cc drawBuffers(): getPipelineType() selects opaque or transparent pipeline.
