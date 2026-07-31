@@ -3104,11 +3104,18 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// using only the Opaque flag to choose pipelines at draw time.
 	bool drawModeChanged = (drawMode != currentDrawMode);
 
-	// Full recreation needed: size changed, IBL toggled, or first initialization.
-	// Matches vkrender.cc: full recreate only on resize/IBL change, not draw mode.
-	bool needsFullRecreate = (currentTargetSize != targetSize) || iblChanged;
+	// Detect scene transparency early to decide if full recreation is needed.
+	bool hasTransparencyEarly = !transparentData.indices.empty();
+	static bool prevHadTransparency = false;
+	bool sceneTypeChanged = (hasTransparencyEarly != prevHadTransparency);
+
+	// Full recreation needed: size changed, IBL toggled, scene type changed, or first init.
+	bool needsFullRecreate = (currentTargetSize != targetSize) || iblChanged || sceneTypeChanged;
 	if (!initialized) {
 		needsFullRecreate = true;
+	}
+	if (needsFullRecreate) {
+		prevHadTransparency = hasTransparencyEarly;
 	}
 
 	// If ONLY draw mode changed, do lightweight pipeline recreation.
@@ -3292,6 +3299,8 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// Detect if the scene needs the A-buffer compositing path.
 	// Matches vkrender.cc: Opaque = transparentData.indices.empty()
 	bool hasTransparency = !transparentData.indices.empty();
+
+
 
 	// === UNIFIED RENDER PATH ===
 	// Matches vkrender.cc drawBuffers() exactly:
