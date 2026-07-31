@@ -810,6 +810,9 @@ void HeadlessRenderer::createTransparencyBuffers(int width, int height) {
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
 		&feedbackBuffer, &feedbackBufferMemory, feedbackBufferSize);
 	vkMapMemory(device, feedbackBufferMemory, 0, feedbackBufferSize, 0, (void**)&feedbackMappedPtr);
+
+	// Matches vkrender.cc: zeroTransparencyBuffers() called once after buffer creation
+	zeroTransparencyBuffers();
 }
 
 static void vkFillBuffer(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize size) {
@@ -3077,9 +3080,10 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	bool isOpaque = !hasTransparency;
 
-	// For transparent scenes: zero buffers and run count+compute passes first.
+	// For transparent scenes: run count+compute passes first.
+	// Matches vkrender.cc: preDrawBuffers() -> refreshBuffers() -> resizeFragmentBuffer().
+	// zeroTransparencyBuffers is called once during createTransparencyBuffers(), not per-frame.
 	if (!isOpaque) {
-		zeroTransparencyBuffers();
 		elements = pixels;
 		refreshBuffers(materialData.indices.size(), lights.size());
 	}
