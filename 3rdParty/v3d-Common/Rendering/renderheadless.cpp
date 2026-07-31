@@ -245,6 +245,21 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		fenceCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 		VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &inComputeFence));
 
+		// Persistent transfer command buffer (matches vkrender.cc copyCountCommandBuffer).
+		VkCommandBufferAllocateInfo transferAlloc = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
+		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &transferAlloc, &transferCommandBuffer));
+
+		// Binary semaphore for vertex upload sync (matches vkrender.cc transferDoneSemaphore).
+		VkSemaphoreCreateInfo semCI = {};
+		semCI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+		VK_CHECK_RESULT(vkCreateSemaphore(device, &semCI, nullptr, &transferDoneSemaphore));
+
+		// Fence for safe transfer cmd buffer reuse (matches vkrender.cc transferFence).
+		VkFenceCreateInfo tfCI = {};
+		tfCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		tfCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		VK_CHECK_RESULT(vkCreateFence(device, &tfCI, nullptr, &transferFence));
+
 	}
 
 HeadlessRenderer::~HeadlessRenderer() {
@@ -467,7 +482,11 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 	deviceCreateInfo.queueCreateInfoCount = 1;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfo;
 	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
-	std::vector<const char*> deviceExtensions = { VK_KHR_MAINTENANCE2_EXTENSION_NAME };
+	std::vector<const char*> deviceExtensions = {
+        VK_KHR_MAINTENANCE2_EXTENSION_NAME,
+        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
+    };
 
 	// Detect fragment shader interlock support
 	uint32_t extCount = 0;
@@ -491,22 +510,31 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 		LOG("INTERLOCK not available\n");
 	}
 
-	// Enable timeline semaphore feature (core Vulkan 1.1+, no extension needed for 1.4).
+	// Enable timeline semaphore + Synchronization2 (matches vkrender.cc createLogicalDevice).
 	VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures = {};
 	timelineSemaphoreFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
 	timelineSemaphoreFeatures.timelineSemaphore = VK_TRUE;
 
-	// Build pNext chain: deviceCreateInfo -> interlock -> timeline (matches vkrender.cc).
+	VkPhysicalDeviceSynchronization2Features synchronization2Features = {};
+	synchronization2Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+	synchronization2Features.synchronization2 = VK_TRUE;
+
+	// pNext chain: sync2 -> timeline -> interlock (matches vkrender.cc).
+	synchronization2Features.pNext = &timelineSemaphoreFeatures;
+	timelineSemaphoreFeatures.pNext = nullptr;
 	if (interlock) {
-		interlockFeatures.pNext = &timelineSemaphoreFeatures;
-		deviceCreateInfo.pNext = &interlockFeatures;
-	} else {
-		deviceCreateInfo.pNext = &timelineSemaphoreFeatures;
+		timelineSemaphoreFeatures.pNext = &interlockFeatures;
+		interlockFeatures.pNext = nullptr;
 	}
+	deviceCreateInfo.pNext = &synchronization2Features;
 
 	deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
 	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
 	VK_CHECK_RESULT(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
+
+	// Load vkQueueSubmit2 dynamically (Synchronization2 entry point).
+	vkQueueSubmit2Fn = (PFN_vkQueueSubmit2)vkGetDeviceProcAddr(device, "vkQueueSubmit2");
+	assert(vkQueueSubmit2Fn != nullptr);
 }
 
 void HeadlessRenderer::createUniformBuffer() {
@@ -1857,7 +1885,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		}
 
 		// Also count colorData vertices (vkrender.cc: drawBuffer for colorBuffers in count pass)
-		if (!colorData.indices.empty() && colorVertexBuffer != VK_NULL_HANDLE && colorIndexBuffer != VK_NULL_HANDLE) {
+		if (!colorData.indices.empty()) {
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorCountPipeline);
 			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &colorVertexBuffer, offsets);
@@ -1867,7 +1895,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		}
 
 		// Also count lineData vertices (vkrender.cc: drawBuffer for lineBuffers in count pass)
-		if (!lineData.indices.empty() && lineVertexBuffer != VK_NULL_HANDLE && lineIndexBuffer != VK_NULL_HANDLE) {
+		if (!lineData.indices.empty()) {
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
 			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &lineVertexBuffer, offsets);
@@ -1877,7 +1905,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		}
 
 		// Also count triangleData vertices (vkrender.cc: drawBuffer for triangleBuffers in count pass)
-		if (!triangleData.indices.empty() && triangleVertexBuffer != VK_NULL_HANDLE && triangleIndexBuffer != VK_NULL_HANDLE) {
+		if (!triangleData.indices.empty()) {
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleCountPipeline);
 			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &triangleVertexBuffer, offsets);
@@ -1890,7 +1918,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	// Advance to subpass 1 for transparentData counting (vkrender.cc: nextSubpass + drawTransparent)
 	vkCmdNextSubpass(countCommandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-	if (!transparentData.indices.empty() && transparentVertexBuffer != VK_NULL_HANDLE && transparentIndexBuffer != VK_NULL_HANDLE) {
+	if (!transparentData.indices.empty()) {
 		VkDeviceSize offsets[1] = { 0 };
 		vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
 		vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &transparentVertexBuffer, offsets);
@@ -1966,93 +1994,142 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	VK_CHECK_RESULT(vkEndCommandBuffer(computeCommandBuffer));
 }
 
-// Upload ALL vertex data ONCE into GPU persistent buffers (matches vkrender.cc updateBuffers()).
-// Records uploads into a one-time transfer command buffer, submits+waits via fence.
-// Called once per frame BEFORE refreshBuffers and graphics recording.
-void HeadlessRenderer::uploadVertexData() {
-	VkCommandBufferAllocateInfo cmdAlloc = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer uploadCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdAlloc, &uploadCmd));
+// Upload ALL vertex data into persistent GPU buffers (matches vkrender.cc updateBuffers).
+// Split into three functions matching vkrender.cc pattern:
+//   beginTransferRecording() -> recordUploads(cmd) -> endAndSubmitTransfers()
+
+void HeadlessRenderer::beginTransferRecording() {
+	transferHasPendingWork = false;
+
+	// Wait for prior transfer submission (matches vkrender.cc beginTransferRecording).
+	if (transferFence != VK_NULL_HANDLE) {
+		VK_CHECK_RESULT(vkWaitForFences(device, 1, &transferFence, VK_TRUE, UINT64_MAX));
+		VK_CHECK_RESULT(vkResetFences(device, 1, &transferFence));
+	}
+	VK_CHECK_RESULT(vkResetCommandBuffer(transferCommandBuffer, 0));
 
 	VkCommandBufferBeginInfo beginInfo = vks::initializers::commandBufferBeginInfo();
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	VK_CHECK_RESULT(vkBeginCommandBuffer(uploadCmd, &beginInfo));
+	VK_CHECK_RESULT(vkBeginCommandBuffer(transferCommandBuffer, &beginInfo));
+}
 
+void HeadlessRenderer::recordUploads(VkCommandBuffer cmd) {
 	// Upload each vertex buffer type
 	if (!materialData.materialVertices.empty()) {
 		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
-		uploadToPersistentBuffer(uploadCmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+		uploadToPersistentBuffer(cmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
 		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
 		                         materialData.materialVertices.data(), vsize, true);
+		transferHasPendingWork = true;
 	}
 	if (!materialData.indices.empty()) {
 		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(uploadCmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+		uploadToPersistentBuffer(cmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
 		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
 		                         materialData.indices.data(), isize, false);
+		transferHasPendingWork = true;
 	}
 	if (!lineData.materialVertices.empty()) {
 		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
-		uploadToPersistentBuffer(uploadCmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+		uploadToPersistentBuffer(cmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
 		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
 		                         lineData.materialVertices.data(), vsize, true);
+		transferHasPendingWork = true;
 	}
 	if (!lineData.indices.empty()) {
 		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(uploadCmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+		uploadToPersistentBuffer(cmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
 		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
 		                         lineData.indices.data(), isize, false);
+		transferHasPendingWork = true;
 	}
 	if (!colorData.colorVertices.empty()) {
 		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
-		uploadToPersistentBuffer(uploadCmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+		uploadToPersistentBuffer(cmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
 		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
 		                         colorData.colorVertices.data(), vsize, true);
+		transferHasPendingWork = true;
 	}
 	if (!colorData.indices.empty()) {
 		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(uploadCmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+		uploadToPersistentBuffer(cmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
 		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
 		                         colorData.indices.data(), isize, false);
+		transferHasPendingWork = true;
 	}
 	if (!transparentData.colorVertices.empty()) {
 		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
-		uploadToPersistentBuffer(uploadCmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+		uploadToPersistentBuffer(cmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
 		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
 		                         transparentData.colorVertices.data(), vsize, true);
+		transferHasPendingWork = true;
 	}
 	if (!transparentData.indices.empty()) {
 		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(uploadCmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+		uploadToPersistentBuffer(cmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
 		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
 		                         transparentData.indices.data(), isize, false);
+		transferHasPendingWork = true;
 	}
 	if (!triangleData.colorVertices.empty()) {
 		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
-		uploadToPersistentBuffer(uploadCmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
+		uploadToPersistentBuffer(cmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
 		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
 		                         triangleData.colorVertices.data(), vsize, true);
+		transferHasPendingWork = true;
 	}
 	if (!triangleData.indices.empty()) {
 		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(uploadCmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
+		uploadToPersistentBuffer(cmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
 		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
 		                         triangleData.indices.data(), isize, false);
+		transferHasPendingWork = true;
+	}
+}
+
+void HeadlessRenderer::endAndSubmitTransfers() {
+	VK_CHECK_RESULT(vkEndCommandBuffer(transferCommandBuffer));
+
+	// Submit transfers using vkQueueSubmit (matches vkrender.cc endAndSubmitTransfers).
+	// Only signal transferDoneSemaphore when there is actual work, to prevent
+	// double-signaling causing incorrect synchronization on subsequent frames.
+	std::vector<VkSemaphore> signalSems;
+	if (transferHasPendingWork) {
+		// Lazily recreate semaphore if cleanup() destroyed it (matches vkrender.cc).
+		if (transferDoneSemaphore == VK_NULL_HANDLE) {
+			VkSemaphoreCreateInfo semCI = {};
+			semCI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+			VK_CHECK_RESULT(vkCreateSemaphore(device, &semCI, nullptr, &transferDoneSemaphore));
+		}
+		signalSems.push_back(transferDoneSemaphore);
 	}
 
-	VK_CHECK_RESULT(vkEndCommandBuffer(uploadCmd));
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &transferCommandBuffer;
+	submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
+	submitInfo.pSignalSemaphores = signalSems.data();
 
-	// Submit and wait (matches vkrender.cc: endAndSubmitTransfers before count pass).
-	VkSubmitInfo submit = vks::initializers::submitInfo();
-	submit.commandBufferCount = 1;
-	submit.pCommandBuffers = &uploadCmd;
-	VkFenceCreateInfo fenceCI = vks::initializers::fenceCreateInfo();
-	VkFence fence;
-	VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &fence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submit, fence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
-	vkDestroyFence(device, fence, nullptr);
-	vkFreeCommandBuffers(device, commandPool, 1, &uploadCmd);
+	// Create fence lazily if missing (matches vkrender.cc endAndSubmitTransfers).
+	// After cleanup() destroys it, the next frame must recreate before submission.
+	if (transferFence == VK_NULL_HANDLE) {
+		VkFenceCreateInfo tfCI = {};
+		tfCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		tfCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		VK_CHECK_RESULT(vkCreateFence(device, &tfCI, nullptr, &transferFence));
+	}
+
+	// Reset fence before submission (matches vkrender.cc).
+	VK_CHECK_RESULT(vkResetFences(device, 1, &transferFence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, transferFence));
+}
+
+void HeadlessRenderer::uploadVertexData() {
+	// Thin wrapper: calls the three split functions for backward compatibility.
+	beginTransferRecording();
+	recordUploads(transferCommandBuffer);
+	endAndSubmitTransfers();
 }
 
 void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
@@ -2073,37 +2150,80 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 		}
 	}
 
-	// Reset fence and record into persistent command buffers (matches vkrender.cc refreshBuffers).
+	// Reset fence (matches vkrender.cc refreshBuffers).
 	VK_CHECK_RESULT(vkResetFences(device, 1, &inComputeFence));
 
+	// Matches vkrender.cc preDrawBuffers() -> refreshBuffers() ordering exactly:
+	//   beginTransferRecording() -> recordUploads() -> recordCountCommandBuffer()
+	//   -> recordComputeCommandBuffer() -> endAndSubmitTransfers()
+	//   -> submit count+compute waiting on transferDoneSemaphore
+	// Uploads MUST come before count recording so buffers exist when draw calls are recorded
+	// (matches vkrender.cc: drawBuffer uploads inline before bind/draw).
+
+	// 1. Begin transfer recording BEFORE any other command buffer recording.
+	beginTransferRecording();
+
+	// 2. Record vertex uploads -- creates persistent buffers and records copy commands.
+	//    Must happen before count recording so vertex/index buffers exist for draw calls.
+	recordUploads(transferCommandBuffer);
+
+	// 3. Record count command buffer (begin -> end).
 	recordCountCommandBuffer(indexCount, lightCount);
+
+	// 4. Record compute command buffer (begin -> end).
 	recordComputeCommandBuffer();
 
-	// Batch submit count + compute with timeline semaphore signal + fence.
-	// Timeline semaphore enables GPU-side chaining; fence ensures CPU can read feedback.
-	VkCommandBuffer cmds[2] = { countCommandBuffer, computeCommandBuffer };
+	// 5. End and submit transfers AFTER all cmd buffers are recorded.
+	endAndSubmitTransfers();
+	bool hasPendingTransfers = transferHasPendingWork;
 
+	// 6. Submit count+compute via vkQueueSubmit2 (matches vkrender.cc renderQueue.submit2()).
 	currentTimelineValue++;
 	computeTimelineValue = currentTimelineValue;
 
-	VkTimelineSemaphoreSubmitInfo timelineInfo = {};
-	timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-	uint64_t signalValues[] = { computeTimelineValue };
-	timelineInfo.signalSemaphoreValueCount = 1;
-	timelineInfo.pSignalSemaphoreValues = signalValues;
+	VkCommandBufferSubmitInfo cmdBufInfos[2] = {};
+	cmdBufInfos[0].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+	cmdBufInfos[0].commandBuffer = countCommandBuffer;
+	cmdBufInfos[1].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+	cmdBufInfos[1].commandBuffer = computeCommandBuffer;
 
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.pNext = &timelineInfo;
-	submitInfo.commandBufferCount = 2;
-	submitInfo.pCommandBuffers = cmds;
-	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = &timelineSemaphore;
+	VkSemaphoreSubmitInfo waitSemInfo = {};
+	waitSemInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	waitSemInfo.semaphore = transferDoneSemaphore;
+	waitSemInfo.stageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	waitSemInfo.value = 0;
 
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, inComputeFence));
+	VkSemaphoreSubmitInfo signalSemInfo = {};
+	signalSemInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	signalSemInfo.semaphore = timelineSemaphore;
+	signalSemInfo.stageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	signalSemInfo.value = computeTimelineValue;
+
+	VkSubmitInfo2 submitInfo2 = {};
+	submitInfo2.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	if (hasPendingTransfers) {
+		submitInfo2.waitSemaphoreInfoCount = 1;
+		submitInfo2.pWaitSemaphoreInfos = &waitSemInfo;
+	}
+	submitInfo2.commandBufferInfoCount = 2;
+	submitInfo2.pCommandBufferInfos = cmdBufInfos;
+	submitInfo2.signalSemaphoreInfoCount = 1;
+	submitInfo2.pSignalSemaphoreInfos = &signalSemInfo;
+
+	VK_CHECK_RESULT(vkQueueSubmit2Fn(queue, 1, &submitInfo2, inComputeFence));
+}
+
+// Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback.
+void HeadlessRenderer::readFeedback() {
 	VK_CHECK_RESULT(vkWaitForFences(device, 1, &inComputeFence, VK_TRUE, UINT64_MAX));
 
-	// Read feedback
+	VkMappedMemoryRange invalidateRange = {};
+	invalidateRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+	invalidateRange.memory = feedbackBufferMemory;
+	invalidateRange.offset = 0;
+	invalidateRange.size = VK_WHOLE_SIZE;
+	VK_CHECK_RESULT(vkInvalidateMappedMemoryRanges(device, 1, &invalidateRange));
+
 	fragments = feedbackMappedPtr[1];
 	uint32_t maxDepth = feedbackMappedPtr[0];
 
@@ -2112,7 +2232,6 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 		while (maxSize < maxDepth) maxSize *= 2;
 	}
 
-	// Grow fragment buffers if needed
 	if (fragments > maxFragments) {
 		VkDeviceSize newFragmentBufferSize = (VkDeviceSize)(fragments * 11 / 10) * sizeof(glm::vec4);
 		vkDestroyBuffer(device, fragmentBuffer, nullptr);
@@ -2126,7 +2245,6 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 		createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &depthFragBuffer, &depthFragBufferMemory, newFragmentBufferSize);
 
-		// Update descriptors
 		updateTransparencyDescriptors();
 
 		VkDescriptorBufferInfo fragmentBufferInfo = {};
@@ -2766,6 +2884,16 @@ void HeadlessRenderer::cleanup() {
 	currentTimelineValue = 0;
 	computeTimelineValue = 0;
 
+	if (transferDoneSemaphore != VK_NULL_HANDLE) {
+		vkDestroySemaphore(device, transferDoneSemaphore, nullptr);
+		transferDoneSemaphore = VK_NULL_HANDLE;
+	}
+	if (transferFence != VK_NULL_HANDLE) {
+		vkDestroyFence(device, transferFence, nullptr);
+		transferFence = VK_NULL_HANDLE;
+	}
+	computeTimelineValue = 0;
+
 	// Cleanup persistent VertexBuffer GPU buffers.
 	// CRITICAL: must nullify BOTH buffer AND memory handles after freeing.
 	// If memory handles are left dangling, uploadToPersistentBuffer() will
@@ -3174,24 +3302,34 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	bool isOpaque = !hasTransparency;
 
-	// For transparent scenes: run count+compute passes first.
+	// Upload vertex data for opaque scenes (matches vkrender.cc drawFrame):
+	//   beginTransferRecording() -> recordUploads(transferCommandBuffer) -> endAndSubmitTransfers()
+	// For transparent scenes, refreshBuffers() below handles uploads internally.
+	// For opaque scenes, uploads happen inside the single transfer cycle around
+	// graphics recording (matches vkrender.cc drawFrame pattern).
+
+	// For transparent scenes: run count+compute passes.
 	if (!isOpaque) {
 		elements = pixels;
 		refreshBuffers(materialData.indices.size(), lights.size());
+		readFeedback();  // Matches vkrender.cc: resizeFragmentBuffer() after refreshBuffers()
 	}
 
-	// Allocate a fresh command buffer for this frame (vkrender.cc pattern).
-	VkCommandBufferAllocateInfo cmdAllocInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer gfxCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdAllocInfo, &gfxCmd));
+	// Begin recording buffer transfers for the main render pass
+	// (matches vkrender.cc drawFrame: beginTransferRecording called AFTER preDrawBuffers)
+	beginTransferRecording();
+
+	// For opaque scenes: record uploads into the transfer command buffer
+	// (matches vkrender.cc: drawBuffer -> uploadPersistentBuffer during recording)
+	if (isOpaque) {
+		recordUploads(transferCommandBuffer);
+	}
+
+	// Reset and reuse persistent graphics command buffer (matches vkrender.cc drawFrame).
+	VK_CHECK_RESULT(vkResetCommandBuffer(commandBuffer, 0));
 
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
-	VK_CHECK_RESULT(vkBeginCommandBuffer(gfxCmd, &cmdBufInfo));
-
-	// Upload vertex data ONCE into GPU buffers (matches vkrender.cc updateBuffers()).
-	// Recorded into a one-time transfer command buffer, submitted+waited before
-	// count/compute and graphics passes.  No redundant uploads in countCmd or gfxCmd.
-	uploadVertexData();
+	VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &cmdBufInfo));
 
 	VkDeviceSize offsets[1] = { 0 };
 
@@ -3219,7 +3357,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	renderPassBeginInfo.renderPass = isOpaque ? opaqueRenderPass : graphicsRenderPass;
 	renderPassBeginInfo.framebuffer = isOpaque ? opaqueFramebuffer : graphicsFramebuffer;
 
-	vkCmdBeginRenderPass(gfxCmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	// Push constants for all draw calls: uvec4 constants + vec4 background (32 bytes).
 	VkDeviceSize pushSize = sizeof(glm::uvec4) + sizeof(glm::vec4);
@@ -3231,7 +3369,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	glm::vec4 background = m_BackgroundColor;
 	memcpy(pushData + sizeof(glm::uvec4), &background, sizeof(glm::vec4));
 
-	vkCmdBindDescriptorSets(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
 
 	// === SUBPASS 0: ALL geometry ===
 	// Matches vkrender.cc drawBuffers(): getPipelineType() selects opaque or transparent pipeline.
@@ -3242,104 +3380,113 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	// materialData (MaterialVertex format)
 	if (!materialData.indices.empty() && materialVertexBuffer != VK_NULL_HANDLE) {
-		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, matPipeline);
-		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &materialVertexBuffer, offsets);
-		vkCmdBindIndexBuffer(gfxCmd, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, matPipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &materialVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
 	}
 
 	// colorData (ColorVertex format) -- matches vkrender.cc drawColors()
 	if (!colorData.indices.empty() && colorVertexBuffer != VK_NULL_HANDLE) {
-		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, colPipeline);
-		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &colorVertexBuffer, offsets);
-		vkCmdBindIndexBuffer(gfxCmd, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colPipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &colorVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
 	}
 
 	// lineData (LINE_LIST topology, MaterialVertex format) -- matches vkrender.cc drawLines()
 	if (!lineData.indices.empty() && lineVertexBuffer != VK_NULL_HANDLE) {
-		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lnPipeline);
-		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &lineVertexBuffer, offsets);
-		vkCmdBindIndexBuffer(gfxCmd, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lnPipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &lineVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
 	}
 
 	// triangleData (ColorVertex+GENERAL format) -- always uses transparent pipeline since it needs GENERAL path
 	// Matches vkrender.cc: drawTriangles() uses getPipelineType(trianglePipelines)
 	if (!triangleData.indices.empty() && triangleVertexBuffer != VK_NULL_HANDLE) {
-		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleTransparentPipeline);
-		vkCmdBindVertexBuffers(gfxCmd, 0, 1, &triangleVertexBuffer, offsets);
-		vkCmdBindIndexBuffer(gfxCmd, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-		vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleTransparentPipeline);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &triangleVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
 	}
 
 	// === If transparent: subpass 1 (transparentData) + subpass 2 (blend quad) ===
 	if (!isOpaque) {
-		vkCmdNextSubpass(gfxCmd, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
 		if (!transparentData.indices.empty() && transparentVertexBuffer != VK_NULL_HANDLE) {
-			vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline);
-			vkCmdBindVertexBuffers(gfxCmd, 0, 1, &transparentVertexBuffer, offsets);
-			vkCmdBindIndexBuffer(gfxCmd, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-			vkCmdDrawIndexed(gfxCmd, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline);
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &transparentVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(commandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+			vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
 		}
 
-		vkCmdNextSubpass(gfxCmd, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-		vkCmdBindPipeline(gfxCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blendPipeline);
-		vkCmdPushConstants(gfxCmd, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, blendPipeline);
+		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
 		delete[] pushData;
 
-		vkCmdDraw(gfxCmd, 3, 1, 0, 0);
+		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 	} else {
 		delete[] pushData;
 	}
 
-	vkCmdEndRenderPass(gfxCmd);
-	VK_CHECK_RESULT(vkEndCommandBuffer(gfxCmd));
+	vkCmdEndRenderPass(commandBuffer);
+	VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer));
 
-	// Submit graphics with timeline semaphore synchronization (matches vkrender.cc).
-	// For transparent scenes: wait on compute timeline value so GPU knows count/compute
-	// finished before reading storage buffers.  Signal new timeline value for next frame.
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &gfxCmd;
+	// End and submit any pending buffer transfers before the main render pass
+	// (matches vkrender.cc drawFrame: endAndSubmitTransfers called after recording)
+	bool hasPendingTransfers = transferHasPendingWork;
+	endAndSubmitTransfers();
 
-	if (!isOpaque) {
-		// Wait on the compute timeline value (GPU-side dependency).
-		uint64_t waitValue = computeTimelineValue;
-		VkTimelineSemaphoreSubmitInfo timelineInfo = {};
-		timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-		timelineInfo.waitSemaphoreValueCount = 1;
-		timelineInfo.pWaitSemaphoreValues = &waitValue;
+	// Matches vkrender.cc drawFrame() graphics submit exactly:
+	// Uses vkQueueSubmit with VkTimelineSemaphoreSubmitInfo via pNext.
+	// Wait on transferDoneSemaphore if pending, signal timeline.
+	// (vkrender.cc does NOT wait on timelineSemaphore from count/compute for transparent
+	//  scenes - it relies on CPU-side fence wait via resizeFragmentBuffer/readFeedback)
 
-		currentTimelineValue++;
-		uint64_t signalValue = currentTimelineValue;
-		timelineInfo.signalSemaphoreValueCount = 1;
-		timelineInfo.pSignalSemaphoreValues = &signalValue;
+	VkCommandBuffer cmdBuffers[1] = { commandBuffer };
+	std::vector<VkSemaphore> waitSems;
+	std::vector<VkPipelineStageFlags> waitStages;
+	std::vector<uint64_t> waitValues;
 
-		submitInfo.pNext = &timelineInfo;
-		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &timelineSemaphore;
-		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-		submitInfo.pWaitDstStageMask = &waitStage;
-		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &timelineSemaphore;
+	if (hasPendingTransfers) {
+		waitSems.push_back(transferDoneSemaphore);
+		waitStages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+		waitValues.push_back(0);  // binary semaphore, value ignored
 	}
 
-	VkFenceCreateInfo fenceInfo = vks::initializers::fenceCreateInfo();
-	VkFence fence;
-	VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, fence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
-	vkDestroyFence(device, fence, nullptr);
-	vkFreeCommandBuffers(device, commandPool, 1, &gfxCmd);
+	currentTimelineValue++;
+
+	std::vector<VkSemaphore> signalSems = { timelineSemaphore };
+	std::vector<uint64_t> signalValues = { currentTimelineValue };
+
+	VkTimelineSemaphoreSubmitInfo timelineInfo = {};
+	timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+	timelineInfo.waitSemaphoreValueCount = static_cast<uint32_t>(waitValues.size());
+	timelineInfo.pWaitSemaphoreValues = waitValues.data();
+	timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
+	timelineInfo.pSignalSemaphoreValues = signalValues.data();
+
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.pNext = &timelineInfo;
+	submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSems.size());
+	submitInfo.pWaitSemaphores = waitSems.data();
+	submitInfo.pWaitDstStageMask = waitStages.data();
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = cmdBuffers;
+	submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
+	submitInfo.pSignalSemaphores = signalSems.data();
+
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, nullptr));
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 

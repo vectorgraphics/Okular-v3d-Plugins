@@ -92,6 +92,7 @@ public:
 	VkInstance instance{ VK_NULL_HANDLE };
 	VkPhysicalDevice physicalDevice{ VK_NULL_HANDLE };
 	VkDevice device{ VK_NULL_HANDLE };
+	PFN_vkQueueSubmit2 vkQueueSubmit2Fn{ nullptr };  // Loaded dynamically (matches vkrender.cc dispatch)
 	uint32_t maxComputeWorkGroupCountX{ 65535 };
 	uint32_t maxFramebufferWidth{ 16384 };
 	uint32_t maxFramebufferHeight{ 16384 };
@@ -307,6 +308,13 @@ public:
 	uint64_t currentTimelineValue{ 0 };
 	uint64_t computeTimelineValue{ 0 };
 
+	// Binary semaphore for vertex upload synchronization (matches vkrender.cc transferDoneSemaphore).
+	// Signals when transfer command buffer completes; count/compute submit waits on it.
+	VkSemaphore transferDoneSemaphore{ VK_NULL_HANDLE };
+	VkCommandBuffer transferCommandBuffer{ VK_NULL_HANDLE };
+	VkFence transferFence{ VK_NULL_HANDLE };  // Tracks transfer completion for safe reset (matches vkrender.cc transferFence)
+	bool transferHasPendingWork{ false };
+
 	// Persistent count+compute command buffers (matches vkrender.cc pattern:
 	// allocated once, reset and re-recorded each frame in refreshBuffers).
 	VkCommandBuffer countCommandBuffer{ VK_NULL_HANDLE };
@@ -347,8 +355,14 @@ private:
 	                              const void* data, VkDeviceSize dataSize, bool isVertex);
 	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
 	void recordComputeCommandBuffer();
-	void uploadVertexData();
+	// Transfer recording split (matches vkrender.cc pattern):
+	// beginTransferRecording -> recordUploads(cmd) -> endAndSubmitTransfers
+	void beginTransferRecording();
+	void recordUploads(VkCommandBuffer cmd);
+	void endAndSubmitTransfers();
+	void uploadVertexData();  // Thin wrapper: calls all three above
 	void refreshBuffers(size_t indexCount, size_t lightCount);
+	void readFeedback();  // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 
 	void createHostReadableDestinationImage(glm::ivec2 size);
