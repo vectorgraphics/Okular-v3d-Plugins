@@ -301,6 +301,20 @@ public:
 	uint32_t maxFragments{ 0 };
 	uint32_t maxSize{ 1 };
 
+	// Timeline semaphore synchronization (matches vkrender.cc renderTimelineSemaphore).
+	// Enables GPU-side chaining between count/compute and graphics submissions.
+	VkSemaphore timelineSemaphore{ VK_NULL_HANDLE };
+	uint64_t currentTimelineValue{ 0 };
+	uint64_t computeTimelineValue{ 0 };
+
+	// Persistent count+compute command buffers (matches vkrender.cc pattern:
+	// allocated once, reset and re-recorded each frame in refreshBuffers).
+	VkCommandBuffer countCommandBuffer{ VK_NULL_HANDLE };
+	VkCommandBuffer computeCommandBuffer{ VK_NULL_HANDLE };
+
+	// Compute fence created in signaled state (matches vkrender.cc inComputeFence).
+	VkFence inComputeFence{ VK_NULL_HANDLE };
+
 	std::string shaderPath;
 	float queuePriority{ 0.5f };
 
@@ -331,8 +345,8 @@ private:
 	void uploadToPersistentBuffer(VkCommandBuffer cmd, VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
 	                              VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
 	                              const void* data, VkDeviceSize dataSize, bool isVertex);
-	VkCommandBuffer recordCountCommandBuffer(size_t indexCount, size_t lightCount);
-	VkCommandBuffer recordComputeCommandBuffer();
+	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
+	void recordComputeCommandBuffer();
 	void refreshBuffers(size_t indexCount, size_t lightCount);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 
@@ -341,6 +355,7 @@ private:
 
 	// Transparency pipeline creation
 	void createTransparencyBuffers(int width, int height);
+	VkSemaphore createTimelineSemaphore(uint64_t initialValue);
 	void zeroTransparencyBuffers();
 	VkShaderModule createComputeShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void updateTransparencyDescriptors();
