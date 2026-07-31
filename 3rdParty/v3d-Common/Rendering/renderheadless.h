@@ -24,6 +24,33 @@
 #include "V3dModel.h"
 #include "Public/ShaderLang.h"
 
+// Vertex input trait specializations: map a vertex struct type to its
+// Vulkan binding/attribute description free functions.  Matches vkrender.cc.
+template<typename V> struct VertexInputTraits;
+
+template<> struct VertexInputTraits<MaterialVertex> {
+    static VkVertexInputBindingDescription binding();
+    static std::vector<VkVertexInputAttributeDescription> attributes(bool count);
+};
+
+template<> struct VertexInputTraits<ColorVertex> {
+    static VkVertexInputBindingDescription binding();
+    static std::vector<VkVertexInputAttributeDescription> attributes(bool count);
+};
+
+// Pipeline configuration for createGraphicsPipeline<V>().  Matches vkrender.cc
+// PipelineConfig -- one config per pipeline, no boilerplate duplication.
+struct PipelineConfig {
+	VkPrimitiveTopology topology;
+	VkPolygonMode polygonMode;
+	std::vector<std::string> shaderOptions;
+	VkRenderPass renderPass;
+	int subpass;
+	bool enableDepthWrite;
+	std::string vertexShaderName;  // e.g., "vertex" or "screen"
+	std::string fragmentShaderName; // e.g., "fragment", "count", "blend"
+};
+
 #define BUFFER_ELEMENTS 32
 
 static inline bool v3dDebugEnabled() {
@@ -76,12 +103,9 @@ public:
 	VkPipelineLayout graphicsPipelineLayout{ VK_NULL_HANDLE };  // Single shared layout for ALL graphics pipelines (matches vkrender.cc)
 	VkPipeline materialPipeline{ VK_NULL_HANDLE };  // Opaque pipeline: MaterialVertex, no GENERAL/COLOR
 	VkPipeline colorPipeline{ VK_NULL_HANDLE };     // Opaque pipeline: ColorVertex, with GENERAL+COLOR
-	std::vector<VkShaderModule> materialShaderModules;
-	std::vector<VkShaderModule> colorShaderModules;
 
 	// Line pipeline: LINE_LIST topology for lineData (BezierCurve edges, V3dLineSegment)
 	VkPipeline linePipeline{ VK_NULL_HANDLE };
-	std::vector<VkShaderModule> lineShaderModules;
 
 	// Persistent GPU buffers per VertexBuffer type, following vkrender.cc FrameBufferPair pattern.
 	// Each pair (vertex+index) is allocated once and grows as needed; data is uploaded
@@ -108,7 +132,7 @@ public:
 	VkDeviceMemory materialIndexStagingMemory{ VK_NULL_HANDLE };
 	VkDeviceSize materialIndexStgSize{ 0 };
 
-	// Color vertex buffers (vkrender.cc: colorBuffers — separate from materialBuffers)
+	// Color vertex buffers (vkrender.cc: colorBuffers -- separate from materialBuffers)
 	VkBuffer colorVertexBuffer{ VK_NULL_HANDLE };
 	VkDeviceMemory colorVertexMemory{ VK_NULL_HANDLE };
 	VkDeviceSize colorVertexBufferSize{ 0 };
@@ -122,7 +146,7 @@ public:
 	VkDeviceMemory colorIndexStagingMemory{ VK_NULL_HANDLE };
 	VkDeviceSize colorIndexStgSize{ 0 };
 
-	// Transparent vertex buffers (vkrender.cc: transparentBuffers — ColorVertex format)
+	// Transparent vertex buffers (vkrender.cc: transparentBuffers -- ColorVertex format)
 	VkBuffer transparentVertexBuffer{ VK_NULL_HANDLE };
 	VkDeviceMemory transparentVertexMemory{ VK_NULL_HANDLE };
 	VkDeviceSize transparentVertexBufferSize{ 0 };
@@ -135,7 +159,7 @@ public:
 	VkBuffer transparentIndexStagingBuffer{ VK_NULL_HANDLE };
 	VkDeviceMemory transparentIndexStagingMemory{ VK_NULL_HANDLE };
 	VkDeviceSize transparentIndexStgSize{ 0 };
-	// Triangle vertex buffers (vkrender.cc: triangleBuffers — ColorVertex format, GENERAL path)
+	// Triangle vertex buffers (vkrender.cc: triangleBuffers -- ColorVertex format, GENERAL path)
 	VkBuffer triangleVertexBuffer{ VK_NULL_HANDLE };
 	VkDeviceMemory triangleVertexMemory{ VK_NULL_HANDLE };
 	VkDeviceSize triangleVertexBufferSize{ 0 };
@@ -240,14 +264,12 @@ public:
 	VkPipeline colorCountPipeline{ VK_NULL_HANDLE };
 	VkPipeline triangleCountPipeline{ VK_NULL_HANDLE };    // ColorVertex+GENERAL, countRenderPass subpass 0 (for triangleData count)
 	VkPipeline transparentCountPipeline{ VK_NULL_HANDLE };  // ColorVertex, countRenderPass subpass 1 (for transparentData count)
-	std::vector<VkShaderModule> countShaderModules;
 
 	VkPipeline materialTransparentPipeline{ VK_NULL_HANDLE };  // MaterialVertex, TRIANGLE_LIST, graphicsRenderPass subpass 0
 	VkPipeline colorTransparentPipeline{ VK_NULL_HANDLE };     // ColorVertex, TRIANGLE_LIST, graphicsRenderPass subpass 0
 	VkPipeline triangleTransparentPipeline{ VK_NULL_HANDLE };  // ColorVertex+GENERAL, TRIANGLE_LIST, graphicsRenderPass subpass 0 (for triangleData)
 	VkPipeline lineTransparentPipeline{ VK_NULL_HANDLE };      // MaterialVertex, LINE_LIST, graphicsRenderPass subpass 0 (for lineData)
 	VkPipeline transparentPipeline{ VK_NULL_HANDLE };          // ColorVertex, graphicsRenderPass subpass 1 (transparentData)
-	std::vector<VkShaderModule> transparentShaderModules;
 
 	VkPipeline blendPipeline{ VK_NULL_HANDLE };
 	std::vector<VkShaderModule> blendShaderModules;
@@ -309,7 +331,6 @@ private:
 	void uploadToPersistentBuffer(VkCommandBuffer cmd, VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
 	                              VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
 	                              const void* data, VkDeviceSize dataSize, bool isVertex);
-	void recordCommandBuffer(int targetWidth, int targetHeight, size_t lightCount);
 	VkCommandBuffer recordCountCommandBuffer(size_t indexCount, size_t lightCount);
 	VkCommandBuffer recordComputeCommandBuffer();
 	void refreshBuffers(size_t indexCount, size_t lightCount);
@@ -342,6 +363,14 @@ private:
 	void createTransparentPipeline(int targetWidth, int targetHeight);
 	void createBlendPipeline(int targetWidth, int targetHeight);
 
+	// Templated pipeline creation: assembles all state from helpers + VertexInputTraits<V>,
+	// compiles shaders with the given options, and creates the pipeline.
+	// Matches vkrender.cc createGraphicsPipeline<V>() pattern.
+	template<typename V>
+	void createGraphicsPipeline(const PipelineConfig& config,
+	                           int targetWidth, int targetHeight,
+	                           VkPipeline* out);
+
 	// IBL (Image-Based Lighting)
 	VkResult createIBLImage(const std::vector<float>& data, uint32_t width, uint32_t height,
 	                        VkImage& image, VkDeviceMemory& memory,
@@ -360,10 +389,10 @@ private:
 
 public:
 	unsigned char* render(
-		glm::ivec2 targetSize, 
-		VkSubresourceLayout* imageSubresourceLayout, 
-		const glm::dmat4& view, 
-		const glm::dmat4& proj, 
+		glm::ivec2 targetSize,
+		VkSubresourceLayout* imageSubresourceLayout,
+		const glm::dmat4& view,
+		const glm::dmat4& proj,
 		const glm::dmat3& normMat,
 		const std::vector<V3dMaterial>& materials,
 		const std::vector<V3dHeaderInfo::Light>& lights,
@@ -378,7 +407,7 @@ public:
 	uint32_t getMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties);
 
 	VkResult createBuffer(VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlags, VkBuffer *buffer, VkDeviceMemory *memory, VkDeviceSize size, void *data = nullptr);
-    
+
     // Submit command buffer to a queue and wait for fence until queue operations have been finished
 	void submitWork(VkCommandBuffer cmdBuffer, VkQueue queue);
 
