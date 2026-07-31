@@ -1857,7 +1857,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		}
 
 		// Also count colorData vertices (vkrender.cc: drawBuffer for colorBuffers in count pass)
-		if (!colorData.indices.empty()) {
+		if (!colorData.indices.empty() && colorVertexBuffer != VK_NULL_HANDLE && colorIndexBuffer != VK_NULL_HANDLE) {
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorCountPipeline);
 			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &colorVertexBuffer, offsets);
@@ -1867,7 +1867,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		}
 
 		// Also count lineData vertices (vkrender.cc: drawBuffer for lineBuffers in count pass)
-		if (!lineData.indices.empty()) {
+		if (!lineData.indices.empty() && lineVertexBuffer != VK_NULL_HANDLE && lineIndexBuffer != VK_NULL_HANDLE) {
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
 			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &lineVertexBuffer, offsets);
@@ -1877,7 +1877,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		}
 
 		// Also count triangleData vertices (vkrender.cc: drawBuffer for triangleBuffers in count pass)
-		if (!triangleData.indices.empty()) {
+		if (!triangleData.indices.empty() && triangleVertexBuffer != VK_NULL_HANDLE && triangleIndexBuffer != VK_NULL_HANDLE) {
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleCountPipeline);
 			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &triangleVertexBuffer, offsets);
@@ -1890,7 +1890,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	// Advance to subpass 1 for transparentData counting (vkrender.cc: nextSubpass + drawTransparent)
 	vkCmdNextSubpass(countCommandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-	if (!transparentData.indices.empty()) {
+	if (!transparentData.indices.empty() && transparentVertexBuffer != VK_NULL_HANDLE && transparentIndexBuffer != VK_NULL_HANDLE) {
 		VkDeviceSize offsets[1] = { 0 };
 		vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
 		vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &transparentVertexBuffer, offsets);
