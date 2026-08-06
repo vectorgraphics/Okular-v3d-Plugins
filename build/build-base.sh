@@ -50,8 +50,7 @@ buildFunc() {
     fi
 
     if [[ $release -eq 0 ]] && [[ $debug -eq 0 ]]; then
-        echo "No build type selected, please specify either --debug, --release or both."
-        exit 1
+        release=1
     fi
 
     if [[ $debug -eq 1 ]]; then
