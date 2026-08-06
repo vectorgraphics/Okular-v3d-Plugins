@@ -29,7 +29,7 @@ for d in build/*/ ; do
     cp $d/build/release/bin/okular_generators/okularGenerator_poppler.so ./${releaseDir}
     cp $d/build/release/bin/libv3dCommon.so ./${releaseDir}
 
-    cp ./3rdParty/asymptote/base/shaders/*.glsl ./${releaseDir}
+    cp ./asymptote/base/shaders/*.glsl ./${releaseDir}
 
     cd releases/${version}/
 

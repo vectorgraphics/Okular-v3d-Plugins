@@ -47,8 +47,7 @@ testFunc() {
     done
 
     if [[ $release -eq 0 ]] && [[ $debug -eq 0 ]]; then
-        echo "No build type selected, please specify either --debug, --release or both. See --help for more information"
-        exit 1
+        release=1
     fi
 
     if [[ $clean -eq 1 ]] || [[ $cleanOnly -eq 1 ]]; then
@@ -67,6 +66,7 @@ testFunc() {
         distrobox enter ${distroboxName} -nw -T -e $1
     fi
 
+    # TODO combine common elements of debug and release
     if [[ $debug -eq 1 ]]; then
         rm -f ./home/okularGenerator_v3d.so
         rm -f ./home/okularGenerator_poppler.so
@@ -78,7 +78,11 @@ testFunc() {
 
         sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-        cp ../../3rdParty/asymptote/base/shaders/*.glsl ./home/
+        sudo cp ../../build/${okularVersion}/build/debug/bin/libv3dCommon.so ./home/
+
+        cp ../../asymptote/base/shaders/*.glsl ./home/
+
+        cp ../../asymptote/base/shaders/*.glsl ./home/
 
         cp -r ../../base-release/* ./home/
 
@@ -99,11 +103,13 @@ testFunc() {
         rm -f ./home/vertex.glsl
         rm -f ./home/fragment.glsl
 
-        sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_v3d.so ./home/
+        sudo cp ../../build/${okularVersion}/build/release/bin/okular_generators/okularGenerator_v3d.so ./home/
 
-        sudo cp ../../build/${okularVersion}/build/debug/bin/okular_generators/okularGenerator_poppler.so ./home/
+        sudo cp ../../build/${okularVersion}/build/release/bin/okular_generators/okularGenerator_poppler.so ./home/
 
-        cp ../../3rdParty/asymptote/base/shaders/*.glsl ./home/
+        sudo cp ../../build/${okularVersion}/build/release/bin/libv3dCommon.so ./home/
+
+        cp ../../asymptote/base/shaders/*.glsl ./home/
 
         cp -r ../../base-release/* ./home/
 

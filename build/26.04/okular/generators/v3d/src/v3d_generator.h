@@ -10,7 +10,7 @@
 
 #include <core/generator.h>
 
-#include "../../../../../3rdParty/v3d-Common/V3dModelManager.h"
+#include "../../../../../v3d-Common/V3dModelManager.h"
 
 class V3dGenerator : public Okular::Generator {
     Q_OBJECT

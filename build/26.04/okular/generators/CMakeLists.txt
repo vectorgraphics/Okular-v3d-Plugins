@@ -11,7 +11,7 @@ endfunction()
 
 # Build v3dCommon shared library first so both generators can link against it.
 set(V3D_OKULAR_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../core")
-add_subdirectory(../../../../3rdParty/v3d-Common v3dCommon)
+add_subdirectory(../../../../v3d-Common v3dCommon)
 
 # let's enable the generators properly configured
 

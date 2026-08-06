@@ -9,7 +9,7 @@ include_directories(
    ${CMAKE_CURRENT_SOURCE_DIR}/../..
 
    # v3d includes (v3dCommon provides most via PUBLIC; keep gzip-hpp here)
-   "../../../../../3rdParty/gzip-hpp/include"
+   "../../../../../gzip-hpp/include"
 )
 
 ########### next target ###############
