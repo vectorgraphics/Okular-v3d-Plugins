@@ -20,32 +20,16 @@ Adds support for opening pdf files with v3d files embedded inside, currently rot
 ## Building
 In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
 
-In order to build the plugins for all supported versions of Okular, navigate to `/build/` and execute `./build-all.sh`.
+For convenience here is the full list of packages needed to build the plugins on Fedora:
 
-If you want to build all versions of the plugin at once you need to have access to qt packages with version 6.6. An easy way to do this is to either use a fedora40 distrobox or a fedora40 VM where you downgrade all the qt6 packages to 6.6, ie `sudo dnf downgrade qt6-qt*` works on fedora40. If you just want to build the most recent version of the plugin then any modern distro should be fine.
-
-This command can be used to create a distrobox based on the latest version of fedora with all of the needed packages to build to plugins.
-
-`distrobox create --name fedoraLatest --init --image fedora:latest --additional-packages "cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel"`
+`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel`
 
 ## Creating Releases
 First, install the github cli (`gh`) on your system and authorise with `gh auth login`.
 
 Then build all the plugins in release mode.
 
-And finally run `create-releases.sh` to automatically create, and upload releases for all currently supported versions of Okular.
-
-## Testing
-After you've built the plugin, you can begin testing. Testing is mostly automated, except for the final step of testing interaction, which should be very brief if everything works as expected.
-
-Testing is done inside of distroboxes which allow for testing on many different linux distributions.
-
-In order to test the plugin for one specific distribution, navigate to `testing/<desired linux distro>/` and run `./test.sh`. If you want to run a clean test on a brand new distrobox then add then use the option `--clean` to first delete the old distrobox and then make a new one.
-
-If you want to instead test all supported operating systems then navigate to `testing/` and execute `./test-all.sh` again including the optional `--clean` argument.
-
-You will need to give root permissions to the script as it executes to allow it to install the plugin into the distrobox, and to copy the built plugin into the home folder of the distrobox.
-
+And finally run `create-releases.sh` to automatically create releases and use `push-releases.sh` to upload them to github.
 
 ## Building plugins for a new version of Okular
 For this example we will be building plugins for Okular version 25.04
@@ -270,13 +254,6 @@ add_compile_definitions(HAVE_LIBTIRPC HAVE_LIBGLM)
 ```
 
 Finally, navigate back to the build script you cloned earlier (located in `build/version/`) and run it to build the plugin.
-
-## Adding testing for a new linux distrobution
-First, create a new folder for the distro in the testing folder ie: `testing/distro/`
-
-Copy in the `test.sh` script from another testing environment into the new one, and at minimum Update the variables located at the top of the file: `okularVersion`, `distro`, and `distroboxImage`.
-
-Finally run the test script.
 
 ## TODO
 * Add passing files to test scripts
