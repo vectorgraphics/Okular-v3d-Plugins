@@ -196,15 +196,18 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                         headerInfo.viewportMargin.y = readReal(xdrFile, doublePrecisionFlag); 
                         break;
 
-                    case LIGHT:
-                        headerInfo.light.direction.x = readReal(xdrFile, doublePrecisionFlag);
-                        headerInfo.light.direction.y = readReal(xdrFile, doublePrecisionFlag); 
-                        headerInfo.light.direction.z = readReal(xdrFile, doublePrecisionFlag);
+                    case LIGHT: {
+                        V3dHeaderInfo::Light l{};
+                        l.direction.x = readReal(xdrFile, doublePrecisionFlag);
+                        l.direction.y = readReal(xdrFile, doublePrecisionFlag); 
+                        l.direction.z = readReal(xdrFile, doublePrecisionFlag);
 
-                        xdrFile >> headerInfo.light.color.r;
-                        xdrFile >> headerInfo.light.color.g;       
-                        xdrFile >> headerInfo.light.color.b;              
-                        break;       
+                        xdrFile >> l.color.r;
+                        xdrFile >> l.color.g;       
+                        xdrFile >> l.color.b;
+                        headerInfo.lights.push_back(l);
+                        break;
+                    }       
 
                     case BACKGROUND:
                         xdrFile >> headerInfo.background.r;

@@ -3196,9 +3196,14 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 		createMaterialBuffer(mats);
 
-		std::vector<GPULight> gpuLights(1);
-		gpuLights[0].direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
-		gpuLights[0].color = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
+		std::vector<GPULight> gpuLights;
+		gpuLights.reserve(lights.size());
+		for (const auto& l : lights) {
+			GPULight gpuLight{};
+			gpuLight.direction = glm::vec4{ l.direction.x, l.direction.y, l.direction.z, 0.0f };
+			gpuLight.color = glm::vec4{ l.color.r, l.color.g, l.color.b, 1.0f };
+			gpuLights.push_back(gpuLight);
+		}
 
 		createLightBuffer(gpuLights);
 

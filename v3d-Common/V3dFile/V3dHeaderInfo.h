@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "V3dTypes.h"
 
@@ -44,7 +45,7 @@ public:
     REAL initialZoom = 1.0f;
     PAIR viewportShift = { 0.0f, 0.0f};
     PAIR viewportMargin = { 0.0f, 0.0f };
-    Light light = { { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } };
+    std::vector<Light> lights;
     RGBA background = { 1.0f, 1.0f, 1.0f, 1.0f };
     REAL zoomFactor = 1.0f;
     REAL zoomPinchFactor = 1.0f;

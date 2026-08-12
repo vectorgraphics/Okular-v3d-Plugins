@@ -318,7 +318,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].projMat,
         m_Models[pageNumber][modelIndex].normMat,
         m_Models[pageNumber][modelIndex].file->materials,
-        std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
+        m_Models[pageNumber][modelIndex].file->headerInfo.lights,
         pipelineMode,
         bgColor,
         m_Models[pageNumber][modelIndex].file->headerInfo.orthographic,

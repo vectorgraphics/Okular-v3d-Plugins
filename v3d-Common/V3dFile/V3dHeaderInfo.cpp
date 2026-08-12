@@ -13,9 +13,11 @@ void V3dHeaderInfo::print() {
     std::cout << "initialZoom: " << initialZoom << std::endl;
     std::cout << "viewportShift: (" << viewportShift.x << ", " << viewportShift.y << ")" << std::endl;
     std::cout << "viewportMargin: (" << viewportMargin.x << ", " << viewportMargin.y << ")" << std::endl;
-    std::cout << "Light: " << std::endl;
-    std::cout << "  direction: (" << light.direction.x << ", " << light.direction.y << ", " << light.direction.z << ")" << std::endl;
-    std::cout << "  color: (" << light.color.x << ", " << light.color.y << ", " << light.color.z << ")" << std::endl;
+    std::cout << "Lights (" << lights.size() << "):" << std::endl;
+    for (size_t i = 0; i < lights.size(); ++i) {
+        std::cout << "  [" << i << "] direction: (" << lights[i].direction.x << ", " << lights[i].direction.y << ", " << lights[i].direction.z << ")" << std::endl;
+        std::cout << "       color: (" << lights[i].color.x << ", " << lights[i].color.y << ", " << lights[i].color.z << ")" << std::endl;
+    }
 
     std::cout << "background: (" << background.x << ", " << background.y << ", " << background.z << ", " << background.w << ")" << std::endl;
     std::cout << "zoomFactor: " << zoomFactor << std::endl;
