@@ -573,8 +573,13 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
                 transparentData.indices.push_back(base + 3);
             }
 
-            vertexData.colorVertices = transparentData.colorVertices;
-            // Local indices for fast path (extendColor offsets them into global buffer).
+            // vertexData stores only this object's data for the fast path.
+            vertexData.colorVertices.clear();
+            vertexData.indices.clear();
+            vertexData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+            vertexData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+            vertexData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+            vertexData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
             if (!t0Off) {
                 vertexData.indices.push_back(0);
                 vertexData.indices.push_back(1);
@@ -604,8 +609,13 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
                 materialData.indices.push_back(base + 3);
             }
 
-            vertexData.materialVertices = materialData.materialVertices;
-            // Local indices for fast path (extendMaterial offsets them into global buffer).
+            // vertexData stores only this object's data for the fast path.
+            vertexData.materialVertices.clear();
+            vertexData.indices.clear();
+            vertexData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
+            vertexData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
+            vertexData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+            vertexData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
             if (!t0Off) {
                 vertexData.indices.push_back(0);
                 vertexData.indices.push_back(1);
@@ -755,16 +765,12 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
         if (transparent) {
             transparentData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
             transparentData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            transparentData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-
-            if (fullyOnscreen) {
-                transparentData.indices.push_back(transparentData.colorVertices.size() - 3);
-                transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-                transparentData.indices.push_back(transparentData.colorVertices.size() - 1);
-            }
-
-            vertexData.colorVertices = transparentData.colorVertices;
-            // Local indices for fast path (extendColor offsets them into global buffer).
+            // vertexData stores only this object's data for the fast path.
+            vertexData.colorVertices.clear();
+            vertexData.indices.clear();
+            vertexData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
+            vertexData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
+            vertexData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
             if (fullyOnscreen) {
                 vertexData.indices.push_back(0);
                 vertexData.indices.push_back(1);
@@ -781,8 +787,12 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
                 materialData.indices.push_back(materialData.materialVertices.size() - 1);
             }
 
-            vertexData.materialVertices = materialData.materialVertices;
-            // Local indices for fast path (extendMaterial offsets them into global buffer).
+            // vertexData stores only this object's data for the fast path.
+            vertexData.materialVertices.clear();
+            vertexData.indices.clear();
+            vertexData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
+            vertexData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
+            vertexData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
             if (fullyOnscreen) {
                 vertexData.indices.push_back(0);
                 vertexData.indices.push_back(1);
@@ -927,8 +937,13 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
         target.indices.push_back(base + 3);
     }
 
-    vertexData.colorVertices = target.colorVertices;
-    // Local indices for fast path (extendColor offsets them into global buffer).
+    // vertexData stores only this object's data for the fast path.
+    vertexData.colorVertices.clear();
+    vertexData.indices.clear();
+    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
+    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
+    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
+    vertexData.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
     if (!t0Off) {
         vertexData.indices.push_back(0);
         vertexData.indices.push_back(1);
@@ -1058,8 +1073,12 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
         target.indices.push_back(target.colorVertices.size() - 1);
     }
 
-    vertexData.colorVertices = target.colorVertices;
-    // Local indices for fast path (extendColor offsets them into global buffer).
+    // vertexData stores only this object's data for the fast path.
+    vertexData.colorVertices.clear();
+    vertexData.indices.clear();
+    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
+    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
+    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
     if (fullyOnscreen) {
         vertexData.indices.push_back(0);
         vertexData.indices.push_back(1);
