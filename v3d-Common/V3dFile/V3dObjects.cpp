@@ -1366,6 +1366,113 @@ public:
     }
 };
 
+// ---------------------------------------------------------------------------
+// Sphere-octant helpers (from three_octant.asy / gl.ts).
+// The first-octant triangles are computed once and cached, exactly like
+// gl.ts's IIFE `const sphereOctant`.
+// ---------------------------------------------------------------------------
+
+static inline double dot3(const triple& a, const triple& b) {
+    return a.getx()*b.getx() + a.gety()*b.gety() + a.getz()*b.getz();
+}
+
+static inline double norm3(const triple& v) {
+    return std::sqrt(dot3(v, v));
+}
+
+static inline triple unit3(const triple& v) {
+    double n = norm3(v);
+    return triple(v.getx()/n, v.gety()/n, v.getz()/n);
+}
+
+// Midpoint of great-circle arc from P to Q.
+static inline triple gcMidPoint(triple P, triple Q) {
+    double scale = 1.0 / (std::sqrt(2.0) * std::sqrt(1.0 + dot3(P, Q)));
+    return triple((P.getx()+Q.getx())*scale,
+                  (P.gety()+Q.gety())*scale,
+                  (P.getz()+Q.getz())*scale);
+}
+
+// Optimal cubic Bezier edge control points for great-circle arc P → Q.
+static inline std::array<triple, 2> bezierEdge(triple P, triple Q) {
+    double x = dot3(P, Q);
+    double k = (4.0/3.0)*std::sqrt(1.0-x)/
+               (std::sqrt(2.0)+std::sqrt(1.0+x));
+    triple u = unit3(triple(Q.getx()-x*P.getx(),
+                            Q.gety()-x*P.gety(),
+                            Q.getz()-x*P.getz()));
+    triple v = unit3(triple(P.getx()-x*Q.getx(),
+                            P.gety()-x*Q.gety(),
+                            P.getz()-x*Q.getz()));
+    return {{
+        triple(P.getx()+k*u.getx(), P.gety()+k*u.gety(), P.getz()+k*u.getz()),
+        triple(Q.getx()+k*v.getx(), Q.gety()+k*v.gety(), Q.getz()+k*v.getz())
+    }};
+}
+
+// Build a single Bezier triangle (10 control points) for spherical triangle ABC.
+// Interior point tuned so the barycentric centroid lies on the unit sphere.
+static std::array<TRIPLE, 10> makeBezierTriangle(triple A, triple B, triple C) {
+    auto ab = bezierEdge(A, B);
+    auto bc = bezierEdge(B, C);
+    auto ca = bezierEdge(C, A);
+
+    triple S9 = triple(
+        A.getx()+B.getx()+C.getx() + 3.0*(ab[0].getx()+ab[1].getx()+bc[0].getx()+bc[1].getx()+ca[0].getx()+ca[1].getx()),
+        A.gety()+B.gety()+C.gety() + 3.0*(ab[0].gety()+ab[1].gety()+bc[0].gety()+bc[1].gety()+ca[0].gety()+ca[1].gety()),
+        A.getz()+B.getz()+C.getz() + 3.0*(ab[0].getz()+ab[1].getz()+bc[0].getz()+bc[1].getz()+ca[0].getz()+ca[1].getz())
+    );
+    triple dir = unit3(triple(A.getx()+B.getx()+C.getx(),
+                              A.gety()+B.gety()+C.gety(),
+                              A.getz()+B.getz()+C.getz()));
+    double dotSD = dot3(S9, dir);
+    double disc = 144.0*dotSD*dotSD - 144.0*(dot3(S9,S9) - 729.0);
+    if (disc < 0) disc = 0;
+    double R = (-12.0*dotSD + std::sqrt(disc)) / 72.0;
+    triple p9 = triple(R*dir.getx(), R*dir.gety(), R*dir.getz());
+
+    // Row-major: A, ab[0], ca[1], ab[1], p9, ca[0], B, bc[0], bc[1], C
+    return {{
+        TRIPLE(A.getx(),     A.gety(),     A.getz()),
+        TRIPLE(ab[0].getx(), ab[0].gety(), ab[0].getz()),
+        TRIPLE(ca[1].getx(), ca[1].gety(), ca[1].getz()),
+        TRIPLE(ab[1].getx(), ab[1].gety(), ab[1].getz()),
+        TRIPLE(p9.getx(),    p9.gety(),    p9.getz()),
+        TRIPLE(ca[0].getx(), ca[0].gety(), ca[0].getz()),
+        TRIPLE(B.getx(),     B.gety(),     B.getz()),
+        TRIPLE(bc[0].getx(), bc[0].gety(), bc[0].getz()),
+        TRIPLE(bc[1].getx(), bc[1].gety(), bc[1].getz()),
+        TRIPLE(C.getx(),     C.gety(),     C.getz())
+    }};
+}
+
+// Recursively subdivide spherical triangle ABC into 4^depth Bezier triangles.
+static void subdivideTriangle(triple A, triple B, triple C, int depth,
+                              std::vector<std::array<TRIPLE,10>>& result) {
+    if (depth == 0) {
+        result.push_back(makeBezierTriangle(A, B, C));
+        return;
+    }
+    triple midAB = gcMidPoint(A, B);
+    triple midBC = gcMidPoint(B, C);
+    triple midCA = gcMidPoint(C, A);
+
+    subdivideTriangle(A,     midAB, midCA, depth-1, result);
+    subdivideTriangle(B,     midBC, midAB, depth-1, result);
+    subdivideTriangle(C,     midCA, midBC, depth-1, result);
+    subdivideTriangle(midAB, midBC, midCA, depth-1, result);
+}
+
+// Cached first-octant triangles (depth=2 → 16 triangles).
+// Computed once at first use, matching gl.ts's IIFE `sphereOctant`.
+static const std::vector<std::array<TRIPLE,10>>& getSphereOctant() {
+    static std::vector<std::array<TRIPLE,10>> octant;
+    if (octant.empty()) {
+        subdivideTriangle(triple(1,0,0), triple(0,1,0), triple(0,0,1), 2, octant);
+    }
+    return octant;
+}
+
 V3dSphere::V3dSphere(
     xdr::ixstream& xdrFile, 
     V3D_BOOL doublePrecision)
@@ -1385,114 +1492,48 @@ void sphere(
     triple center,
     double r,
     triple* dir,
-    int imageWidth, 
-    int imageHeight, 
-    triple sceneMinBound, 
-    triple sceneMaxBound, 
-    bool remesh, 
+    int imageWidth,
+    int imageHeight,
+    triple sceneMinBound,
+    triple sceneMaxBound,
+    bool remesh,
     bool orthographic,
     DrawMode drawMode,
     UINT centerIndex,
     UINT materialIndex
 ) {
-    double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
-    double b = 0.524670512339254;
-    double c = 0.595936986722291;
-    double d = 0.954967051233925;
-    double e = 0.0820155480083437;
-    double f = 0.996685028842544;
-    double g = 0.0549670512339254;
-    double h = 0.998880711874577;
-    double i = 0.0405017186586849;
-
-    std::array<triple, 16> patchOctant = {
-        triple(1, 0, 0),
-        triple(1, 0, b),
-        triple(c, 0, d),
-        triple(e, 0, f),
-
-        triple(1, a, 0),
-        triple(1, a, b),
-        triple(c, a * c, d),
-        triple(e, a * e, f),
-
-        triple(a, 1, 0),
-        triple(a, 1, b),
-        triple(a * c, c, d),
-        triple(a * e, e, f),
-
-        triple(0, 1, 0),
-        triple(0, 1, b),
-        triple(0, c, d),
-        triple(0, e, f)
-    };
-
-    std::array<triple, 10> triangleOctant {
-        triple(e, 0, f),
-        triple(e, a * e, f),
-        triple(g, 0, h),
-        triple(a * e, e, f),
-
-        triple(i, i, 1),
-        triple(0.05 * a, 0, 1),
-        triple(0, e, f),
-        triple(0, g, h),
-
-        triple(0, 0.05 * a, 1),
-        triple(0, 0, 1)
-    };
-
-    double rx, ry, rz;
+    // Cached first-octant triangles (16 Bezier triangles, depth=2).
+    const auto& octantTriangles = getSphereOctant();
 
     Align A(center, dir);
 
     int s;
-    double z;
-    std::function<triple(const triple&)> t;
+    std::function<TRIPLE(const TRIPLE&)> t;
 
-    if(dir) {
+    if (dir) {
         s = 1;
-        z = 0;
         t = [&](const TRIPLE& v) { return A.T(v); };
     } else {
         s = -1;
-        z = -r;
         t = [&](const TRIPLE& v) { return A.T0(v); };
     }
 
-    auto TPatch = [&](const std::array<triple, 16>& V) {
-        std::array<TRIPLE, 16> p{ };
-
-        for(size_t i = 0; i < V.size(); ++i) {
-            const TRIPLE& v = V[i];
-            p[i] = t(TRIPLE(rx * v.x, ry * v.y, rz * v.z));
-        }
-
-        return p;
-    };
-
-    auto TTriangle = [&](const std::array<triple, 10>& V) {
-        std::array<TRIPLE, 10> p{ };
-
-        for(size_t i = 0; i < V.size(); ++i) {
-            const TRIPLE& v = V[i];
-            p[i] = t(TRIPLE(rx * v.x, ry * v.y, rz * v.z));
-        }
-
-        return p;
-    };
-
-    for(int ix = -1; ix <= 1; ix += 2) {
-        rx = ix * r;
-        for(int iy = -1; iy <= 1; iy += 2) {
-            ry = iy * r;
-            for(int iz = s; iz <= 1; iz += 2) {
-                rz = iz * r;
-                V3dBezierPatch patch{ TPatch(patchOctant), centerIndex, materialIndex };
-                patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
-
-                V3dBezierTriangle triangle{ TTriangle(triangleOctant), centerIndex, materialIndex };
-                triangle.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+    // Reflect across coordinate planes to cover all octants (mirrors gl.ts).
+    for (int ix = -1; ix <= 1; ix += 2) {
+        double rx = ix * r;
+        for (int iy = -1; iy <= 1; iy += 2) {
+            double ry = iy * r;
+            for (int iz = s; iz <= 1; iz += 2) {
+                double rz = iz * r;
+                for (const auto& tri : octantTriangles) {
+                    std::array<TRIPLE, 10> p;
+                    for (int i = 0; i < 10; ++i) {
+                        p[i] = t(TRIPLE(rx*tri[i].x, ry*tri[i].y, rz*tri[i].z));
+                    }
+                    V3dBezierTriangle triangle{p, centerIndex, materialIndex};
+                    triangle.QueueMesh(imageWidth, imageHeight, sceneMinBound,
+                                       sceneMaxBound, remesh, orthographic, drawMode);
+                }
             }
         }
     }
