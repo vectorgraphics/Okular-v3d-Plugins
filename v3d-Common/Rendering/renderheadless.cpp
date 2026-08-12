@@ -2013,76 +2013,79 @@ void HeadlessRenderer::beginTransferRecording() {
 	VK_CHECK_RESULT(vkBeginCommandBuffer(transferCommandBuffer, &beginInfo));
 }
 
-void HeadlessRenderer::recordUploads(VkCommandBuffer cmd) {
-	// Upload each vertex buffer type
-	if (!materialData.materialVertices.empty()) {
+void HeadlessRenderer::recordUploads(VkCommandBuffer cmd, bool remesh) {
+	// Match vkrender.cc drawBuffer(): copy = (remesh || data->renderCount < maxFramesInFlight || badBuffer)
+	auto shouldUpload = [](VertexBuffer& data, VkBuffer& buf, bool r) {
+		return r || data.renderCount < maxFramesInFlight;
+	};
+
+	if (!materialData.materialVertices.empty() && shouldUpload(materialData, materialVertexBuffer, remesh)) {
 		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
 		uploadToPersistentBuffer(cmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
 		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
 		                         materialData.materialVertices.data(), vsize, true);
 		transferHasPendingWork = true;
 	}
-	if (!materialData.indices.empty()) {
+	if (!materialData.indices.empty() && shouldUpload(materialData, materialVertexBuffer, remesh)) {
 		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
 		uploadToPersistentBuffer(cmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
 		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
 		                         materialData.indices.data(), isize, false);
 		transferHasPendingWork = true;
 	}
-	if (!lineData.materialVertices.empty()) {
+	if (!lineData.materialVertices.empty() && shouldUpload(lineData, lineVertexBuffer, remesh)) {
 		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
 		uploadToPersistentBuffer(cmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
 		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
 		                         lineData.materialVertices.data(), vsize, true);
-		transferHasPendingWork = true;
-	}
-	if (!lineData.indices.empty()) {
 		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
 		uploadToPersistentBuffer(cmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
 		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
 		                         lineData.indices.data(), isize, false);
 		transferHasPendingWork = true;
 	}
-	if (!colorData.colorVertices.empty()) {
+	if (!colorData.colorVertices.empty() && shouldUpload(colorData, colorVertexBuffer, remesh)) {
 		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
 		uploadToPersistentBuffer(cmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
 		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
 		                         colorData.colorVertices.data(), vsize, true);
-		transferHasPendingWork = true;
-	}
-	if (!colorData.indices.empty()) {
 		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
 		uploadToPersistentBuffer(cmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
 		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
 		                         colorData.indices.data(), isize, false);
 		transferHasPendingWork = true;
 	}
-	if (!transparentData.colorVertices.empty()) {
+	if (!transparentData.colorVertices.empty() && shouldUpload(transparentData, transparentVertexBuffer, remesh)) {
 		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
 		uploadToPersistentBuffer(cmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
 		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
 		                         transparentData.colorVertices.data(), vsize, true);
-		transferHasPendingWork = true;
-	}
-	if (!transparentData.indices.empty()) {
 		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
 		uploadToPersistentBuffer(cmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
 		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
 		                         transparentData.indices.data(), isize, false);
 		transferHasPendingWork = true;
 	}
-	if (!triangleData.colorVertices.empty()) {
+	if (!triangleData.colorVertices.empty() && shouldUpload(triangleData, triangleVertexBuffer, remesh)) {
 		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
 		uploadToPersistentBuffer(cmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
 		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
 		                         triangleData.colorVertices.data(), vsize, true);
-		transferHasPendingWork = true;
-	}
-	if (!triangleData.indices.empty()) {
 		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
 		uploadToPersistentBuffer(cmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
 		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
 		                         triangleData.indices.data(), isize, false);
+		transferHasPendingWork = true;
+	}
+	if (!pointData.pointVertices.empty() && shouldUpload(pointData, pointVertexBuffer, remesh)) {
+		VkDeviceSize vsize = pointData.pointVertices.size() * sizeof(PointVertex);
+		uploadToPersistentBuffer(cmd, pointVertexBuffer, pointVertexMemory, pointVertexBufferSize,
+		                         pointVertexStagingBuffer, pointVertexStagingMemory, pointVertexStgSize,
+		                         pointData.pointVertices.data(), vsize, true);
+		VkDeviceSize isize = pointData.indices.size() * sizeof(uint32_t);
+		uploadToPersistentBuffer(cmd, pointIndexBuffer, pointIndexMemory, pointIndexBufferSize,
+		                         pointIndexStagingBuffer, pointIndexStagingMemory, pointIndexStgSize,
+		                         pointData.indices.data(), isize, false);
 		transferHasPendingWork = true;
 	}
 }
@@ -2128,7 +2131,7 @@ void HeadlessRenderer::endAndSubmitTransfers() {
 void HeadlessRenderer::uploadVertexData() {
 	// Thin wrapper: calls the three split functions for backward compatibility.
 	beginTransferRecording();
-	recordUploads(transferCommandBuffer);
+	recordUploads(transferCommandBuffer, true);
 	endAndSubmitTransfers();
 }
 
@@ -2165,7 +2168,7 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 
 	// 2. Record vertex uploads -- creates persistent buffers and records copy commands.
 	//    Must happen before count recording so vertex/index buffers exist for draw calls.
-	recordUploads(transferCommandBuffer);
+	recordUploads(transferCommandBuffer, true);
 
 	// 3. Record count command buffer (begin -> end).
 	recordCountCommandBuffer(indexCount, lightCount);
@@ -3081,7 +3084,8 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	bool orthographic,
 	bool useIBL,
 	const std::string& iblPath,
-	DrawMode drawMode
+	DrawMode drawMode,
+	bool remesh
 ) {
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
@@ -3331,7 +3335,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// For opaque scenes: record uploads into the transfer command buffer
 	// (matches vkrender.cc: drawBuffer -> uploadPersistentBuffer during recording)
 	if (isOpaque) {
-		recordUploads(transferCommandBuffer);
+		recordUploads(transferCommandBuffer, remesh);
 	}
 
 	// Reset and reuse persistent graphics command buffer (matches vkrender.cc drawFrame).

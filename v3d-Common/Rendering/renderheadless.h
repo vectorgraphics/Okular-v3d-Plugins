@@ -38,6 +38,11 @@ template<> struct VertexInputTraits<ColorVertex> {
     static std::vector<VkVertexInputAttributeDescription> attributes(bool count);
 };
 
+template<> struct VertexInputTraits<PointVertex> {
+    static VkVertexInputBindingDescription binding();
+    static std::vector<VkVertexInputAttributeDescription> attributes(bool count);
+};
+
 // Pipeline configuration for createGraphicsPipeline<V>().  Matches vkrender.cc
 // PipelineConfig -- one config per pipeline, no boilerplate duplication.
 struct PipelineConfig {
@@ -107,6 +112,9 @@ public:
 
 	// Line pipeline: LINE_LIST topology for lineData (BezierCurve edges, V3dLineSegment)
 	VkPipeline linePipeline{ VK_NULL_HANDLE };
+
+	// Point pipeline: POINT_LIST topology for pointData (V3dPixel)
+	VkPipeline pointPipeline{ VK_NULL_HANDLE };
 
 	// Persistent GPU buffers per VertexBuffer type, following vkrender.cc FrameBufferPair pattern.
 	// Each pair (vertex+index) is allocated once and grows as needed; data is uploaded
@@ -179,6 +187,20 @@ public:
 	VkBuffer lineIndexStagingBuffer{ VK_NULL_HANDLE };
 	VkDeviceMemory lineIndexStagingMemory{ VK_NULL_HANDLE };
 	VkDeviceSize lineIndexStgSize{ 0 };
+
+	// Point vertex buffers (for V3dPixel / pointData -- PointVertex format)
+	VkBuffer pointVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointVertexBufferSize{ 0 };
+	VkBuffer pointIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointIndexBufferSize{ 0 };
+	VkBuffer pointVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointVertexStgSize{ 0 };
+	VkBuffer pointIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointIndexStgSize{ 0 };
 
 	UniformBufferObject cachedUbo{ };
 	VkBuffer uniformBuffer;
@@ -349,6 +371,7 @@ private:
 	void createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
 	void createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
 	void createLinePipeline(int targetWidth, int targetHeight);
+	void createPointPipeline(int targetWidth, int targetHeight);
 	void recreateGraphicsPipelines(DrawMode drawMode, int targetWidth, int targetHeight);
 	void uploadToPersistentBuffer(VkCommandBuffer cmd, VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
 	                              VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
@@ -356,9 +379,9 @@ private:
 	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
 	void recordComputeCommandBuffer();
 	// Transfer recording split (matches vkrender.cc pattern):
-	// beginTransferRecording -> recordUploads(cmd) -> endAndSubmitTransfers
+	// beginTransferRecording -> recordUploads(cmd, remesh) -> endAndSubmitTransfers
 	void beginTransferRecording();
-	void recordUploads(VkCommandBuffer cmd);
+	void recordUploads(VkCommandBuffer cmd, bool remesh);
 	void endAndSubmitTransfers();
 	void uploadVertexData();  // Thin wrapper: calls all three above
 	void refreshBuffers(size_t indexCount, size_t lightCount);
@@ -431,7 +454,8 @@ public:
 		bool orthographic = false,
 		bool useIBL = false,
 		const std::string& iblPath = "",
-		DrawMode drawMode = DRAWMODE_NORMAL
+		DrawMode drawMode = DRAWMODE_NORMAL,
+		bool remesh = true
 	);
 
 	uint32_t getMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties);

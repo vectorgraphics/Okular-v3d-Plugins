@@ -108,7 +108,7 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         triple edge3[] = { Controls[3],  Controls[2],  Controls[1],  Controls[0]  };
         C.queue(edge3, straight, size3.length()/size2);
     } else {
-        if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+        if(!remesh && fullyOnscreen && centerIndex == 0) { // Fully onscreen; no need to re-render
             // Match Asymptote drawBezierPatch::render(): S.append() routes based on S.transparent.
             // In WIREFRAME, force opaque regardless of prior isTransparent state.
             if (drawMode == DRAWMODE_NORMAL && isTransparent)
@@ -214,7 +214,7 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         triple edge2[] = { Controls[9], Controls[5], Controls[2], Controls[0] };
         C.queue(edge2, straight, size3.length()/size2);
     } else {
-        if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+        if(!remesh && fullyOnscreen && centerIndex == 0) { // Fully onscreen; no need to re-render
             // Match Asymptote drawBezierPatch::render(): S.append() routes based on S.transparent.
             // In WIREFRAME, force opaque regardless of prior isTransparent state.
             if (drawMode == DRAWMODE_NORMAL && isTransparent)
@@ -321,7 +321,7 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
 
-    if (!remesh && fullyOnscreen) {
+    if (!remesh && fullyOnscreen && centerIndex == 0) {
         if (transparent)
             transparentData.extendColor(vertexData);
         else
@@ -422,7 +422,7 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a < 3.0f);
 
-    if (!remesh && fullyOnscreen) {
+    if (!remesh && fullyOnscreen && centerIndex == 0) {
         if (transparent)
             transparentData.extendColor(vertexData);
         else
@@ -478,6 +478,24 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
 
     glm::vec3 normal = glm::normalize(glm::cross(A, B));
 
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
     if(drawMode == DRAWMODE_OUTLINE) {
         // Match drawsurface.cc: OUTLINE mode only queues boundary curves via C.queue().
         // Does NOT call S.queue(), does NOT touch surface state.
@@ -503,7 +521,7 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
         C.queue(edge3, straight, size3.length() / size2);
     } else {
         // Match Asymptote drawBezierPatch::render(): fast path for fully onscreen.
-        if(!remesh && fullyOnscreen) {
+        if(!remesh && fullyOnscreen && centerIndex == 0) {
             if (drawMode == DRAWMODE_NORMAL && isTransparent)
                 transparentData.extendColor(vertexData);
             else
@@ -518,46 +536,68 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
             transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
         }
 
+        // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
+        if (transparent)
+            transparentData.renderCount = 0;
+        else
+            materialData.renderCount = 0;
+
         vertexData.clear();
+
+        // Match algorithm §\ref{cull}: per-triangle culling for straight quad.
+        // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
+        fullyOnscreen = true;
+        triple tri0[] = { p1, p2, p3 };
+        triple tri1[] = { p1, p3, p4 };
+        bool t0Off = bbox2(3, tri0).offscreen();
+        bool t1Off = bbox2(3, tri1).offscreen();
+        if (t0Off || t1Off) fullyOnscreen = false;
+
+        // Always add all 4 vertices (reference does this before the straight check).
         if (transparent) {
             transparentData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
             transparentData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
             transparentData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
             transparentData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+            transparentData.indices.reserve(6);
 
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 4);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 3);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 4);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 1);
+            size_t base = transparentData.colorVertices.size() - 4;
+            if (!t0Off) {
+                transparentData.indices.push_back(base);
+                transparentData.indices.push_back(base + 1);
+                transparentData.indices.push_back(base + 2);
+            }
+            if (!t1Off) {
+                transparentData.indices.push_back(base);
+                transparentData.indices.push_back(base + 2);
+                transparentData.indices.push_back(base + 3);
+            }
 
-            vertexData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.indices = {0, 1, 2, 0, 2, 3};
+            vertexData.colorVertices = transparentData.colorVertices;
+            vertexData.indices = transparentData.indices;
         } else {
             materialData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
             materialData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
             materialData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
             materialData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
+            materialData.indices.reserve(6);
 
-            materialData.indices.push_back(materialData.materialVertices.size() - 4);
-            materialData.indices.push_back(materialData.materialVertices.size() - 3);
-            materialData.indices.push_back(materialData.materialVertices.size() - 2);
-            materialData.indices.push_back(materialData.materialVertices.size() - 4);
-            materialData.indices.push_back(materialData.materialVertices.size() - 2);
-            materialData.indices.push_back(materialData.materialVertices.size() - 1);
+            size_t base = materialData.materialVertices.size() - 4;
+            if (!t0Off) {
+                materialData.indices.push_back(base);
+                materialData.indices.push_back(base + 1);
+                materialData.indices.push_back(base + 2);
+            }
+            if (!t1Off) {
+                materialData.indices.push_back(base);
+                materialData.indices.push_back(base + 2);
+                materialData.indices.push_back(base + 3);
+            }
 
-            vertexData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
-            vertexData.indices = {0, 1, 2, 0, 2, 3};
+            vertexData.materialVertices = materialData.materialVertices;
+            vertexData.indices = materialData.indices;
         }
 
-        fullyOnscreen = true;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = transparent;  // Only persist in NORMAL mode
     }
@@ -624,6 +664,24 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
 
     glm::vec3 normal = glm::normalize(glm::cross(A, B));
 
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 3; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
     if(drawMode == DRAWMODE_OUTLINE) {
         // Match drawsurface.cc: OUTLINE mode only queues boundary curves via C.queue().
         // Does NOT call S.queue(), does NOT touch surface state.
@@ -646,7 +704,7 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
         C.queue(edge2, straight, size3.length() / size2);
     } else {
         // Match Asymptote drawBezierTriangle::render(): fast path for fully onscreen.
-        if(!remesh && fullyOnscreen) {
+        if(!remesh && fullyOnscreen && centerIndex == 0) {
             if (drawMode == DRAWMODE_NORMAL && isTransparent)
                 transparentData.extendColor(vertexData);
             else
@@ -661,36 +719,47 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
             transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
         }
 
+        // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
+        if (transparent)
+            transparentData.renderCount = 0;
+        else
+            materialData.renderCount = 0;
+
         vertexData.clear();
+
+        // Match algorithm §\ref{cull}: per-triangle culling for straight triangle.
+        fullyOnscreen = true;
+        triple tri[] = { p1, p2, p3 };
+        if (bbox2(3, tri).offscreen()) fullyOnscreen = false;
+
         if (transparent) {
             transparentData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
             transparentData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
             transparentData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
 
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 3);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 1);
+            if (fullyOnscreen) {
+                transparentData.indices.push_back(transparentData.colorVertices.size() - 3);
+                transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
+                transparentData.indices.push_back(transparentData.colorVertices.size() - 1);
+            }
 
-            vertexData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.indices = {0, 1, 2};
+            vertexData.colorVertices = transparentData.colorVertices;
+            vertexData.indices = transparentData.indices;
         } else {
             materialData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
             materialData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
             materialData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
 
-            materialData.indices.push_back(materialData.materialVertices.size() - 3);
-            materialData.indices.push_back(materialData.materialVertices.size() - 2);
-            materialData.indices.push_back(materialData.materialVertices.size() - 1);
+            if (fullyOnscreen) {
+                materialData.indices.push_back(materialData.materialVertices.size() - 3);
+                materialData.indices.push_back(materialData.materialVertices.size() - 2);
+                materialData.indices.push_back(materialData.materialVertices.size() - 1);
+            }
 
-            vertexData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
-            vertexData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
-            vertexData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
-            vertexData.indices = {0, 1, 2};
+            vertexData.materialVertices = materialData.materialVertices;
+            vertexData.indices = materialData.indices;
         }
 
-        fullyOnscreen = true;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = transparent;  // Only persist in NORMAL mode
     }
@@ -732,6 +801,24 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
 
     glm::vec3 normal = glm::normalize(glm::cross(A, B));
 
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
     if(drawMode == DRAWMODE_OUTLINE) {
         triple v[] = { p1, p2, p3, p4 };
         bool straight = true;
@@ -749,7 +836,7 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
         return;
     }
 
-    if(!remesh && fullyOnscreen) {
+    if(!remesh && fullyOnscreen && centerIndex == 0) {
         if (drawMode == DRAWMODE_NORMAL && isTransparent)
             transparentData.extendColor(vertexData);
         else
@@ -760,6 +847,12 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     // Match Asymptote: WIREFRAME forces opaque, NORMAL checks alpha.
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
+
+    // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
+    if (transparent)
+        transparentData.renderCount = 0;
+    else
+        colorData.renderCount = 0;
 
     vertexData.clear();
     VertexBuffer& target = transparent ? transparentData : colorData;
@@ -775,25 +868,38 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     glm::vec4 vc3{ c3.r, c3.g, c3.b, c3.a };
 
     int matIdx = -1 - (int)materialIndex;
+
+    // Match algorithm §\ref{cull}: per-triangle culling for straight quad.
+    // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
+    fullyOnscreen = true;
+    triple tri0[] = { p1, p2, p3 };
+    triple tri1[] = { p1, p3, p4 };
+    bool t0Off = bbox2(3, tri0).offscreen();
+    bool t1Off = bbox2(3, tri1).offscreen();
+    if (t0Off || t1Off) fullyOnscreen = false;
+
+    // Always add all 4 vertices.
     target.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
     target.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
     target.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
     target.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
+    target.indices.reserve(6);
 
-    target.indices.push_back(target.colorVertices.size() - 4);
-    target.indices.push_back(target.colorVertices.size() - 3);
-    target.indices.push_back(target.colorVertices.size() - 2);
-    target.indices.push_back(target.colorVertices.size() - 4);
-    target.indices.push_back(target.colorVertices.size() - 2);
-    target.indices.push_back(target.colorVertices.size() - 1);
+    size_t base = target.colorVertices.size() - 4;
+    if (!t0Off) {
+        target.indices.push_back(base);
+        target.indices.push_back(base + 1);
+        target.indices.push_back(base + 2);
+    }
+    if (!t1Off) {
+        target.indices.push_back(base);
+        target.indices.push_back(base + 2);
+        target.indices.push_back(base + 3);
+    }
 
-    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    vertexData.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
-    vertexData.indices = {0, 1, 2, 0, 2, 3};
+    vertexData.colorVertices = target.colorVertices;
+    vertexData.indices = target.indices;
 
-    fullyOnscreen = true;
     if (drawMode == DRAWMODE_NORMAL)
         isTransparent = transparent;
 }
@@ -833,6 +939,24 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
 
     glm::vec3 normal = glm::normalize(glm::cross(A, B));
 
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 3; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
     if(drawMode == DRAWMODE_OUTLINE) {
         triple v[] = { p1, p2, p3 };
         bool straight = true;
@@ -848,7 +972,7 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
         return;
     }
 
-    if(!remesh && fullyOnscreen) {
+    if(!remesh && fullyOnscreen && centerIndex == 0) {
         if (drawMode == DRAWMODE_NORMAL && isTransparent)
             transparentData.extendColor(vertexData);
         else
@@ -859,6 +983,12 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     // Match Asymptote drawsurface.cc: WIREFRAME forces opaque, NORMAL checks alpha.
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a +
                         cornerColors[1].a + cornerColors[2].a < 3.0f);
+
+    // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
+    if (transparent)
+        transparentData.renderCount = 0;
+    else
+        colorData.renderCount = 0;
 
     vertexData.clear();
     VertexBuffer& target = transparent ? transparentData : colorData;
@@ -872,20 +1002,25 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     glm::vec4 vc2{ c2.r, c2.g, c2.b, c2.a };
 
     int matIdx = -1 - (int)materialIndex;
+
+    // Match algorithm §\ref{cull}: per-triangle culling for straight triangle.
+    fullyOnscreen = true;
+    triple tri[] = { p1, p2, p3 };
+    if (bbox2(3, tri).offscreen()) fullyOnscreen = false;
+
     target.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
     target.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
     target.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
 
-    target.indices.push_back(target.colorVertices.size() - 3);
-    target.indices.push_back(target.colorVertices.size() - 2);
-    target.indices.push_back(target.colorVertices.size() - 1);
+    if (fullyOnscreen) {
+        target.indices.push_back(target.colorVertices.size() - 3);
+        target.indices.push_back(target.colorVertices.size() - 2);
+        target.indices.push_back(target.colorVertices.size() - 1);
+    }
 
-    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    vertexData.indices = {0, 1, 2};
+    vertexData.colorVertices = target.colorVertices;
+    vertexData.indices = target.indices;
 
-    fullyOnscreen = true;
     if (drawMode == DRAWMODE_NORMAL)
         isTransparent = transparent;
 }
@@ -992,10 +1127,36 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         return;
     }
 
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min = sceneMinBound;
+    triple Max = sceneMaxBound;
+    if (bbox2(Min, Max).offscreen()) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
     bool transparent = false;
     if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
+
+    if (!remesh && fullyOnscreen && centerIndex == 0) {
+        // Fast path: already onscreen, just re-append.
+        if (transparent)
+            transparentData.extendColor(vertexData);
+        else
+            colorData.extendColor(vertexData);
+        return;
+    }
+
+    // Match Asymptote Triangles::notRendered() — reset renderCount so upload gate fires.
+    if (transparent)
+        transparentData.renderCount = 0;
+    else
+        colorData.renderCount = 0;
+
+    vertexData.clear();
 
     // Match Asymptote Triangles::queue(): with per-vertex colors, store as ColorVertex
     // and check per-triangle corner alpha (transparent |= c0+c1+c2 < 3.0).
@@ -1044,6 +1205,7 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         VertexBuffer colBuffer;
         colBuffer.colorVertices = colVertices;
         colBuffer.indices = outIndices;
+        vertexData = colBuffer;
         if (transparent)
             transparentData.extendColor(colBuffer);
         else
@@ -1079,11 +1241,16 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         VertexBuffer colBuffer;
         colBuffer.colorVertices = std::move(colVertices);
         colBuffer.indices = outIndices;
+        vertexData = colBuffer;
         if (transparent)
             transparentData.extendColor(colBuffer);
         else
             colorData.extendColor(colBuffer);
     }
+
+    fullyOnscreen = true;
+    if (drawMode == DRAWMODE_NORMAL)
+        isTransparent = transparent;
 }
 
 
@@ -1791,7 +1958,7 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         return;
     }
     
-    if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+    if(!remesh && fullyOnscreen && centerIndex == 0) { // Fully onscreen; no need to re-render
         materialData.extendMaterial(vertexData);
         return;
     }
@@ -1862,7 +2029,7 @@ void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         return;
     }
 
-    if (!remesh && fullyOnscreen) {
+    if (!remesh && fullyOnscreen && centerIndex == 0) {
         lineData.extendMaterial(vertexData);
         return;
     }
@@ -1889,6 +2056,26 @@ V3dPixel::V3dPixel(
 void V3dPixel::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dPixel cannot queue" << std::endl;
-    return;
+    // Match Asymptote drawPixel::render(): offscreen check using bbox2(Min,Max).
+    triple Min{position.x, position.y, position.z};
+    triple Max{position.x, position.y, position.z};
+
+    if (bbox2(Min, Max).offscreen()) { // Fully offscreen
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
+    // Match Asymptote Pixel::queue() exactly.
+    VertexBuffer data;
+    data.clear();
+    pointData.renderCount = 0;
+    data.indices.push_back(data.addVertex(PointVertex{
+        glm::vec3(position.x, position.y, position.z),
+        static_cast<float>(width),
+        static_cast<glm::i32>(materialIndex)
+    }));
+
+    pointData.extendPoint(data);
+    fullyOnscreen = true;
 }

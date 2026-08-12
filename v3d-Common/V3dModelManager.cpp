@@ -213,14 +213,12 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         useIBL = true;
     }
 
-    if (!m_Models[pageNumber][modelIndex].m_HasChanged && 
+    if (!m_Models[pageNumber][modelIndex].m_HasChanged &&
         m_ModelImages[pageNumber][modelIndex].width() == imageWidth &&
         m_ModelImages[pageNumber][modelIndex].height() == imageHeight) {
 
         return m_ModelImages[pageNumber][modelIndex];
     }
-
-    m_Models[pageNumber][modelIndex].remesh = true; // TODO
 
     // Projection
     EnsureCachedRequestSize(pageNumber);
@@ -263,32 +261,33 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMat) };
 
-    if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
-        // Clear global VertexBuffers before re-queuing (matches vkrender.cc: data
-        // accumulates in persistent VertexBuffers; clear before each frame).
-        materialData.clear();
-        colorData.clear();
-        lineData.clear();
-        transparentData.clear();
+    // Match Asymptote prepareScene(): always clear global buffers and re-render
+    // when redraw is needed.  The remesh flag (set by zoom/home/cycleMode) controls
+    // whether objects re-tessellate or use their cached onscreen data
+    // (algorithm §\ref{cull}).
+    materialData.clear();
+    colorData.clear();
+    lineData.clear();
+    transparentData.clear();
+    pointData.clear();
 
-        bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
+    bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
+    m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
 
-        // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
-        bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty();
+    // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
+    bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty() || !pointData.indices.empty();
 
-        if (!hasRenderableData) {
-            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
-            image.fill(Qt::black);
-            return image;
-        }
-
-        // Upload happens inside recordCommandBuffer (vkrender.cc: drawBuffer records
-        // upload + draw into the same command buffer session).
-        m_Models[pageNumber][modelIndex].remesh = false;
-        m_ReQueueModels = false;
+    if (!hasRenderableData) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
     }
+
+    // Match Asymptote prepareScene(): remesh is consumed after one non-OUTLINE render.
+    if (m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
+        m_Models[pageNumber][modelIndex].remesh = false;
+    m_ReQueueModels = false;
 
     m_Models[pageNumber][modelIndex].initialized = true;
 
@@ -325,7 +324,8 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].file->headerInfo.orthographic,
         useIBL,
         iblPath,
-        m_Models[pageNumber][modelIndex].drawMode
+        m_Models[pageNumber][modelIndex].drawMode,
+        m_Models[pageNumber][modelIndex].remesh
     );
 
     unsigned char* imgDataTmp = imageData;
