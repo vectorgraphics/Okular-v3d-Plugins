@@ -69,6 +69,11 @@ V3dFile::V3dFile(xdr::memixstream& xdrFile) {
 
 void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile >> versionNumber;
+    if (versionNumber < 1) {
+        std::cout << "ERROR: v3d file version " << versionNumber
+                  << " is not supported (need >= 1)" << std::endl;
+        return;
+    }
     xdrFile >> doublePrecisionFlag;
 
     UINT objectType;
@@ -99,7 +104,10 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
             xdrFile >> material.shininess;
             xdrFile >> material.metallic;
             xdrFile >> material.fresnel0;
-            xdrFile >> material.lightOn;
+            if (versionNumber >= 2)
+                xdrFile >> material.lightOn;
+            else
+                material.lightOn = 1.0f;
 
             materials.push_back(material);
             break;
