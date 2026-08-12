@@ -574,7 +574,17 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
             }
 
             vertexData.colorVertices = transparentData.colorVertices;
-            vertexData.indices = transparentData.indices;
+            // Local indices for fast path (extendColor offsets them into global buffer).
+            if (!t0Off) {
+                vertexData.indices.push_back(0);
+                vertexData.indices.push_back(1);
+                vertexData.indices.push_back(2);
+            }
+            if (!t1Off) {
+                vertexData.indices.push_back(0);
+                vertexData.indices.push_back(2);
+                vertexData.indices.push_back(3);
+            }
         } else {
             materialData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
             materialData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
@@ -595,7 +605,17 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
             }
 
             vertexData.materialVertices = materialData.materialVertices;
-            vertexData.indices = materialData.indices;
+            // Local indices for fast path (extendMaterial offsets them into global buffer).
+            if (!t0Off) {
+                vertexData.indices.push_back(0);
+                vertexData.indices.push_back(1);
+                vertexData.indices.push_back(2);
+            }
+            if (!t1Off) {
+                vertexData.indices.push_back(0);
+                vertexData.indices.push_back(2);
+                vertexData.indices.push_back(3);
+            }
         }
 
         if (drawMode == DRAWMODE_NORMAL)
@@ -744,7 +764,12 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
             }
 
             vertexData.colorVertices = transparentData.colorVertices;
-            vertexData.indices = transparentData.indices;
+            // Local indices for fast path (extendColor offsets them into global buffer).
+            if (fullyOnscreen) {
+                vertexData.indices.push_back(0);
+                vertexData.indices.push_back(1);
+                vertexData.indices.push_back(2);
+            }
         } else {
             materialData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
             materialData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
@@ -757,7 +782,12 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
             }
 
             vertexData.materialVertices = materialData.materialVertices;
-            vertexData.indices = materialData.indices;
+            // Local indices for fast path (extendMaterial offsets them into global buffer).
+            if (fullyOnscreen) {
+                vertexData.indices.push_back(0);
+                vertexData.indices.push_back(1);
+                vertexData.indices.push_back(2);
+            }
         }
 
         if (drawMode == DRAWMODE_NORMAL)
@@ -898,7 +928,17 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     }
 
     vertexData.colorVertices = target.colorVertices;
-    vertexData.indices = target.indices;
+    // Local indices for fast path (extendColor offsets them into global buffer).
+    if (!t0Off) {
+        vertexData.indices.push_back(0);
+        vertexData.indices.push_back(1);
+        vertexData.indices.push_back(2);
+    }
+    if (!t1Off) {
+        vertexData.indices.push_back(0);
+        vertexData.indices.push_back(2);
+        vertexData.indices.push_back(3);
+    }
 
     if (drawMode == DRAWMODE_NORMAL)
         isTransparent = transparent;
@@ -1019,7 +1059,12 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     }
 
     vertexData.colorVertices = target.colorVertices;
-    vertexData.indices = target.indices;
+    // Local indices for fast path (extendColor offsets them into global buffer).
+    if (fullyOnscreen) {
+        vertexData.indices.push_back(0);
+        vertexData.indices.push_back(1);
+        vertexData.indices.push_back(2);
+    }
 
     if (drawMode == DRAWMODE_NORMAL)
         isTransparent = transparent;
