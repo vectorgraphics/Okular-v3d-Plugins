@@ -261,19 +261,25 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMat) };
 
-    // Match Asymptote prepareScene(): always clear global buffers and re-render
-    // when redraw is needed.  The remesh flag (set by zoom/home/cycleMode) controls
-    // whether objects re-tessellate or use their cached onscreen data
-    // (algorithm §\ref{cull}).
-    materialData.clear();
-    colorData.clear();
-    lineData.clear();
-    transparentData.clear();
-    pointData.clear();
+    // Match Asymptote prepareScene(): clear global buffers and call QueueMesh
+    // only when redraw is needed.  When remesh=false and all objects are fully
+    // onscreen, the per-object fast path (!remesh && S.Onscreen) re-appends
+    // cached data without clearing — algorithm §\ref{cull}.
+    bool needRedraw = m_Models[pageNumber][modelIndex].remesh ||
+                      materialData.indices.empty();
+
+    if (needRedraw) {
+        materialData.clear();
+        colorData.clear();
+        lineData.clear();
+        transparentData.clear();
+        pointData.clear();
+    }
 
     bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-    m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
+    if (needRedraw)
+        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
 
     // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
     bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty() || !pointData.indices.empty();
@@ -285,7 +291,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     }
 
     // Match Asymptote prepareScene(): remesh is consumed after one non-OUTLINE render.
-    if (m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
+    if (needRedraw && m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
         m_Models[pageNumber][modelIndex].remesh = false;
     m_ReQueueModels = false;
 

@@ -171,6 +171,9 @@ public:
 
 private:
     BezierCurve C;
+    VertexBuffer S;  // Persistent triangle list — matches \Triangles in algorithm §\ref{cull}
+    bool quadOnscreen{ true };
+    bool S_color{ false };  // Was S built with ColorVertex (true) or MaterialVertex (false)?
 };
 
 class V3dStraightTriangle : public V3dObject {
@@ -188,6 +191,9 @@ public:
 
 private:
     BezierCurve C;
+    VertexBuffer S;  // Persistent triangle list — matches \Triangles in algorithm §\ref{cull}
+    bool triOnscreen{ true };
+    bool S_color{ false };  // Was S built with ColorVertex (true) or MaterialVertex (false)?
 };
 
 class V3dStraightPlanarQuadWithCornerColors : public V3dObject {
@@ -206,6 +212,9 @@ public:
 
 private:
     BezierCurve C;
+    VertexBuffer S;  // Persistent triangle list — matches \Triangles in algorithm §\ref{cull}
+    bool quadOnscreen{ true };
+    bool S_color{ false };  // Was S built with ColorVertex (true) or MaterialVertex (false)?
 };
 
 class V3dStraightTriangleWithCornerColors : public V3dObject {
@@ -224,6 +233,9 @@ public:
 
 private:
     BezierCurve C;
+    VertexBuffer S;  // Persistent triangle list — matches \Triangles in algorithm §\ref{cull}
+    bool triOnscreen{ true };
+    bool S_color{ false };  // Was S built with ColorVertex (true) or MaterialVertex (false)?
 };
 
 class V3dTriangleGroup : public V3dObject {

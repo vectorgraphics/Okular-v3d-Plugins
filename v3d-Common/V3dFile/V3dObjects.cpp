@@ -568,7 +568,6 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
 
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
-
     glm::dvec3 normal = glm::normalize(glm::cross(A, B));
 
     // Offscreen cull: match algorithm §\ref{cull}.
@@ -584,18 +583,15 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     }
 
     if (bbox2(Min, Max).offscreen()) {
-        fullyOnscreen = false;
-        vertexData.clear();
-        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
-        transparentData.renderCount = 0;
-        materialData.renderCount = 0;
+        // notRendered() — ensures upload gate fires when object comes back onscreen.
+        quadOnscreen = false;
+        S.clear();
+        if (S_color) transparentData.renderCount = 0;
+        else materialData.renderCount = 0;
         return;
     }
 
     if(drawMode == DRAWMODE_OUTLINE) {
-        // Match drawsurface.cc: OUTLINE mode only queues boundary curves via C.queue().
-        // Does NOT call S.queue(), does NOT touch surface state.
-
         triple v[] = {
             triple(p1.x, p1.y, p1.z),
             triple(p2.x, p2.y, p2.z),
@@ -615,118 +611,61 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
         C.queue(edge2, straight, size3.length() / size2);
         triple edge3[] = { v[3], v[3], v[0], v[0] };
         C.queue(edge3, straight, size3.length() / size2);
-    } else {
-        // Match Asymptote drawBezierPatch::render(): fast path for fully onscreen.
-        if(!remesh && fullyOnscreen && centerIndex == 0) {
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
-            return;
-        }
-
-        // Match Asymptote drawsurface.cc: check material alpha in NORMAL mode only.
-        // WIREFRAME/OUTLINE force opaque (commit 316f906894).
-        bool transparent = false;
-        if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-            transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-        }
-
-        // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
-        if (transparent)
-            transparentData.renderCount = 0;
-        else
-            materialData.renderCount = 0;
-
-        vertexData.clear();
-
-        // Match algorithm §\ref{cull}: per-triangle culling for straight quad.
-        // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
-        fullyOnscreen = true;
-        triple tri0[] = { p1, p2, p3 };
-        triple tri1[] = { p1, p3, p4 };
-        bool t0Off = bbox2(3, tri0).offscreen();
-        bool t1Off = bbox2(3, tri1).offscreen();
-        if (t0Off || t1Off) fullyOnscreen = false;
-
-        // Always add all 4 vertices (reference does this before the straight check).
-        if (transparent) {
-            transparentData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.indices.reserve(6);
-
-            size_t base = transparentData.colorVertices.size() - 4;
-            if (!t0Off) {
-                transparentData.indices.push_back(base);
-                transparentData.indices.push_back(base + 1);
-                transparentData.indices.push_back(base + 2);
-            }
-            if (!t1Off) {
-                transparentData.indices.push_back(base);
-                transparentData.indices.push_back(base + 2);
-                transparentData.indices.push_back(base + 3);
-            }
-
-            // vertexData stores only this object's data for the fast path.
-            vertexData.colorVertices.clear();
-            vertexData.indices.clear();
-            vertexData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            if (!t0Off) {
-                vertexData.indices.push_back(0);
-                vertexData.indices.push_back(1);
-                vertexData.indices.push_back(2);
-            }
-            if (!t1Off) {
-                vertexData.indices.push_back(0);
-                vertexData.indices.push_back(2);
-                vertexData.indices.push_back(3);
-            }
-        } else {
-            materialData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-            materialData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-            materialData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
-            materialData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
-            materialData.indices.reserve(6);
-
-            size_t base = materialData.materialVertices.size() - 4;
-            if (!t0Off) {
-                materialData.indices.push_back(base);
-                materialData.indices.push_back(base + 1);
-                materialData.indices.push_back(base + 2);
-            }
-            if (!t1Off) {
-                materialData.indices.push_back(base);
-                materialData.indices.push_back(base + 2);
-                materialData.indices.push_back(base + 3);
-            }
-
-            // vertexData stores only this object's data for the fast path.
-            vertexData.materialVertices.clear();
-            vertexData.indices.clear();
-            vertexData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
-            if (!t0Off) {
-                vertexData.indices.push_back(0);
-                vertexData.indices.push_back(1);
-                vertexData.indices.push_back(2);
-            }
-            if (!t1Off) {
-                vertexData.indices.push_back(0);
-                vertexData.indices.push_back(2);
-                vertexData.indices.push_back(3);
-            }
-        }
-
-        if (drawMode == DRAWMODE_NORMAL)
-            isTransparent = transparent;  // Only persist in NORMAL mode
+        return;
     }
+
+    // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
+    bool transparent = false;
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
+    }
+
+    // Fast path: fully onscreen, same vertex format — just re-append S to global buffer.
+    if (!remesh && quadOnscreen && centerIndex == 0) {
+        if (S_color) transparentData.extendColor(S);
+        else materialData.extendMaterial(S);
+        return;
+    }
+
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    // notRendered() — reset renderCount so upload gate fires.
+    if (transparent) transparentData.renderCount = 0;
+    else materialData.renderCount = 0;
+
+    S.clear();
+    quadOnscreen = true;
+    fullyOnscreen = true;
+
+    // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
+    triple tri0[] = { p1, p2, p3 };
+    triple tri1[] = { p1, p3, p4 };
+    bool t0Off = bbox2(3, tri0).offscreen();
+    bool t1Off = bbox2(3, tri1).offscreen();
+    if (t0Off || t1Off) { quadOnscreen = false; fullyOnscreen = false; }
+
+    // Build S with the correct vertex format.
+    S_color = transparent;  // transparent → ColorVertex, opaque → MaterialVertex
+    if (transparent) {
+        size_t base = S.colorVertices.size();
+        S.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
+        transparentData.extendColor(S);
+    } else {
+        size_t base = S.materialVertices.size();
+        S.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
+        if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
+        materialData.extendMaterial(S);
+    }
+
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -803,18 +742,14 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     }
 
     if (bbox2(Min, Max).offscreen()) {
-        fullyOnscreen = false;
-        vertexData.clear();
-        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
-        transparentData.renderCount = 0;
-        materialData.renderCount = 0;
+        triOnscreen = false;
+        S.clear();
+        if (S_color) transparentData.renderCount = 0;
+        else materialData.renderCount = 0;
         return;
     }
 
     if(drawMode == DRAWMODE_OUTLINE) {
-        // Match drawsurface.cc: OUTLINE mode only queues boundary curves via C.queue().
-        // Does NOT call S.queue(), does NOT touch surface state.
-
         triple v[] = {
             triple(p1.x, p1.y, p1.z),
             triple(p2.x, p2.y, p2.z),
@@ -831,77 +766,49 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
         C.queue(edge1, straight, size3.length() / size2);
         triple edge2[] = { v[2], v[2], v[0], v[0] };
         C.queue(edge2, straight, size3.length() / size2);
-    } else {
-        // Match Asymptote drawBezierTriangle::render(): fast path for fully onscreen.
-        if(!remesh && fullyOnscreen && centerIndex == 0) {
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
-            return;
-        }
-
-        // Match Asymptote drawsurface.cc: check material alpha in NORMAL mode only.
-        // WIREFRAME/OUTLINE force opaque (commit 316f906894).
-        bool transparent = false;
-        if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-            transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-        }
-
-        // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
-        if (transparent)
-            transparentData.renderCount = 0;
-        else
-            materialData.renderCount = 0;
-
-        vertexData.clear();
-
-        // Match algorithm §\ref{cull}: per-triangle culling for straight triangle.
-        fullyOnscreen = true;
-        triple tri[] = { p1, p2, p3 };
-        if (bbox2(3, tri).offscreen()) fullyOnscreen = false;
-
-        if (transparent) {
-            transparentData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            transparentData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            // vertexData stores only this object's data for the fast path.
-            vertexData.colorVertices.clear();
-            vertexData.indices.clear();
-            vertexData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            if (fullyOnscreen) {
-                vertexData.indices.push_back(0);
-                vertexData.indices.push_back(1);
-                vertexData.indices.push_back(2);
-            }
-        } else {
-            materialData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
-            materialData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
-            materialData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
-
-            if (fullyOnscreen) {
-                materialData.indices.push_back(materialData.materialVertices.size() - 3);
-                materialData.indices.push_back(materialData.materialVertices.size() - 2);
-                materialData.indices.push_back(materialData.materialVertices.size() - 1);
-            }
-
-            // vertexData stores only this object's data for the fast path.
-            vertexData.materialVertices.clear();
-            vertexData.indices.clear();
-            vertexData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
-            vertexData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
-            vertexData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
-            if (fullyOnscreen) {
-                vertexData.indices.push_back(0);
-                vertexData.indices.push_back(1);
-                vertexData.indices.push_back(2);
-            }
-        }
-
-        if (drawMode == DRAWMODE_NORMAL)
-            isTransparent = transparent;  // Only persist in NORMAL mode
+        return;
     }
+
+    bool transparent = false;
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
+    }
+
+    // Fast path: fully onscreen, same vertex format — just re-append S to global buffer.
+    if (!remesh && triOnscreen && centerIndex == 0) {
+        if (S_color) transparentData.extendColor(S);
+        else materialData.extendMaterial(S);
+        return;
+    }
+
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    if (transparent) transparentData.renderCount = 0;
+    else materialData.renderCount = 0;
+
+    S.clear();
+    triOnscreen = true;
+    fullyOnscreen = true;
+    triple tri[] = { p1, p2, p3 };
+    if (bbox2(3, tri).offscreen()) { triOnscreen = false; fullyOnscreen = false; }
+
+    S_color = transparent;
+    if (transparent) {
+        size_t base = S.colorVertices.size();
+        S.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        transparentData.extendColor(S);
+    } else {
+        size_t base = S.materialVertices.size();
+        S.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+        if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        materialData.extendMaterial(S);
+    }
+
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -953,11 +860,10 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     }
 
     if (bbox2(Min, Max).offscreen()) {
-        fullyOnscreen = false;
-        vertexData.clear();
-        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
-        transparentData.renderCount = 0;
-        materialData.renderCount = 0;
+        quadOnscreen = false;
+        S.clear();
+        if (S_color) transparentData.renderCount = 0;
+        else colorData.renderCount = 0;
         return;
     }
 
@@ -978,26 +884,23 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
         return;
     }
 
-    if(!remesh && fullyOnscreen && centerIndex == 0) {
-        if (drawMode == DRAWMODE_NORMAL && isTransparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
-        return;
-    }
-
-    // Match Asymptote: WIREFRAME forces opaque, NORMAL checks alpha.
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
 
-    // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
-    if (transparent)
-        transparentData.renderCount = 0;
-    else
-        colorData.renderCount = 0;
+    // Fast path: fully onscreen — just re-append S to global buffer.
+    if (!remesh && quadOnscreen && centerIndex == 0) {
+        if (transparent) transparentData.extendColor(S);
+        else colorData.extendColor(S);
+        return;
+    }
 
-    vertexData.clear();
-    VertexBuffer& target = transparent ? transparentData : colorData;
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    if (transparent) transparentData.renderCount = 0;
+    else colorData.renderCount = 0;
+
+    S.clear();
+    quadOnscreen = true;
+    fullyOnscreen = true;
 
     RGBA c0{ cornerColors[0].r, cornerColors[0].g, cornerColors[0].b, cornerColors[0].a };
     RGBA c1{ cornerColors[1].r, cornerColors[1].g, cornerColors[1].b, cornerColors[1].a };
@@ -1011,54 +914,26 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
 
     int matIdx = -1 - (int)materialIndex;
 
-    // Match algorithm §\ref{cull}: per-triangle culling for straight quad.
     // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
-    fullyOnscreen = true;
     triple tri0[] = { p1, p2, p3 };
     triple tri1[] = { p1, p3, p4 };
     bool t0Off = bbox2(3, tri0).offscreen();
     bool t1Off = bbox2(3, tri1).offscreen();
-    if (t0Off || t1Off) fullyOnscreen = false;
+    if (t0Off || t1Off) { quadOnscreen = false; fullyOnscreen = false; }
 
-    // Always add all 4 vertices.
-    target.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    target.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    target.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    target.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
-    target.indices.reserve(6);
+    S_color = true;  // Always ColorVertex for corner-colored geometry
+    size_t base = S.colorVertices.size();
+    S.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
+    S.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
+    S.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
+    S.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
+    if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+    if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
 
-    size_t base = target.colorVertices.size() - 4;
-    if (!t0Off) {
-        target.indices.push_back(base);
-        target.indices.push_back(base + 1);
-        target.indices.push_back(base + 2);
-    }
-    if (!t1Off) {
-        target.indices.push_back(base);
-        target.indices.push_back(base + 2);
-        target.indices.push_back(base + 3);
-    }
+    if (transparent) transparentData.extendColor(S);
+    else colorData.extendColor(S);
 
-    // vertexData stores only this object's data for the fast path.
-    vertexData.colorVertices.clear();
-    vertexData.indices.clear();
-    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    vertexData.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
-    if (!t0Off) {
-        vertexData.indices.push_back(0);
-        vertexData.indices.push_back(1);
-        vertexData.indices.push_back(2);
-    }
-    if (!t1Off) {
-        vertexData.indices.push_back(0);
-        vertexData.indices.push_back(2);
-        vertexData.indices.push_back(3);
-    }
-
-    if (drawMode == DRAWMODE_NORMAL)
-        isTransparent = transparent;
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -1109,11 +984,10 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     }
 
     if (bbox2(Min, Max).offscreen()) {
-        fullyOnscreen = false;
-        vertexData.clear();
-        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
-        transparentData.renderCount = 0;
-        materialData.renderCount = 0;
+        triOnscreen = false;
+        S.clear();
+        if (S_color) transparentData.renderCount = 0;
+        else colorData.renderCount = 0;
         return;
     }
 
@@ -1132,26 +1006,25 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
         return;
     }
 
-    if(!remesh && fullyOnscreen && centerIndex == 0) {
-        if (drawMode == DRAWMODE_NORMAL && isTransparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
-        return;
-    }
-
-    // Match Asymptote drawsurface.cc: WIREFRAME forces opaque, NORMAL checks alpha.
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a +
                         cornerColors[1].a + cornerColors[2].a < 3.0f);
 
-    // Match Asymptote BezierPatch::notRendered() — reset renderCount so upload gate fires.
-    if (transparent)
-        transparentData.renderCount = 0;
-    else
-        colorData.renderCount = 0;
+    // Fast path: fully onscreen — just re-append S to global buffer.
+    if (!remesh && triOnscreen && centerIndex == 0) {
+        if (transparent) transparentData.extendColor(S);
+        else colorData.extendColor(S);
+        return;
+    }
 
-    vertexData.clear();
-    VertexBuffer& target = transparent ? transparentData : colorData;
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    if (transparent) transparentData.renderCount = 0;
+    else colorData.renderCount = 0;
+
+    S.clear();
+    triOnscreen = true;
+    fullyOnscreen = true;
+    triple tri[] = { p1, p2, p3 };
+    if (bbox2(3, tri).offscreen()) { triOnscreen = false; fullyOnscreen = false; }
 
     RGBA c0{ cornerColors[0].r, cornerColors[0].g, cornerColors[0].b, cornerColors[0].a };
     RGBA c1{ cornerColors[1].r, cornerColors[1].g, cornerColors[1].b, cornerColors[1].a };
@@ -1163,35 +1036,17 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
 
     int matIdx = -1 - (int)materialIndex;
 
-    // Match algorithm §\ref{cull}: per-triangle culling for straight triangle.
-    fullyOnscreen = true;
-    triple tri[] = { p1, p2, p3 };
-    if (bbox2(3, tri).offscreen()) fullyOnscreen = false;
+    S_color = true;  // Always ColorVertex for corner-colored geometry
+    size_t base = S.colorVertices.size();
+    S.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
+    S.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
+    S.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
+    if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
 
-    target.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    target.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    target.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
+    if (transparent) transparentData.extendColor(S);
+    else colorData.extendColor(S);
 
-    if (fullyOnscreen) {
-        target.indices.push_back(target.colorVertices.size() - 3);
-        target.indices.push_back(target.colorVertices.size() - 2);
-        target.indices.push_back(target.colorVertices.size() - 1);
-    }
-
-    // vertexData stores only this object's data for the fast path.
-    vertexData.colorVertices.clear();
-    vertexData.indices.clear();
-    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    if (fullyOnscreen) {
-        vertexData.indices.push_back(0);
-        vertexData.indices.push_back(1);
-        vertexData.indices.push_back(2);
-    }
-
-    if (drawMode == DRAWMODE_NORMAL)
-        isTransparent = transparent;
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
