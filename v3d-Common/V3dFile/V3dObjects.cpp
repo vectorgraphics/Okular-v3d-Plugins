@@ -187,14 +187,15 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
         fullyOnscreen = false;
         vertexData.clear();
         lineData.clear();
-        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
-        if (transparent)
-            transparentData.renderCount = 0;
-        else
-            materialData.renderCount = 0;
         return;
     }
 
@@ -296,14 +297,15 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
     bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
         fullyOnscreen = false;
         vertexData.clear();
         lineData.clear();
-        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
-        if (transparent)
-            transparentData.renderCount = 0;
-        else
-            materialData.renderCount = 0;
         return;
     }
 
@@ -401,22 +403,25 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
-    bool offscreen = bbox2(Min, Max).offscreen();
-
-    if (offscreen) {
-        fullyOnscreen = false;
-        vertexData.clear();
-        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
-        transparentData.renderCount = 0;
-        colorData.renderCount = 0;
-        return;
-    }
-
     // Match Asymptote drawBezierPatch::render(): only detect transparency in NORMAL mode.
     // WIREFRAME/OUTLINE force opaque (commit 316f906894).
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
+
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
+
+    if (offscreen) {
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
 
     if (!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
         S.append();
@@ -499,22 +504,25 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
+    // Match Asymptote: only detect transparency in NORMAL mode (commit 316f906894).
+    bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
+                        cornerColors[2].a < 3.0f);
+
     // Use tight bounds computed at construction time (matches Asymptote drawBezierTriangle::Min/Max).
     bool offscreen = bbox2(Min, Max).offscreen();
 
 
     if (offscreen) {
+        // Match Asymptote drawBezierTriangle::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
         fullyOnscreen = false;
         vertexData.clear();
-        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
-        transparentData.renderCount = 0;
-        colorData.renderCount = 0;
         return;
     }
-
-    // Match Asymptote: only detect transparency in NORMAL mode (commit 316f906894).
-    bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
-                        cornerColors[2].a < 3.0f);
 
     if (!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
         S.append();
