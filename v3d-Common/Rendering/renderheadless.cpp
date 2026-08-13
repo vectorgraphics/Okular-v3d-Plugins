@@ -2014,9 +2014,9 @@ void HeadlessRenderer::beginTransferRecording() {
 }
 
 void HeadlessRenderer::recordUploads(VkCommandBuffer cmd, bool remesh) {
-	// Match vkrender.cc drawBuffer(): copy = (remesh || data->renderCount < maxFramesInFlight || badBuffer)
-	auto shouldUpload = [](VertexBuffer& data, VkBuffer& buf, bool r) {
-		return r || data.renderCount < maxFramesInFlight;
+	// Match vkrender.cc drawBuffer(): copy = (remesh || data->renderCount < maxFramesInFlight || badBuffer) && !copied
+	auto shouldUpload = [this](VertexBuffer& data, VkBuffer& buf, bool r) {
+		return (!copied) && (r || data.renderCount < maxFramesInFlight);
 	};
 
 	if (!materialData.materialVertices.empty() && shouldUpload(materialData, materialVertexBuffer, remesh)) {
@@ -2156,6 +2156,10 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 	// Reset fence (matches vkrender.cc refreshBuffers).
 	VK_CHECK_RESULT(vkResetFences(device, 1, &inComputeFence));
 
+	// Matches vkrender.cc preDrawBuffers(): reset copied at the start of the
+	// count/compute cycle so uploads happen once per frame.
+	copied = false;
+
 	// Matches vkrender.cc preDrawBuffers() -> refreshBuffers() ordering exactly:
 	//   beginTransferRecording() -> recordUploads() -> recordCountCommandBuffer()
 	//   -> recordComputeCommandBuffer() -> endAndSubmitTransfers()
@@ -2169,6 +2173,7 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 	// 2. Record vertex uploads -- creates persistent buffers and records copy commands.
 	//    Must happen before count recording so vertex/index buffers exist for draw calls.
 	recordUploads(transferCommandBuffer, true);
+	copied = true;  // Prevent redundant uploads in the main render path (matches vkrender.cc)
 
 	// 3. Record count command buffer (begin -> end).
 	recordCountCommandBuffer(indexCount, lightCount);
@@ -3089,6 +3094,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 ) {
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
+
+	// Reset copied at the start of each frame (matches vkrender.cc preDrawBuffers()).
+	// For transparent scenes, refreshBuffers() also resets it before count-pass uploads.
+	// For opaque scenes, this ensures uploads aren't skipped from a prior frame's state.
+	copied = false;
 
 	// Track IBL state changes - recreate pipelines if IBL toggles
 	bool iblChanged = (useIBL != ibl);
