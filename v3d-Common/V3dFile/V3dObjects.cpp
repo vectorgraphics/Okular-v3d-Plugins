@@ -83,11 +83,19 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    triple Min=b;
-    triple Max=B;
-    
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Per-object bounds from control points (matches Asymptote drawBezierPatch::Min/Max)
+    triple Min = Controls[0];
+    triple Max = Controls[0];
+    for (int i = 1; i < 16; ++i) {
+        Min = triple(std::min(Min.getx(), Controls[i].getx()),
+                     std::min(Min.gety(), Controls[i].gety()),
+                     std::min(Min.getz(), Controls[i].getz()));
+        Max = triple(std::max(Max.getx(), Controls[i].getx()),
+                     std::max(Max.gety(), Controls[i].gety()),
+                     std::max(Max.getz(), Controls[i].getz()));
+    }
 
+    bool offscreen=bbox2(Min,Max).offscreen();
 
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
@@ -197,11 +205,19 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
     bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    triple Min=b;
-    triple Max=B;
-    
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Per-object bounds from control points (matches Asymptote drawBezierPatch::Min/Max)
+    triple Min = Controls[0];
+    triple Max = Controls[0];
+    for (int i = 1; i < 16; ++i) {
+        Min = triple(std::min(Min.getx(), Controls[i].getx()),
+                     std::min(Min.gety(), Controls[i].gety()),
+                     std::min(Min.getz(), Controls[i].getz()));
+        Max = triple(std::max(Max.getx(), Controls[i].getx()),
+                     std::max(Max.gety(), Controls[i].gety()),
+                     std::max(Max.getz(), Controls[i].getz()));
+    }
 
+    bool offscreen=bbox2(Min,Max).offscreen();
 
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
@@ -317,8 +333,17 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    triple Min = b;
-    triple Max = B;
+    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
+    triple Min = Controls[0];
+    triple Max = Controls[0];
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), Controls[i].getx()),
+                     std::min(Min.gety(), Controls[i].gety()),
+                     std::min(Min.getz(), Controls[i].getz()));
+        Max = triple(std::max(Max.getx(), Controls[i].getx()),
+                     std::max(Max.gety(), Controls[i].gety()),
+                     std::max(Max.getz(), Controls[i].getz()));
+    }
 
     bool offscreen = bbox2(Min, Max).offscreen();
 
@@ -423,8 +448,17 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    triple Min = b;
-    triple Max = B;
+    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
+    triple Min = Controls[0];
+    triple Max = Controls[0];
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), Controls[i].getx()),
+                     std::min(Min.gety(), Controls[i].gety()),
+                     std::min(Min.getz(), Controls[i].getz()));
+        Max = triple(std::max(Max.getx(), Controls[i].getx()),
+                     std::max(Max.gety(), Controls[i].gety()),
+                     std::max(Max.getz(), Controls[i].getz()));
+    }
 
     bool offscreen = bbox2(Min, Max).offscreen();
 
@@ -2087,9 +2121,18 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    triple Min=b;
-    triple Max=B;
-    
+    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
+    triple Min = Controls[0];
+    triple Max = Controls[0];
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), Controls[i].getx()),
+                     std::min(Min.gety(), Controls[i].gety()),
+                     std::min(Min.getz(), Controls[i].getz()));
+        Max = triple(std::max(Max.getx(), Controls[i].getx()),
+                     std::max(Max.gety(), Controls[i].gety()),
+                     std::max(Max.getz(), Controls[i].getz()));
+    }
+
     bool offscreen=bbox2(Min,Max).offscreen();
 
     if(offscreen) { // Fully offscreen
@@ -2161,8 +2204,17 @@ void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    triple Min = b;
-    triple Max = B;
+    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
+    triple Min = Controls[0];
+    triple Max = Controls[0];
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), Controls[i].getx()),
+                     std::min(Min.gety(), Controls[i].gety()),
+                     std::min(Min.getz(), Controls[i].getz()));
+        Max = triple(std::max(Max.getx(), Controls[i].getx()),
+                     std::max(Max.gety(), Controls[i].gety()),
+                     std::max(Max.getz(), Controls[i].getz()));
+    }
 
     bool offscreen = bbox2(Min, Max).offscreen();
 
