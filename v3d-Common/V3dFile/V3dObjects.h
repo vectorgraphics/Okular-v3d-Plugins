@@ -1,17 +1,18 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <array>
+// Asymptote headers must come first to avoid <iostream> alternate token conflicts.
+#include "../../asymptote/rgba.h"
+#include "../../asymptote/bezierpatch.h"
+#include "../../asymptote/beziercurve.h"
+#include "../../asymptote/bbox2.h"
 
 #include "V3dObject.h"
 #include "xstream.h"
 
-// BezierCurve is needed as a member for OUTLINE mode boundary curves.
-// Matches Asymptote drawSurface::C — persistent per-object, not local.
-#include "../../asymptote/bbox2.h"
-#include "../../asymptote/beziercurve.h"
+#include <string>
+#include <vector>
+#include <memory>
+#include <array>
 
 // Global materials pointer: set by V3dFile::QueueMesh before iterating objects.
 // Mirrors Asymptote's camp::materialIndex pattern — provides per-object access
@@ -91,6 +92,7 @@ public:
 
 private:
     BezierCurve C;  // Match Asymptote drawSurface::C — persistent member for OUTLINE boundary curves
+    BezierPatch S;  // Match Asymptote drawBezierPatch::S — persistent tessellator (Onscreen/data/transparent/color)
     std::vector<float> m_Vertices{ };
     std::vector<unsigned int> m_Indices{ };
 };
@@ -113,6 +115,7 @@ public:
 
 private:
     BezierCurve C;  // Match Asymptote drawSurface::C
+    BezierTriangle S;  // Match Asymptote drawBezierTriangle::S — persistent tessellator
 };
 
 class V3dBezierPatchWithCornerColors : public V3dObject {
@@ -131,6 +134,7 @@ public:
 
 private:
     BezierCurve C;
+    BezierPatch S;  // Match Asymptote drawBezierPatch::S — persistent tessellator
 };
 
 class V3dBezierTriangleWithCornerColors : public V3dObject {
@@ -149,6 +153,7 @@ public:
 
 private:
     BezierCurve C;
+    BezierTriangle S;  // Match Asymptote drawBezierTriangle::S — persistent tessellator
 };
 
 class V3dStraightPlanarQuad : public V3dObject {

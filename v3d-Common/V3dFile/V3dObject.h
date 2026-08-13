@@ -1,7 +1,5 @@
 #pragma once
 
-#include <vector>
-
 #include "V3dTypes.h"
 #include "Mesh.h"
 
@@ -9,6 +7,8 @@
 
 #include "material.h"
 #include "render.h"
+
+#include <vector>
 
 using namespace camp;
 
@@ -28,6 +28,11 @@ public:
 
     bool fullyOnscreen{ false };
     bool isTransparent{ false };
+
+    // Tight object-space bounds, computed once at construction via recursive bound().
+    // Matches Asymptote drawBezierPatch::Min/Max — reused every frame for offscreen culling.
+    triple Min{ 0, 0, 0 };
+    triple Max{ 0, 0, 0 };
 
 protected:
     camp::VertexBuffer vertexData{ };

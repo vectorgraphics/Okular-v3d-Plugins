@@ -1,18 +1,108 @@
 #include "V3dObjects.h"
 
+#include "rgba.h"
+#include "bezierpatch.h"
+#include "beziercurve.h"
+#include "bbox.h"
+#include "bound.h"
+
 #include <iostream>
 
 #include "V3dUtil.h"
 
-#include "rgba.h"
-#include "bezierpatch.h"
-#include "beziercurve.h"
-
-using namespace std;
 using namespace camp;
 
 // Definition of the global materials pointer declared in V3dObjects.h.
 namespace camp { const std::vector<V3dMaterial>* materials = nullptr; }
+
+// Compute tight Bézier patch bounds via recursive subdivision (matches drawsurface.cc).
+static void computeBezierPatchBounds(const triple* controls, triple& Min, triple& Max) {
+    double cx[16], cy[16], cz[16];
+    for (int i = 0; i < 16; ++i) {
+        cx[i] = controls[i].getx();
+        cy[i] = controls[i].gety();
+        cz[i] = controls[i].getz();
+    }
+
+    double c0 = cx[0];
+    double fuzz = Fuzz * run::norm(cx, 16);
+    double x = bound(cx, min, c0, fuzz, maxdepth);
+    double X = bound(cx, max, c0, fuzz, maxdepth);
+
+    c0 = cy[0];
+    fuzz = Fuzz * run::norm(cy, 16);
+    double y = bound(cy, min, c0, fuzz, maxdepth);
+    double Y = bound(cy, max, c0, fuzz, maxdepth);
+
+    c0 = cz[0];
+    fuzz = Fuzz * run::norm(cz, 16);
+    double z = bound(cz, min, c0, fuzz, maxdepth);
+    double Z = bound(cz, max, c0, fuzz, maxdepth);
+
+    Min = triple(x, y, z);
+    Max = triple(X, Y, Z);
+}
+
+// Compute tight Bézier triangle bounds via recursive subdivision (matches drawsurface.cc).
+static void computeBezierTriangleBounds(const triple* controls, triple& Min, triple& Max) {
+    double cx[10], cy[10], cz[10];
+    for (int i = 0; i < 10; ++i) {
+        cx[i] = controls[i].getx();
+        cy[i] = controls[i].gety();
+        cz[i] = controls[i].getz();
+    }
+
+    double c0 = cx[0];
+    double fuzz = Fuzz * run::norm(cx, 10);
+    double x = boundtri(cx, min, c0, fuzz, maxdepth);
+    double X = boundtri(cx, max, c0, fuzz, maxdepth);
+
+    c0 = cy[0];
+    fuzz = Fuzz * run::norm(cy, 10);
+    double y = boundtri(cy, min, c0, fuzz, maxdepth);
+    double Y = boundtri(cy, max, c0, fuzz, maxdepth);
+
+    c0 = cz[0];
+    fuzz = Fuzz * run::norm(cz, 10);
+    double z = boundtri(cz, min, c0, fuzz, maxdepth);
+    double Z = boundtri(cz, max, c0, fuzz, maxdepth);
+
+    Min = triple(x, y, z);
+    Max = triple(X, Y, Z);
+}
+
+// Tight bounds for a cubic Bézier curve (4 control points).
+// Uses bound(triple z0,c0,c1,z1,...) from path3.cc, now in bound.cc.
+static double getx(const triple& v) { return v.getx(); }
+static double gety(const triple& v) { return v.gety(); }
+static double getz(const triple& v) { return v.getz(); }
+
+static void computeBezierCurveBounds(const triple* controls, triple& Min, triple& Max) {
+    double cx[4], cy[4], cz[4];
+    for (int i = 0; i < 4; ++i) {
+        cx[i] = controls[i].getx();
+        cy[i] = controls[i].gety();
+        cz[i] = controls[i].getz();
+    }
+
+    double c0 = cx[0];
+    double fuzz = Fuzz * run::norm(cx, 4);
+    double x = bound(controls[0], controls[1], controls[2], controls[3], min, getx, c0, fuzz, maxdepth);
+    double X = bound(controls[0], controls[1], controls[2], controls[3], max, getx, c0, fuzz, maxdepth);
+
+    c0 = cy[0];
+    fuzz = Fuzz * run::norm(cy, 4);
+    double y = bound(controls[0], controls[1], controls[2], controls[3], min, gety, c0, fuzz, maxdepth);
+    double Y = bound(controls[0], controls[1], controls[2], controls[3], max, gety, c0, fuzz, maxdepth);
+
+    c0 = cz[0];
+    fuzz = Fuzz * run::norm(cz, 4);
+    double z = bound(controls[0], controls[1], controls[2], controls[3], min, getz, c0, fuzz, maxdepth);
+    double Z = bound(controls[0], controls[1], controls[2], controls[3], max, getz, c0, fuzz, maxdepth);
+
+    Min = triple(x, y, z);
+    Max = triple(X, Y, Z);
+}
 
 
 V3dBezierPatch::V3dBezierPatch(
@@ -28,13 +118,25 @@ V3dBezierPatch::V3dBezierPatch(
         xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[16];
+        for (int i = 0; i < 16; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierPatchBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 V3dBezierPatch::V3dBezierPatch(std::array<TRIPLE, 16> controlPoints, UINT centerIndex, UINT materialIndex) 
     : V3dObject{ ObjectTypes::BEZIER_PATCH }
     , controlPoints{ controlPoints }
     , centerIndex{ centerIndex }
-    , materialIndex{ materialIndex } { }
+    , materialIndex{ materialIndex } {
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[16];
+        for (int i = 0; i < 16; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierPatchBounds(Controls, V3dObject::Min, V3dObject::Max);
+    }
 
 
 void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
@@ -62,8 +164,6 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
     };
 
-    BezierPatch S;
-
     triple b=sceneMinBound;
     triple B=sceneMaxBound;
 
@@ -83,19 +183,8 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    // Per-object bounds from control points (matches Asymptote drawBezierPatch::Min/Max)
-    triple Min = Controls[0];
-    triple Max = Controls[0];
-    for (int i = 1; i < 16; ++i) {
-        Min = triple(std::min(Min.getx(), Controls[i].getx()),
-                     std::min(Min.gety(), Controls[i].gety()),
-                     std::min(Min.getz(), Controls[i].getz()));
-        Max = triple(std::max(Max.getx(), Controls[i].getx()),
-                     std::max(Max.gety(), Controls[i].gety()),
-                     std::max(Max.getz(), Controls[i].getz()));
-    }
-
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
@@ -122,13 +211,8 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         triple edge3[] = { Controls[3],  Controls[2],  Controls[1],  Controls[0]  };
         C.queue(edge3, straight, size3.length()/size2);
     } else {
-        if(!remesh && fullyOnscreen && centerIndex == 0) { // Fully onscreen; no need to re-render
-            // Match Asymptote drawBezierPatch::render(): S.append() routes based on S.transparent.
-            // In WIREFRAME, force opaque regardless of prior isTransparent state.
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
+        if(!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+            S.append();
             return;
         }
 
@@ -136,13 +220,6 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         fullyOnscreen = S.Onscreen;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = S.transparent;  // Only persist in NORMAL mode
-        vertexData = S.data;
-        if (S.transparent)
-            transparentData.extendColor(vertexData);
-        else if (color)
-            colorData.extendColor(vertexData);
-        else
-            materialData.extendMaterial(vertexData);
     }
 }
 
@@ -159,13 +236,25 @@ V3dBezierTriangle::V3dBezierTriangle(
         xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[10];
+        for (int i = 0; i < 10; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierTriangleBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 V3dBezierTriangle::V3dBezierTriangle(std::array<TRIPLE, 10> controlPoints, UINT centerIndex, UINT materialIndex) 
     : V3dObject{ ObjectTypes::BEZIER_TRIANGLE }
     , controlPoints{ controlPoints }
     , centerIndex{ centerIndex }
-    , materialIndex{ materialIndex } { }
+    , materialIndex{ materialIndex } {
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[10];
+        for (int i = 0; i < 10; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierTriangleBounds(Controls, V3dObject::Min, V3dObject::Max);
+    }
 
 void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
@@ -183,8 +272,6 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
         triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
     };
-
-    BezierTriangle S;
 
     triple b=sceneMinBound;
     triple B=sceneMaxBound;
@@ -205,19 +292,8 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
     bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    // Per-object bounds from control points (matches Asymptote drawBezierPatch::Min/Max)
-    triple Min = Controls[0];
-    triple Max = Controls[0];
-    for (int i = 1; i < 16; ++i) {
-        Min = triple(std::min(Min.getx(), Controls[i].getx()),
-                     std::min(Min.gety(), Controls[i].gety()),
-                     std::min(Min.getz(), Controls[i].getz()));
-        Max = triple(std::max(Max.getx(), Controls[i].getx()),
-                     std::max(Max.gety(), Controls[i].gety()),
-                     std::max(Max.getz(), Controls[i].getz()));
-    }
-
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
@@ -242,13 +318,8 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         triple edge2[] = { Controls[9], Controls[5], Controls[2], Controls[0] };
         C.queue(edge2, straight, size3.length()/size2);
     } else {
-        if(!remesh && fullyOnscreen && centerIndex == 0) { // Fully onscreen; no need to re-render
-            // Match Asymptote drawBezierPatch::render(): S.append() routes based on S.transparent.
-            // In WIREFRAME, force opaque regardless of prior isTransparent state.
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
+        if(!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+            S.append();
             return;
         }
 
@@ -256,13 +327,6 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         fullyOnscreen = S.Onscreen;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = S.transparent;  // Only persist in NORMAL mode
-        vertexData = S.data;
-        if (S.transparent)
-            transparentData.extendColor(vertexData);
-        else if (color)
-            colorData.extendColor(vertexData);
-        else
-            materialData.extendMaterial(vertexData);
     }
 }
 
@@ -287,6 +351,12 @@ V3dBezierPatchWithCornerColors::V3dBezierPatchWithCornerColors(
             xdrFile >> cornerColors[i].b;
             xdrFile >> cornerColors[i].a;
         }
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[16];
+        for (int i = 0; i < 16; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierPatchBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
@@ -319,8 +389,6 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
         triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
     };
 
-    BezierPatch S;
-
     triple b = sceneMinBound;
     triple B = sceneMaxBound;
 
@@ -333,20 +401,8 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
-    triple Min = Controls[0];
-    triple Max = Controls[0];
-    for (int i = 1; i < 4; ++i) {
-        Min = triple(std::min(Min.getx(), Controls[i].getx()),
-                     std::min(Min.gety(), Controls[i].gety()),
-                     std::min(Min.getz(), Controls[i].getz()));
-        Max = triple(std::max(Max.getx(), Controls[i].getx()),
-                     std::max(Max.gety(), Controls[i].gety()),
-                     std::max(Max.getz(), Controls[i].getz()));
-    }
-
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
     bool offscreen = bbox2(Min, Max).offscreen();
-
 
     if (offscreen) {
         fullyOnscreen = false;
@@ -362,11 +418,8 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
 
-    if (!remesh && fullyOnscreen && centerIndex == 0) {
-        if (transparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
+    if (!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+        S.append();
         return;
     }
 
@@ -381,12 +434,6 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
 
     S.queue(Controls, straight, size3.length() / size2, transparent, corners);
     fullyOnscreen = S.Onscreen;
-    vertexData = S.data;
-    // Match Asymptote BezierPatch::append(): route based on transparency.
-    if (S.transparent)
-        transparentData.extendColor(vertexData);
-    else
-        colorData.extendColor(vertexData);
 }
 
 
@@ -409,7 +456,13 @@ V3dBezierTriangleWithCornerColors::V3dBezierTriangleWithCornerColors(
             xdrFile >> cornerColors[i].g;
             xdrFile >> cornerColors[i].b;
             xdrFile >> cornerColors[i].a;
-        }    
+        }
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[10];
+        for (int i = 0; i < 10; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierTriangleBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
@@ -434,8 +487,6 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
         triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
     };
 
-    BezierTriangle S;
-
     triple b = sceneMinBound;
     triple B = sceneMaxBound;
 
@@ -448,18 +499,7 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
-    triple Min = Controls[0];
-    triple Max = Controls[0];
-    for (int i = 1; i < 4; ++i) {
-        Min = triple(std::min(Min.getx(), Controls[i].getx()),
-                     std::min(Min.gety(), Controls[i].gety()),
-                     std::min(Min.getz(), Controls[i].getz()));
-        Max = triple(std::max(Max.getx(), Controls[i].getx()),
-                     std::max(Max.gety(), Controls[i].gety()),
-                     std::max(Max.getz(), Controls[i].getz()));
-    }
-
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierTriangle::Min/Max).
     bool offscreen = bbox2(Min, Max).offscreen();
 
 
@@ -476,11 +516,8 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a < 3.0f);
 
-    if (!remesh && fullyOnscreen && centerIndex == 0) {
-        if (transparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
+    if (!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+        S.append();
         return;
     }
 
@@ -495,12 +532,6 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
 
     S.queue(Controls, straight, size3.length() / size2, transparent, corners);
     fullyOnscreen = S.Onscreen;
-    vertexData = S.data;
-    // Match Asymptote BezierPatch::append(): route based on transparency.
-    if (S.transparent)
-        transparentData.extendColor(vertexData);
-    else
-        colorData.extendColor(vertexData);
 }
 
 
@@ -530,7 +561,7 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
 
     // Offscreen cull: match algorithm §\ref{cull}.
     triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
@@ -749,7 +780,7 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
 
     // Offscreen cull: match algorithm §\ref{cull}.
     triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
@@ -899,7 +930,7 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
 
     // Offscreen cull: match algorithm §\ref{cull}.
     triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
@@ -1055,7 +1086,7 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
 
     // Offscreen cull: match algorithm §\ref{cull}.
     triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
@@ -1689,10 +1720,10 @@ void disk(
     Align A{center,dir};
 
     auto TPatch = [&](const std::array<triple, 16>& V) {
-        std::array<glm::vec3, 16> p{ };
+        std::array<TRIPLE, 16> p{ };
         for(int i=0; i < V.size(); ++i) {
-            const glm::vec3& v=V[i];
-            p[i]=A.T(glm::vec3{r*v.x, r*v.y, 0.0});
+            TRIPLE v{V[i].getx(), V[i].gety(), V[i].getz()};
+            p[i]=A.T(triple{r*v.x, r*v.y, 0.0});
         }
         return p;
     };
@@ -1778,11 +1809,11 @@ void cylinder(
         for(int j=-1; j <= 1; j += 2) {
             ry=j*r;
             auto TPatch = [&](const std::array<triple, 16>& V) {
-                std::array<glm::vec3, 16> p{ };
+                std::array<TRIPLE, 16> p{ };
 
                 for(size_t i = 0; i < V.size(); ++i) {
-                    const glm::vec3& v = V[i];
-                    p[i] = t(glm::vec3(rx * v.x, ry * v.y, h * v.z));
+                    TRIPLE v{V[i].getx(), V[i].gety(), V[i].getz()};
+                    p[i] = t(triple(rx * v.x, ry * v.y, h * v.z));
                 }
 
                 return p;
@@ -2024,11 +2055,11 @@ void tube(
     f(0.0,1.0,-1.0,0.0);
 
     if(core) {
-        std::array<glm::vec3, 4> curveControlPoints = {
-            glm::vec3{ v[0].getx(), v[0].gety(), v[0].getz() },
-            glm::vec3{ v[1].getx(), v[1].gety(), v[1].getz() },
-            glm::vec3{ v[2].getx(), v[2].gety(), v[2].getz() },
-            glm::vec3{ v[3].getx(), v[3].gety(), v[3].getz() }
+        std::array<TRIPLE, 4> curveControlPoints = {
+            TRIPLE{ v[0].getx(), v[0].gety(), v[0].getz() },
+            TRIPLE{ v[1].getx(), v[1].gety(), v[1].getz() },
+            TRIPLE{ v[2].getx(), v[2].gety(), v[2].getz() },
+            TRIPLE{ v[3].getx(), v[3].gety(), v[3].getz() }
         };
 
         V3dBezierCurve curve{ curveControlPoints, centerIndex, materialIndex };
@@ -2079,6 +2110,12 @@ V3dBezierCurve::V3dBezierCurve(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision)
     xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
     xdrFile >> materialIndex;
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[4];
+        for (int i = 0; i < 4; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierCurveBounds(Controls, V3dObject::Min, V3dObject::Max);
 }
 
 V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerIndex, UINT materialIndex) 
@@ -2086,8 +2123,12 @@ V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerI
     , controlPoints{ controlPoints }
     , centerIndex{ centerIndex }
     , materialIndex{ materialIndex } {
-
-}
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[4];
+        for (int i = 0; i < 4; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierCurveBounds(Controls, V3dObject::Min, V3dObject::Max);
+    }
 
 void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
@@ -2121,19 +2162,8 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
-    triple Min = Controls[0];
-    triple Max = Controls[0];
-    for (int i = 1; i < 4; ++i) {
-        Min = triple(std::min(Min.getx(), Controls[i].getx()),
-                     std::min(Min.gety(), Controls[i].gety()),
-                     std::min(Min.getz(), Controls[i].getz()));
-        Max = triple(std::max(Max.getx(), Controls[i].getx()),
-                     std::max(Max.gety(), Controls[i].gety()),
-                     std::max(Max.getz(), Controls[i].getz()));
-    }
-
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Use tight bounds computed at construction time (matches Asymptote drawPath3::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
@@ -2168,6 +2198,18 @@ V3dLineSegment::V3dLineSegment(
         xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
+
+        // Straight geometry: bounds = min/max of endpoints.
+        V3dObject::Min = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        V3dObject::Max = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        for (int i = 1; i < 2; ++i) {
+            V3dObject::Min = triple(min(V3dObject::Min.getx(), endpoints[i].x),
+                                    min(V3dObject::Min.gety(), endpoints[i].y),
+                                    min(V3dObject::Min.getz(), endpoints[i].z));
+            V3dObject::Max = triple(max(V3dObject::Max.getx(), endpoints[i].x),
+                                    max(V3dObject::Max.gety(), endpoints[i].y),
+                                    max(V3dObject::Max.getz(), endpoints[i].z));
+        }
     }
 
 V3dLineSegment::V3dLineSegment(std::array<TRIPLE, 2> endpoints, UINT centerIndex, UINT materialIndex) 
@@ -2175,8 +2217,18 @@ V3dLineSegment::V3dLineSegment(std::array<TRIPLE, 2> endpoints, UINT centerIndex
     , endpoints{ endpoints }
     , centerIndex{ centerIndex }
     , materialIndex{ materialIndex } {
-
-}
+        // Straight geometry: bounds = min/max of endpoints.
+        V3dObject::Min = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        V3dObject::Max = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        for (int i = 1; i < 2; ++i) {
+            V3dObject::Min = triple(min(V3dObject::Min.getx(), endpoints[i].x),
+                                    min(V3dObject::Min.gety(), endpoints[i].y),
+                                    min(V3dObject::Min.getz(), endpoints[i].z));
+            V3dObject::Max = triple(max(V3dObject::Max.getx(), endpoints[i].x),
+                                    max(V3dObject::Max.gety(), endpoints[i].y),
+                                    max(V3dObject::Max.getz(), endpoints[i].z));
+        }
+    }
 
 void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
@@ -2204,18 +2256,7 @@ void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    // Per-object bounds from control points (matches Asymptote drawBezierCurve::Min/Max)
-    triple Min = Controls[0];
-    triple Max = Controls[0];
-    for (int i = 1; i < 4; ++i) {
-        Min = triple(std::min(Min.getx(), Controls[i].getx()),
-                     std::min(Min.gety(), Controls[i].gety()),
-                     std::min(Min.getz(), Controls[i].getz()));
-        Max = triple(std::max(Max.getx(), Controls[i].getx()),
-                     std::max(Max.gety(), Controls[i].gety()),
-                     std::max(Max.getz(), Controls[i].getz()));
-    }
-
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierTriangle::Min/Max).
     bool offscreen = bbox2(Min, Max).offscreen();
 
     if (offscreen) {

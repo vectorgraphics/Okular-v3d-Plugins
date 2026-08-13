@@ -10,9 +10,9 @@
 using UINT = uint32_t;
 using V3D_BOOL = uint32_t;
 
-using REAL = float;
-using PAIR = glm::vec2;    // REAL  * 2
-using TRIPLE = glm::vec3;  // REAL  * 3
+using REAL = double;
+using PAIR = glm::dvec2;   // REAL  * 2
+using TRIPLE = glm::dvec3; // REAL  * 3
 
 using FLOAT = float;
 

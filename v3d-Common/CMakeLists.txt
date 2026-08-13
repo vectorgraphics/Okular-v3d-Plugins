@@ -19,6 +19,7 @@ add_library(v3dCommon SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/xstream.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/bezierpatch.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/beziercurve.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/bound.cc
 )
 
 target_include_directories(v3dCommon PUBLIC
@@ -53,7 +54,7 @@ target_compile_definitions(v3dCommon PUBLIC
     HAVE_RENDERER
 )
 
-target_compile_options(v3dCommon PUBLIC -fexceptions)
+target_compile_options(v3dCommon PUBLIC -fexceptions -fno-extended-identifiers)
 
 # Override the project-level -fvisibility=hidden so that all v3dCommon symbols
 # are exported from the shared library and linkable by both generators.
