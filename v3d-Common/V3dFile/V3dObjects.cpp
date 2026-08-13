@@ -125,7 +125,7 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         }
 
         S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
-        fullyOnscreen = true;
+        fullyOnscreen = S.Onscreen;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = S.transparent;  // Only persist in NORMAL mode
         vertexData = S.data;
@@ -237,7 +237,7 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         }
 
         S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
-        fullyOnscreen = true;
+        fullyOnscreen = S.Onscreen;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = S.transparent;  // Only persist in NORMAL mode
         vertexData = S.data;
@@ -355,7 +355,7 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
     }
 
     S.queue(Controls, straight, size3.length() / size2, transparent, corners);
-    fullyOnscreen = true;
+    fullyOnscreen = S.Onscreen;
     vertexData = S.data;
     // Match Asymptote BezierPatch::append(): route based on transparency.
     if (S.transparent)
@@ -460,7 +460,7 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
     }
 
     S.queue(Controls, straight, size3.length() / size2, transparent, corners);
-    fullyOnscreen = true;
+    fullyOnscreen = S.Onscreen;
     vertexData = S.data;
     // Match Asymptote BezierPatch::append(): route based on transparency.
     if (S.transparent)
@@ -2107,7 +2107,7 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     }
 
     S.queue(Controls,straight,size3.length()/size2);
-    fullyOnscreen = true;
+    fullyOnscreen = S.Onscreen;
     vertexData = S.data;
 }
 
@@ -2176,7 +2176,7 @@ void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     }
 
     S.queue(Controls, straight, size3.length() / size2);
-    fullyOnscreen = true;
+    fullyOnscreen = S.Onscreen;
     vertexData = S.data;
 }
 
