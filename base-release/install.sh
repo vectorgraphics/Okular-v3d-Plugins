@@ -10,8 +10,7 @@ mkdir ${ARCH}tmp/ 2> /dev/null
 
 mv ${FEDORA}okularGenerator_poppler.so ${FEDORA}tmp/okularGenerator_poppler.so 2> /dev/null || \
 mv ${UBUNTU}okularGenerator_poppler.so ${UBUNTU}tmp/okularGenerator_poppler.so 2> /dev/null || \
-mv ${ARCH}okularGenerator_poppler.so ${ARCH}tmp/okularGenerator_poppler.so 2> /dev/null || \
-echo "Could not find existing okularGenerator_poppler.so to save"
+mv ${ARCH}okularGenerator_poppler.so ${ARCH}tmp/okularGenerator_poppler.so 2> /dev/null
 
 install okularGenerator_poppler.so ${FEDORA} 2> /dev/null || \
 install okularGenerator_poppler.so ${UBUNTU} 2> /dev/null || \
