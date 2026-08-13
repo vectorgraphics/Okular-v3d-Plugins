@@ -1857,11 +1857,10 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	// Bind descriptor sets once for all subpasses
 	vkCmdBindDescriptorSets(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
 
-	VkDeviceSize offsets[1] = { 0 };
-
 	// Helper: inline upload + draw per data type (matches vkrender.cc drawBuffer()).
 	// Upload decision: (remesh || renderCount < maxFramesInFlight || badBuffer) && !copied.
-	auto recordCountDraw = [this](auto& data, auto& vertBuf, auto& idxBuf, VkPipeline pipeline, uint32_t idxCount) {
+	VkDeviceSize offsets[1] = { 0 };
+	auto recordCountDraw = [this, &offsets](auto& data, auto& vertBuf, auto& idxBuf, VkPipeline pipeline, uint32_t idxCount) {
 		if (data.indices.empty()) return;
 
 		bool badBuffer = (vertBuf == VK_NULL_HANDLE);
@@ -1906,12 +1905,9 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		                triangleCountPipeline, static_cast<uint32_t>(triangleData.indices.size()));
 	}
 
+
 	// Advance to subpass 1 for transparentData counting (vkrender.cc: nextSubpass + drawTransparent)
 	vkCmdNextSubpass(countCommandBuffer, VK_SUBPASS_CONTENTS_INLINE);
-
-	if (!interlock) {
-		vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
-	}
 
 	// transparentData count -- always counted (interlock or not)
 	if (!transparentData.indices.empty()) {
@@ -1926,9 +1922,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 		vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
 		vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &transparentVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(countCommandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		if (!interlock) {
-			vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
-		}
+		vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
 		vkCmdDrawIndexed(countCommandBuffer, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
 	}
 
