@@ -88,10 +88,16 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     
     bool offscreen=bbox2(Min,Max).offscreen();
 
+
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
         vertexData.clear();
         lineData.clear();
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        if (transparent)
+            transparentData.renderCount = 0;
+        else
+            materialData.renderCount = 0;
         return;
     }
 
@@ -196,10 +202,16 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
     
     bool offscreen=bbox2(Min,Max).offscreen();
 
+
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
         vertexData.clear();
         lineData.clear();
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        if (transparent)
+            transparentData.renderCount = 0;
+        else
+            materialData.renderCount = 0;
         return;
     }
 
@@ -310,9 +322,13 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
 
     bool offscreen = bbox2(Min, Max).offscreen();
 
+
     if (offscreen) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        colorData.renderCount = 0;
         return;
     }
 
@@ -412,9 +428,13 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
 
     bool offscreen = bbox2(Min, Max).offscreen();
 
+
     if (offscreen) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        colorData.renderCount = 0;
         return;
     }
 
@@ -493,6 +513,9 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     if (bbox2(Min, Max).offscreen()) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
 
@@ -709,6 +732,9 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     if (bbox2(Min, Max).offscreen()) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
 
@@ -856,6 +882,9 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     if (bbox2(Min, Max).offscreen()) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
 
@@ -1009,6 +1038,9 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     if (bbox2(Min, Max).offscreen()) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
 
@@ -1197,6 +1229,9 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
     if (bbox2(Min, Max).offscreen()) {
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        colorData.renderCount = 0;
         return;
     }
 
@@ -2060,6 +2095,9 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: C.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
     
@@ -2131,11 +2169,9 @@ void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     if (offscreen) {
         fullyOnscreen = false;
         vertexData.clear();
-        return;
-    }
-
-    if (!remesh && fullyOnscreen && centerIndex == 0) {
-        lineData.extendMaterial(vertexData);
+        // Match Asymptote: C.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
 
@@ -2168,6 +2204,8 @@ void V3dPixel::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, 
     if (bbox2(Min, Max).offscreen()) { // Fully offscreen
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: notRendered() ensures upload gate fires when object comes back onscreen.
+        pointData.renderCount = 0;
         return;
     }
 
