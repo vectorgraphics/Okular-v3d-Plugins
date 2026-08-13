@@ -188,6 +188,19 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         return image;
     }
 
+    // Detect model switch before the early return check so we can sync
+    // renderer state and ensure pages re-render correctly on entry.
+    static size_t lastPage = 0, lastModel = 0;
+    bool switchedModel = (pageNumber != lastPage || modelIndex != lastModel);
+    if (switchedModel) {
+        m_Models[pageNumber][modelIndex].remesh = true;
+        m_Models[pageNumber][modelIndex].m_HasChanged = true;
+        // Sync renderer draw mode to match the entering page, so the first
+        // "m" key press correctly triggers a pipeline recreation.
+        if (m_HeadlessRenderer)
+            m_HeadlessRenderer->currentDrawMode = m_Models[pageNumber][modelIndex].drawMode;
+    }
+
     // Check IBL availability early -- if the model needs IBL but files aren't
     // available yet, defer rendering entirely until download completes.
     std::string imageName = m_Models[pageNumber][modelIndex].file->headerInfo.imageName;
@@ -264,13 +277,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // Match Asymptote prepareScene(): when display is triggered (m_HasChanged=true),
     // always clearData() + pic->render(). The per-object fast path (!remesh && onscreen)
     // avoids re-tessellation — algorithm §\ref{cull}.
-    // When switching models (PDFs with multiple v3d images), force remesh so all
-    // objects rebuild their persistent state for the new scene.
-    static size_t lastPage = 0, lastModel = 0;
-    bool switchedModel = (pageNumber != lastPage || modelIndex != lastModel);
-
     if (switchedModel) {
-        m_Models[pageNumber][modelIndex].remesh = true;
         lastPage = pageNumber;
         lastModel = modelIndex;
     }

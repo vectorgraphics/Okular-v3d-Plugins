@@ -1559,8 +1559,7 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState =
 		vks::initializers::pipelineRasterizationStateCreateInfo(
-			(currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
-				? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+			VK_POLYGON_MODE_FILL,  // Blend quad always fills (matches vkrender.cc)
 			VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 
 	VkPipelineColorBlendAttachmentState blendAttachmentState =
