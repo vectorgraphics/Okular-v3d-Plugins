@@ -3520,12 +3520,5 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 
-	// Matches vkrender.cc: device->waitIdle() ensures ALL GPU work is complete
-	// before returning, not just one queue.
-	VkResult res = vkDeviceWaitIdle(device);
-	if (res != VK_SUCCESS) {
-		std::cerr << "[v3d-error] vkDeviceWaitIdle failed: " << res << std::endl;
-	}
-
 	return returnData;
 }
