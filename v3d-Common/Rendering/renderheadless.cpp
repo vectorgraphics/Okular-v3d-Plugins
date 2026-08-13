@@ -3114,7 +3114,9 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	bool drawModeChanged = (drawMode != currentDrawMode);
 
 	// Detect scene transparency early to decide if full recreation is needed.
-	bool hasTransparencyEarly = !transparentData.indices.empty();
+	// Matches vkrender.cc: Opaque set by setOpaque() after prepareScene().
+	bool hasTransparencyEarly = !Opaque;
+	Opaque = transparentData.indices.empty();  // setOpaque()
 	static bool prevHadTransparency = false;
 	bool sceneTypeChanged = (hasTransparencyEarly != prevHadTransparency);
 
@@ -3310,9 +3312,8 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	}
 
 
-	// Detect if the scene needs the A-buffer compositing path.
-	// Matches vkrender.cc: Opaque = transparentData.indices.empty()
-	bool hasTransparency = !transparentData.indices.empty();
+	// Matches Asymptote prepareScene(): setOpaque() called above after QueueMesh.
+	bool hasTransparency = !Opaque;
 
 
 
