@@ -357,6 +357,13 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
     image = image.copy();  // Deep copy so we don't alias vectorData's buffer
 
+    // Convert to RGB32 (no alpha channel) so Qt/Okular draws the pixels
+    // directly without any compositing over its paperColor background.
+    // The A-buffer blend shader already composited all transparent fragments
+    // against the v3d background color, so the final pixel colors are correct
+    // and no further alpha blending is needed.
+    image = image.convertToFormat(QImage::Format_RGB32);
+
     // Prevent Qt/Okular from applying sRGB gamma correction on display.
     // The shader handles color space (OUTPUT_AS_SRGB when srgb=true).
     // With no managed color space, Qt treats pixel values as-is.
@@ -365,15 +372,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // No vertical mirror needed: viewport {0,H,W,-H} maps NDC Y=+1 to
     // framebuffer row 0, and QImage row 0 = top of screen.
     // So scene +Y naturally appears at the top.
-
-    // Force all pixels to fully opaque so Okular draws them directly
-    // without alpha compositing over its paperColor background.
-    for (int y = 0; y < imageHeight; y++) {
-        unsigned char *row = image.scanLine(y);
-        for (int x = 0; x < imageWidth; x++) {
-            row[x * 4 + 3] = 255;
-        }
-    }
 
     m_Models[pageNumber][modelIndex].m_HasChanged = false;
     m_ModelImages[pageNumber][modelIndex] = image;
