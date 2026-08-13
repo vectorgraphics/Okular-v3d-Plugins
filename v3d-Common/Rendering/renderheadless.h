@@ -347,6 +347,13 @@ public:
 	// Compute fence created in signaled state (matches vkrender.cc inComputeFence).
 	VkFence inComputeFence{ VK_NULL_HANDLE };
 
+	// Fence for the main graphics submit. Ensures GPU has finished executing
+	// the previous render's command buffer before we reset/re-record it.
+	// This is essential because we use a single shared HeadlessRenderer from
+	// multiple Okular threads — the mutex serializes CPU access but does not
+	// prevent GPU-side races on shared command buffers and sync objects.
+	VkFence graphicsFence{ VK_NULL_HANDLE };
+
 	std::string shaderPath;
 	float queuePriority{ 0.5f };
 

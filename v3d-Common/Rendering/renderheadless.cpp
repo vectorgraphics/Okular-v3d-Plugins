@@ -245,6 +245,14 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		fenceCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 		VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &inComputeFence));
 
+		// Graphics fence in signaled state. Tracks completion of the main graphics
+		// submit so we can safely reset/re-record the shared commandBuffer on the
+		// next render() call without GPU-side races.
+		VkFenceCreateInfo gfCI = {};
+		gfCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		gfCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		VK_CHECK_RESULT(vkCreateFence(device, &gfCI, nullptr, &graphicsFence));
+
 		// Persistent transfer command buffer (matches vkrender.cc copyCountCommandBuffer).
 		VkCommandBufferAllocateInfo transferAlloc = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
 		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &transferAlloc, &transferCommandBuffer));
@@ -2898,6 +2906,13 @@ void HeadlessRenderer::cleanup() {
 		vkDestroyFence(device, transferFence, nullptr);
 		transferFence = VK_NULL_HANDLE;
 	}
+
+	// After vkDeviceWaitIdle above, graphicsFence is guaranteed signaled.
+	// Reset it so the next render() call after cleanup+recreate can proceed.
+	if (graphicsFence != VK_NULL_HANDLE) {
+		VK_CHECK_RESULT(vkResetFences(device, 1, &graphicsFence));
+	}
+
 	computeTimelineValue = 0;
 
 	// Cleanup persistent VertexBuffer GPU buffers.
@@ -2981,6 +2996,11 @@ void HeadlessRenderer::recreateGraphicsPipelines(DrawMode drawMode, int targetWi
 	VkResult res = vkDeviceWaitIdle(device);
 	if (res != VK_SUCCESS) {
 		std::cerr << "[v3d-error] vkDeviceWaitIdle failed: " << res << std::endl;
+	}
+
+	// After waitIdle, graphicsFence is guaranteed signaled; reset for reuse.
+	if (graphicsFence != VK_NULL_HANDLE) {
+		VK_CHECK_RESULT(vkResetFences(device, 1, &graphicsFence));
 	}
 
 	// Destroy all pipeline objects.  Shader modules are destroyed immediately by
@@ -3249,7 +3269,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		initialized = true;
 		currentTargetSize = targetSize;
 	} else {
-		// No recreation needed.
+		// No recreation needed. Wait for previous GPU work to complete before
+		// reusing shared command buffers and sync objects. After a full recreate,
+		// vkDeviceWaitIdle was already called above, so no wait is needed.
+		VK_CHECK_RESULT(vkWaitForFences(device, 1, &graphicsFence, VK_TRUE, UINT64_MAX));
+		VK_CHECK_RESULT(vkResetFences(device, 1, &graphicsFence));
 	}
 
 	UniformBufferObject ubo{ };
@@ -3515,7 +3539,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
 	submitInfo.pSignalSemaphores = signalSems.data();
 
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, nullptr));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, graphicsFence));
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 
