@@ -3396,7 +3396,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	VkPipeline colPipeline = isOpaque ? colorPipeline : colorTransparentPipeline;
 	VkPipeline lnPipeline  = isOpaque ? linePipeline : lineTransparentPipeline;
 
-	// materialData (MaterialVertex format)
+	// materialData (MaterialVertex format) -- matches vkrender.cc drawMaterials()
 	if (!materialData.indices.empty() && materialVertexBuffer != VK_NULL_HANDLE) {
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, matPipeline);
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &materialVertexBuffer, offsets);
@@ -3404,6 +3404,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
 		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
 	}
+	materialData.renderCount++;
 
 	// colorData (ColorVertex format) -- matches vkrender.cc drawColors()
 	if (!colorData.indices.empty() && colorVertexBuffer != VK_NULL_HANDLE) {
@@ -3413,6 +3414,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
 		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
 	}
+	colorData.renderCount++;
 
 	// lineData (LINE_LIST topology, MaterialVertex format) -- matches vkrender.cc drawLines()
 	if (!lineData.indices.empty() && lineVertexBuffer != VK_NULL_HANDLE) {
@@ -3422,6 +3424,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
 		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
 	}
+	lineData.renderCount++;
 
 	// triangleData (ColorVertex+GENERAL format) -- always uses transparent pipeline since it needs GENERAL path
 	// Matches vkrender.cc: drawTriangles() uses getPipelineType(trianglePipelines)
@@ -3432,6 +3435,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
 		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
 	}
+	triangleData.renderCount++;
 
 	// === If transparent: subpass 1 (transparentData) + subpass 2 (blend quad) ===
 	if (!isOpaque) {
@@ -3444,6 +3448,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 			vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
 			vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
 		}
+		transparentData.renderCount++;
 
 		vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
