@@ -365,7 +365,7 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
     camp::materialIndex = materialIndex;
     if(drawMode == DRAWMODE_OUTLINE) {
         V3dBezierPatch patch(controlPoints, centerIndex, materialIndex);
-        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
         return;
     }
 
@@ -1640,7 +1640,7 @@ void sphere(
                     }
                     V3dBezierTriangle triangle{p, centerIndex, materialIndex};
                     triangle.QueueMesh(imageWidth, imageHeight, sceneMinBound,
-                                       sceneMaxBound, remesh, orthographic, drawMode);
+                                       sceneMaxBound, true, orthographic, drawMode);
                 }
             }
         }
@@ -1737,7 +1737,7 @@ void disk(
     };
 
     V3dBezierPatch patch{ TPatch(unitdisk), centerIndex, materialIndex };
-    patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+    patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
 }
 
 
@@ -1828,7 +1828,7 @@ void cylinder(
             };
 
             V3dBezierPatch patch{ TPatch(unitcylinder), centerIndex, materialIndex };
-            patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+            patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
         }
     }
 
@@ -1840,7 +1840,7 @@ void cylinder(
         };
 
         V3dLineSegment line{ endpoints, centerIndex, materialIndex };
-        line.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        line.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
     }
 }
 
@@ -2053,7 +2053,7 @@ void tube(
         };
 
         V3dBezierPatch patch{ Convert(s), centerIndex, materialIndex };
-        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
 
     };
 
@@ -2071,7 +2071,7 @@ void tube(
         };
 
         V3dBezierCurve curve{ curveControlPoints, centerIndex, materialIndex };
-        curve.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        curve.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
     }
 }
 
