@@ -1835,16 +1835,12 @@ void HeadlessRenderer::createColorPipeline(DrawMode drawMode, int targetWidth, i
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &colorPipeline);
 }
-
 void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightCount) {
 	// Reset persistent command buffer (matches vkrender.cc: object.countCommandBuffer->reset()).
 	VK_CHECK_RESULT(vkResetCommandBuffer(countCommandBuffer, 0));
 
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(countCommandBuffer, &cmdBufInfo));
-
-	// NO uploads here -- vertex data is uploaded once before refreshBuffers via
-	// uploadVertexData(), matching vkrender.cc updateBuffers() -> drawBuffer(copy=false).
 
 	// Begin count render pass (no clear values, no framebuffer)
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
@@ -1861,7 +1857,27 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	// Bind descriptor sets once for all subpasses
 	vkCmdBindDescriptorSets(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
 
-	// Bind material count pipeline and buffers (vkrender.cc: drawBuffer returns early if indices empty)
+	VkDeviceSize offsets[1] = { 0 };
+
+	// Helper: inline upload + draw per data type (matches vkrender.cc drawBuffer()).
+	// Upload decision: (remesh || renderCount < maxFramesInFlight || badBuffer) && !copied.
+	auto recordCountDraw = [this](auto& data, auto& vertBuf, auto& idxBuf, VkPipeline pipeline, uint32_t idxCount) {
+		if (data.indices.empty()) return;
+
+		bool badBuffer = (vertBuf == VK_NULL_HANDLE);
+		bool needUpload = (!copied) && (remesh || data.renderCount < maxFramesInFlight || badBuffer);
+
+		if (needUpload) {
+			recordUploads(transferCommandBuffer, true);
+			copied = true;
+		}
+
+		vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &vertBuf, offsets);
+		vkCmdBindIndexBuffer(countCommandBuffer, idxBuf, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(countCommandBuffer, idxCount, 1, 0, 0, 0);
+	};
+
 	glm::uvec4 constants{ 0 };
 	constants.x = lightCount;
 	constants.y = currentTargetSize.x;
@@ -1871,59 +1887,48 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	// here via atomics, or we double-count and get stale A-buffer garbage during rotation.
 	// Matches vkrender.cc: refreshBuffers() wraps these draws in "if (!interlock)".
 	if (!interlock) {
-		if (indexCount > 0) {
-			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
+		vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
 
-			VkDeviceSize offsets[1] = { 0 };
-			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &materialVertexBuffer, offsets);
-			vkCmdBindIndexBuffer(countCommandBuffer, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		// materialData (MaterialVertex format) -- matches vkrender.cc drawBuffer(materialBuffers)
+		recordCountDraw(materialData, materialVertexBuffer, materialIndexBuffer,
+		                materialCountPipeline, static_cast<uint32_t>(materialData.indices.size()));
 
-			vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+		// colorData (ColorVertex format) -- matches vkrender.cc drawBuffer(colorBuffers)
+		recordCountDraw(colorData, colorVertexBuffer, colorIndexBuffer,
+		                colorCountPipeline, static_cast<uint32_t>(colorData.indices.size()));
 
-			// Draw indexed (subpass 0: opaque count)
-			vkCmdDrawIndexed(countCommandBuffer, indexCount, 1, 0, 0, 0);
-		}
+		// lineData (LINE_LIST topology, MaterialVertex format) -- matches vkrender.cc drawBuffer(lineBuffers)
+		recordCountDraw(lineData, lineVertexBuffer, lineIndexBuffer,
+		                materialCountPipeline, static_cast<uint32_t>(lineData.indices.size()));
 
-		// Also count colorData vertices (vkrender.cc: drawBuffer for colorBuffers in count pass)
-		if (!colorData.indices.empty()) {
-			VkDeviceSize offsets[1] = { 0 };
-			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorCountPipeline);
-			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &colorVertexBuffer, offsets);
-			vkCmdBindIndexBuffer(countCommandBuffer, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
-			vkCmdDrawIndexed(countCommandBuffer, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
-		}
-
-		// Also count lineData vertices (vkrender.cc: drawBuffer for lineBuffers in count pass)
-		if (!lineData.indices.empty()) {
-			VkDeviceSize offsets[1] = { 0 };
-			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
-			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &lineVertexBuffer, offsets);
-			vkCmdBindIndexBuffer(countCommandBuffer, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
-			vkCmdDrawIndexed(countCommandBuffer, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
-		}
-
-		// Also count triangleData vertices (vkrender.cc: drawBuffer for triangleBuffers in count pass)
-		if (!triangleData.indices.empty()) {
-			VkDeviceSize offsets[1] = { 0 };
-			vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleCountPipeline);
-			vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &triangleVertexBuffer, offsets);
-			vkCmdBindIndexBuffer(countCommandBuffer, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
-			vkCmdDrawIndexed(countCommandBuffer, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
-		}
+		// triangleData (ColorVertex+GENERAL format) -- matches vkrender.cc drawBuffer(triangleBuffers)
+		recordCountDraw(triangleData, triangleVertexBuffer, triangleIndexBuffer,
+		                triangleCountPipeline, static_cast<uint32_t>(triangleData.indices.size()));
 	}
 
 	// Advance to subpass 1 for transparentData counting (vkrender.cc: nextSubpass + drawTransparent)
 	vkCmdNextSubpass(countCommandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
+	if (!interlock) {
+		vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+	}
+
+	// transparentData count -- always counted (interlock or not)
 	if (!transparentData.indices.empty()) {
-		VkDeviceSize offsets[1] = { 0 };
+		bool badBuffer = (transparentVertexBuffer == VK_NULL_HANDLE);
+		bool needUpload = (!copied) && (remesh || transparentData.renderCount < maxFramesInFlight || badBuffer);
+
+		if (needUpload) {
+			recordUploads(transferCommandBuffer, true);
+			copied = true;
+		}
+
 		vkCmdBindPipeline(countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
 		vkCmdBindVertexBuffers(countCommandBuffer, 0, 1, &transparentVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(countCommandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+		if (!interlock) {
+			vkCmdPushConstants(countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+		}
 		vkCmdDrawIndexed(countCommandBuffer, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
 	}
 
@@ -2136,7 +2141,10 @@ void HeadlessRenderer::uploadVertexData() {
 }
 
 void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
-	// Wait for previous compute submission via timeline semaphore (matches vkrender.cc preDrawBuffers).
+	// Matches vkrender.cc preDrawBuffers() exactly.
+	copied = false;
+
+	// Wait for previous compute submission via timeline semaphore.
 	if (computeTimelineValue > 0) {
 		VkSemaphoreWaitInfo waitInfo = {};
 		waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
@@ -2153,35 +2161,29 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 		}
 	}
 
-	// Reset fence (matches vkrender.cc refreshBuffers).
+	// Reset fence (matches vkrender.cc).
 	VK_CHECK_RESULT(vkResetFences(device, 1, &inComputeFence));
 
-	// Matches vkrender.cc preDrawBuffers(): reset copied at the start of the
-	// count/compute cycle so uploads happen once per frame.
-	copied = false;
-
-	// Matches vkrender.cc preDrawBuffers() -> refreshBuffers() ordering exactly:
-	//   beginTransferRecording() -> recordUploads() -> recordCountCommandBuffer()
-	//   -> recordComputeCommandBuffer() -> endAndSubmitTransfers()
-	//   -> submit count+compute waiting on transferDoneSemaphore
-	// Uploads MUST come before count recording so buffers exist when draw calls are recorded
-	// (matches vkrender.cc: drawBuffer uploads inline before bind/draw).
-
-	// 1. Begin transfer recording BEFORE any other command buffer recording.
+	// Begin transfer recording for the count pass (matches vkrender.cc beginTransferRecording).
 	beginTransferRecording();
 
-	// 2. Record vertex uploads -- creates persistent buffers and records copy commands.
-	//    Must happen before count recording so vertex/index buffers exist for draw calls.
-	recordUploads(transferCommandBuffer, true);
-	copied = true;  // Prevent redundant uploads in the main render path (matches vkrender.cc)
-
-	// 3. Record count command buffer (begin -> end).
+	// Record count command buffer with inline uploads per data type.
+	// Matches vkrender.cc: drawBuffer() called inside refreshBuffers(), which does
+	// upload + draw inline for each data type.  Uploads go into transferCommandBuffer;
+	// draws go into countCommandBuffer.
 	recordCountCommandBuffer(indexCount, lightCount);
 
-	// 4. Record compute command buffer (begin -> end).
+	// If interlock is not available, uploads happened during count recording above.
+	// Set copied=true to prevent redundant uploads in the main render path.
+	// Matches vkrender.cc: if (!interlock) copied=true;
+	if (!interlock) {
+		copied = true;
+	}
+
+	// Record compute command buffer (matches vkrender.cc).
 	recordComputeCommandBuffer();
 
-	// 5. End and submit transfers AFTER all cmd buffers are recorded.
+	// End and submit transfers AFTER all cmd buffers are recorded.
 	endAndSubmitTransfers();
 	bool hasPendingTransfers = transferHasPendingWork;
 
@@ -3094,10 +3096,9 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 ) {
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
+	this->remesh = remesh;
 
 	// Reset copied at the start of each frame (matches vkrender.cc preDrawBuffers()).
-	// For transparent scenes, refreshBuffers() also resets it before count-pass uploads.
-	// For opaque scenes, this ensures uploads aren't skipped from a prior frame's state.
 	copied = false;
 
 	// Track IBL state changes - recreate pipelines if IBL toggles

@@ -336,6 +336,7 @@ public:
 	VkCommandBuffer transferCommandBuffer{ VK_NULL_HANDLE };
 	VkFence transferFence{ VK_NULL_HANDLE };  // Tracks transfer completion for safe reset (matches vkrender.cc transferFence)
 	bool transferHasPendingWork{ false };
+	bool copied{ false };  // Per-frame guard: prevents double-uploads within a single frame (matches vkrender.cc)
 
 	// Persistent count+compute command buffers (matches vkrender.cc pattern:
 	// allocated once, reset and re-recorded each frame in refreshBuffers).
@@ -467,4 +468,5 @@ public:
 
 	glm::vec4 m_BackgroundColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 	bool m_Orthographic{ false };
+	bool remesh{ true };  // Per-frame upload gate (matches vkrender.cc global remesh flag)
 };
