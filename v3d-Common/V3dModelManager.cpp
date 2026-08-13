@@ -261,25 +261,40 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMat) };
 
-    // Match Asymptote prepareScene(): clear global buffers and call QueueMesh
-    // only when redraw is needed.  When remesh=false and all objects are fully
-    // onscreen, the per-object fast path (!remesh && S.Onscreen) re-appends
-    // cached data without clearing — algorithm §\ref{cull}.
-    bool needRedraw = m_Models[pageNumber][modelIndex].remesh ||
-                      materialData.indices.empty();
+    // Match Asymptote prepareScene(): when display is triggered (m_HasChanged=true),
+    // always clearData() + pic->render(). The per-object fast path (!remesh && onscreen)
+    // avoids re-tessellation — algorithm §\ref{cull}.
+    // When switching models (PDFs with multiple v3d images), force remesh so all
+    // objects rebuild their persistent state for the new scene.
+    static size_t lastPage = 0, lastModel = 0;
+    bool switchedModel = (pageNumber != lastPage || modelIndex != lastModel);
 
-    if (needRedraw) {
-        materialData.clear();
-        colorData.clear();
-        lineData.clear();
-        transparentData.clear();
-        pointData.clear();
+    if (switchedModel) {
+        m_Models[pageNumber][modelIndex].remesh = true;
+        lastPage = pageNumber;
+        lastModel = modelIndex;
     }
+
+    // clearData() — matches Asymptote prepareScene()
+    materialData.clear();
+    colorData.clear();
+    lineData.clear();
+    transparentData.clear();
+    pointData.clear();
 
     bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-    if (needRedraw)
-        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
+    // pic->render(remesh) — matches Asymptote prepareScene()
+    // Reset renderCount before each render so upload gate fires (matches vkrender.cc
+    // where notRendered() is called during QueueMesh; we centralize it here since
+    // we always clear+QueueMesh when display is triggered).
+    materialData.renderCount = 0;
+    colorData.renderCount = 0;
+    lineData.renderCount = 0;
+    transparentData.renderCount = 0;
+    pointData.renderCount = 0;
+
+    m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
 
     // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
     bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty() || !pointData.indices.empty();
@@ -291,7 +306,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     }
 
     // Match Asymptote prepareScene(): remesh is consumed after one non-OUTLINE render.
-    if (needRedraw && m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
+    if (m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
         m_Models[pageNumber][modelIndex].remesh = false;
     m_ReQueueModels = false;
 
@@ -638,7 +653,13 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
-    if (event->angleDelta().y() < 0) {
+    // Asymptote ignores shift on scroll — just use whichever axis has the delta.
+    // Qt converts vertical→horizontal when shift is held, zeroing .y().
+    int deltaY = event->angleDelta().y();
+    if (deltaY == 0)
+        deltaY = event->angleDelta().x();
+
+    if (deltaY < 0) {
         targetModel->Zoom /= targetModel->file->headerInfo.zoomFactor;
     } else {
         targetModel->Zoom *= targetModel->file->headerInfo.zoomFactor;

@@ -583,11 +583,8 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     }
 
     if (bbox2(Min, Max).offscreen()) {
-        // notRendered() — ensures upload gate fires when object comes back onscreen.
         quadOnscreen = false;
         S.clear();
-        if (S_color) transparentData.renderCount = 0;
-        else materialData.renderCount = 0;
         return;
     }
 
@@ -628,10 +625,6 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     }
 
     // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
-    // notRendered() — reset renderCount so upload gate fires.
-    if (transparent) transparentData.renderCount = 0;
-    else materialData.renderCount = 0;
-
     S.clear();
     quadOnscreen = true;
     fullyOnscreen = true;
@@ -744,8 +737,6 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     if (bbox2(Min, Max).offscreen()) {
         triOnscreen = false;
         S.clear();
-        if (S_color) transparentData.renderCount = 0;
-        else materialData.renderCount = 0;
         return;
     }
 
@@ -782,9 +773,6 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     }
 
     // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
-    if (transparent) transparentData.renderCount = 0;
-    else materialData.renderCount = 0;
-
     S.clear();
     triOnscreen = true;
     fullyOnscreen = true;

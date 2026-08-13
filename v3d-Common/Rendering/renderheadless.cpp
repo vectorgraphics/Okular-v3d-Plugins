@@ -2135,8 +2135,11 @@ void HeadlessRenderer::uploadVertexData() {
 }
 
 void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
-	// Matches vkrender.cc preDrawBuffers() exactly.
+	// Matches vkrender.cc preDrawBuffers() exactly:
+	//   copied = false is always set; count/compute only runs for !Opaque scenes.
 	copied = false;
+
+	if (Opaque) return;
 
 	// Wait for previous compute submission via timeline semaphore.
 	if (computeTimelineValue > 0) {
@@ -3092,9 +3095,6 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	m_Orthographic = orthographic;
 	this->remesh = remesh;
 
-	// Reset copied at the start of each frame (matches vkrender.cc preDrawBuffers()).
-	copied = false;
-
 	// Track IBL state changes - recreate pipelines if IBL toggles
 	bool iblChanged = (useIBL != ibl);
 	if (iblChanged) {
@@ -3137,6 +3137,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		recreateGraphicsPipelines(drawMode, targetSize.x, targetSize.y);
 		currentDrawMode = drawMode;
 	} else if (needsFullRecreate) {
+		VkResult res = vkDeviceWaitIdle(device);
+		if (res != VK_SUCCESS) {
+			std::cerr << "[v3d-error] vkDeviceWaitIdle before cleanup failed: " << res << std::endl;
+		}
+
 		if (initialized) {
 			cleanup();
 
@@ -3326,16 +3331,12 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	bool isOpaque = !hasTransparency;
 
-	// Upload vertex data for opaque scenes (matches vkrender.cc drawFrame):
-	//   beginTransferRecording() -> recordUploads(transferCommandBuffer) -> endAndSubmitTransfers()
-	// For transparent scenes, refreshBuffers() below handles uploads internally.
-	// For opaque scenes, uploads happen inside the single transfer cycle around
-	// graphics recording (matches vkrender.cc drawFrame pattern).
-
-	// For transparent scenes: run count+compute passes.
+	// Matches vkrender.cc drawFrame(): preDrawBuffers() is ALWAYS called.
+	// refreshBuffers() matches preDrawBuffers(): always sets copied=false,
+	// but only runs count/compute for !Opaque scenes.
+	elements = pixels;
+	refreshBuffers(materialData.indices.size(), lights.size());
 	if (!isOpaque) {
-		elements = pixels;
-		refreshBuffers(materialData.indices.size(), lights.size());
 		readFeedback();  // Matches vkrender.cc: resizeFragmentBuffer() after refreshBuffers()
 	}
 
@@ -3343,11 +3344,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// (matches vkrender.cc drawFrame: beginTransferRecording called AFTER preDrawBuffers)
 	beginTransferRecording();
 
-	// For opaque scenes: record uploads into the transfer command buffer
-	// (matches vkrender.cc: drawBuffer -> uploadPersistentBuffer during recording)
-	if (isOpaque) {
-		recordUploads(transferCommandBuffer, remesh);
-	}
+	// Record uploads into the transfer command buffer.
+	// For transparent scenes without interlock, refreshBuffers already uploaded
+	// everything and set copied=true, so recordUploads is a no-op.
+	// For opaque scenes and interlock+transparent, uploads happen here.
+	recordUploads(transferCommandBuffer, remesh);
 
 	// Reset and reuse persistent graphics command buffer (matches vkrender.cc drawFrame).
 	VK_CHECK_RESULT(vkResetCommandBuffer(commandBuffer, 0));
