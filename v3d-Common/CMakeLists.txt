@@ -1,6 +1,6 @@
 add_library(v3dCommon SHARED
     Rendering/renderheadless.cpp
-    3rdParty/VulkanTools/VulkanTools.cpp
+    VulkanTools/VulkanTools.cpp
     V3dFile/V3dFile.cpp
     V3dFile/V3dObjects.cpp
     V3dFile/V3dObject.cpp

@@ -16,7 +16,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <vulkan/vulkan.h>
-#include "../3rdParty/VulkanTools/VulkanTools.h"
+#include "../VulkanTools/VulkanTools.h"
 
 #include "../V3dFile/Mesh.h"
 #include "../V3dFile/V3dObjects.h"
