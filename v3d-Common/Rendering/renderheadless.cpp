@@ -3268,6 +3268,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 		initialized = true;
 		currentTargetSize = targetSize;
+
+		// Reset graphicsFence after full recreation. On first init (initialized was
+		// false), cleanup() was skipped so the fence is still in its initial signaled
+		// state and must be reset before the upcoming vkQueueSubmit below. On
+		// subsequent recreations, cleanup() already called waitIdle+reset, but this
+		// ensures correctness regardless of which path was taken.
+		VK_CHECK_RESULT(vkResetFences(device, 1, &graphicsFence));
 	} else {
 		// No recreation needed. Wait for previous GPU work to complete before
 		// reusing shared command buffers and sync objects. After a full recreate,
