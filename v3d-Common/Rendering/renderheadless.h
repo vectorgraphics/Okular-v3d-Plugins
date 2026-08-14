@@ -92,7 +92,24 @@ struct GPULight
 class HeadlessRenderer
 {
 public:
-	static constexpr uint32_t maxFramesInFlight = 1; // TODO potentially have multiple frames in flight
+	// Per-frame objects for double-buffered rendering. Each frame has its own
+	// command buffers, fences, and semaphores so the CPU can record frame N+1
+	// while the GPU is still executing frame N — no CPU-GPU stalls needed.
+	// Matches vkrender.cc FrameObject pattern with maxFramesInFlight=2.
+	static constexpr uint32_t maxFramesInFlight = 2;
+
+	struct FrameObject {
+		VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };       // Main graphics command buffer
+		VkCommandBuffer transferCommandBuffer{ VK_NULL_HANDLE };// Vertex/index upload command buffer
+		VkCommandBuffer countCommandBuffer{ VK_NULL_HANDLE };   // Count pass command buffer
+		VkCommandBuffer computeCommandBuffer{ VK_NULL_HANDLE }; // Compute (sum1/2/3) command buffer
+
+		VkFence inComputeFence{ VK_NULL_HANDLE };              // Tracks compute submission completion
+		VkFence transferFence{ VK_NULL_HANDLE };               // Tracks transfer submission completion
+		VkSemaphore transferDoneSemaphore{ VK_NULL_HANDLE };   // Signals when transfers complete
+
+		uint64_t timelineValue{ 0 };                           // Timeline value this frame signaled
+	};
 
 	VkInstance instance{ VK_NULL_HANDLE };
 	VkPhysicalDevice physicalDevice{ VK_NULL_HANDLE };
@@ -104,7 +121,8 @@ public:
 	uint32_t queueFamilyIndex;
 	VkQueue queue;
 	VkCommandPool commandPool{ VK_NULL_HANDLE };
-	VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };
+	FrameObject frameObjects[maxFramesInFlight];
+	uint32_t currentFrame{ 0 };  // Ping-pong index (0 or 1)
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout graphicsPipelineLayout{ VK_NULL_HANDLE };  // Single shared layout for ALL graphics pipelines (matches vkrender.cc)
 	VkPipeline materialPipeline{ VK_NULL_HANDLE };  // Opaque pipeline: MaterialVertex, no GENERAL/COLOR
@@ -331,28 +349,8 @@ public:
 	uint64_t currentTimelineValue{ 0 };
 	uint64_t computeTimelineValue{ 0 };
 
-	// Binary semaphore for vertex upload synchronization (matches vkrender.cc transferDoneSemaphore).
-	// Signals when transfer command buffer completes; count/compute submit waits on it.
-	VkSemaphore transferDoneSemaphore{ VK_NULL_HANDLE };
-	VkCommandBuffer transferCommandBuffer{ VK_NULL_HANDLE };
-	VkFence transferFence{ VK_NULL_HANDLE };  // Tracks transfer completion for safe reset (matches vkrender.cc transferFence)
 	bool transferHasPendingWork{ false };
 	bool copied{ false };  // Per-frame guard: prevents double-uploads within a single frame (matches vkrender.cc)
-
-	// Persistent count+compute command buffers (matches vkrender.cc pattern:
-	// allocated once, reset and re-recorded each frame in refreshBuffers).
-	VkCommandBuffer countCommandBuffer{ VK_NULL_HANDLE };
-	VkCommandBuffer computeCommandBuffer{ VK_NULL_HANDLE };
-
-	// Compute fence created in signaled state (matches vkrender.cc inComputeFence).
-	VkFence inComputeFence{ VK_NULL_HANDLE };
-
-	// Fence for the main graphics submit. Ensures GPU has finished executing
-	// the previous render's command buffer before we reset/re-record it.
-	// This is essential because we use a single shared HeadlessRenderer from
-	// multiple Okular threads — the mutex serializes CPU access but does not
-	// prevent GPU-side races on shared command buffers and sync objects.
-	VkFence graphicsFence{ VK_NULL_HANDLE };
 
 	std::string shaderPath;
 	float queuePriority{ 0.5f };
