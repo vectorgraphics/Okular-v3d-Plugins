@@ -3134,20 +3134,17 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// using only the Opaque flag to choose pipelines at draw time.
 	bool drawModeChanged = (drawMode != currentDrawMode);
 
-	// Detect scene transparency early to decide if full recreation is needed.
-	// Matches vkrender.cc: Opaque set by setOpaque() after prepareScene().
-	bool hasTransparencyEarly = !Opaque;
+	// Detect scene transparency for pipeline selection at draw time.
+	// Opaque determines which render pass/framebuffer to use (opaque vs transparent).
+	// Both paths share the same Vulkan resources — no recreation needed when Opaque changes.
 	Opaque = transparentData.indices.empty();  // setOpaque()
-	static bool prevHadTransparency = false;
-	bool sceneTypeChanged = (hasTransparencyEarly != prevHadTransparency);
 
-	// Full recreation needed: size changed, IBL toggled, scene type changed, or first init.
-	bool needsFullRecreate = (currentTargetSize != targetSize) || iblChanged || sceneTypeChanged;
+	// Full recreation needed: size changed, IBL toggled, or first init.
+	// Scene transparency changes between models do NOT require recreation —
+	// both opaque and transparent render passes/framebuffers are always created.
+	bool needsFullRecreate = (currentTargetSize != targetSize) || iblChanged;
 	if (!initialized) {
 		needsFullRecreate = true;
-	}
-	if (needsFullRecreate) {
-		prevHadTransparency = hasTransparencyEarly;
 	}
 
 	// If ONLY draw mode changed, do lightweight pipeline recreation.
