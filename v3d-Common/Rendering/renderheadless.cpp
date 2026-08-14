@@ -209,6 +209,10 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		createInstance();
 		createPhysicalDevice();
 
+		if (initFailed) {
+			return;
+		}
+
 		VkDeviceQueueCreateInfo queueCreateInfo = requestGraphicsQueue();
 
 		createLogicalDevice(&queueCreateInfo);
@@ -434,11 +438,47 @@ void HeadlessRenderer::createPhysicalDevice() {
 	if (deviceCount == 0) {
 		std::cerr << "v3d: no Vulkan physical devices found, disabling rendering." << std::endl;
 		initialized = false;
+		initFailed = true;
 		return;
 	}
 	std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
 	VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data()));
-	physicalDevice = physicalDevices[0];
+
+	// Check OKULAR_V3D_DEVICE environment variable.
+	//   -1: enumerate available devices and exit (help message).
+	//   n:  select device n from the enumerated list.
+	// unset: use device 0 (default, first GPU found).
+	const char* devEnv = std::getenv("OKULAR_V3D_DEVICE");
+	int selectedDevice = 0;
+
+	if (devEnv != nullptr) {
+		selectedDevice = std::atoi(devEnv);
+		if (selectedDevice == -1) {
+			// Enumerate and print all available devices.
+			std::cout << "v3d: available Vulkan devices:" << std::endl;
+			for (uint32_t i = 0; i < deviceCount; i++) {
+				VkPhysicalDeviceProperties props;
+				vkGetPhysicalDeviceProperties(physicalDevices[i], &props);
+				VkPhysicalDeviceFeatures feats;
+				vkGetPhysicalDeviceFeatures(physicalDevices[i], &feats);
+				std::cout << "  [" << i << "] " << props.deviceName
+				          << " (type=" << (int)props.deviceType
+				          << ", fillModeNonSolid=" << feats.fillModeNonSolid << ")" << std::endl;
+			}
+			std::cout << "Set OKULAR_V3D_DEVICE=n to select device n." << std::endl;
+			initialized = false;
+			return;
+		}
+		if (selectedDevice < 0 || selectedDevice >= (int)deviceCount) {
+			std::cerr << "v3d: OKULAR_V3D_DEVICE=" << selectedDevice
+			          << " is out of range [0.." << deviceCount - 1 << "], disabling rendering." << std::endl;
+			initialized = false;
+			return;
+		}
+		std::cout << "v3d: OKULAR_V3D_DEVICE=" << selectedDevice << ", selecting device " << selectedDevice << std::endl;
+	}
+
+	physicalDevice = physicalDevices[selectedDevice];
 
 	VkPhysicalDeviceProperties deviceProps;
 	vkGetPhysicalDeviceProperties(physicalDevice, &deviceProps);
@@ -2342,7 +2382,7 @@ void HeadlessRenderer::recordCopyToHost(VkCommandBuffer cmd, glm::ivec2 targetSi
 // CPU-side pixel read from already-mapped host-visible image.
 // The GPU copy was recorded into the main command buffer and executed as part
 // of a single submit.  We only wait + read here — no Vulkan recording or submission.
-unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool /*useResolve*/) {
+unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 /*targetSize*/, VkSubresourceLayout* imageSubresourceLayout, bool /*useResolve*/) {
 	VkImageSubresource subResource{};
 	subResource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	VkSubresourceLayout subResourceLayout;
@@ -3071,6 +3111,10 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
 	this->remesh = remesh;
+
+	if (initFailed) {
+		return nullptr;
+	}
 
 	// Track IBL state changes - recreate pipelines if IBL toggles
 	bool iblChanged = (useIBL != ibl);

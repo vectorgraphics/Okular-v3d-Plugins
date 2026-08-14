@@ -356,6 +356,12 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].remesh
     );
 
+    if (!imageData) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
+    }
+
     unsigned char* imgDataTmp = imageData;
 
     // renderheadless.cpp clamps targetSize to maxFramebufferWidth/Height.

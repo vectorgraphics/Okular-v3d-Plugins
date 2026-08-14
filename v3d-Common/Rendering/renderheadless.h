@@ -251,6 +251,7 @@ public:
 
 	glm::ivec2 currentTargetSize{ 0, 0 };
 	bool initialized{ false };
+	bool initFailed{ false };  // True when Vulkan device creation failed (e.g., bad OKULAR_V3D_DEVICE)
 	bool interlock{ false };
 	bool Opaque{ true };  // Matches Asymptote: set once per QueueMesh via setOpaque()
 	bool srgb{ false }; // TODO: control via env var
