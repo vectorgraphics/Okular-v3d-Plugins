@@ -188,6 +188,19 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         return image;
     }
 
+    // Detect model switch before the early return check so we can sync
+    // renderer state and ensure pages re-render correctly on entry.
+    static size_t lastPage = 0, lastModel = 0;
+    bool switchedModel = (pageNumber != lastPage || modelIndex != lastModel);
+    if (switchedModel) {
+        m_Models[pageNumber][modelIndex].remesh = true;
+        m_Models[pageNumber][modelIndex].m_HasChanged = true;
+        // Sync renderer draw mode to match the entering page, so the first
+        // "m" key press correctly triggers a pipeline recreation.
+        if (m_HeadlessRenderer)
+            m_HeadlessRenderer->currentDrawMode = m_Models[pageNumber][modelIndex].drawMode;
+    }
+
     // Check IBL availability early -- if the model needs IBL but files aren't
     // available yet, defer rendering entirely until download completes.
     std::string imageName = m_Models[pageNumber][modelIndex].file->headerInfo.imageName;
@@ -213,14 +226,12 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         useIBL = true;
     }
 
-    if (!m_Models[pageNumber][modelIndex].m_HasChanged && 
+    if (!m_Models[pageNumber][modelIndex].m_HasChanged &&
         m_ModelImages[pageNumber][modelIndex].width() == imageWidth &&
         m_ModelImages[pageNumber][modelIndex].height() == imageHeight) {
 
         return m_ModelImages[pageNumber][modelIndex];
     }
-
-    m_Models[pageNumber][modelIndex].remesh = true; // TODO
 
     // Projection
     EnsureCachedRequestSize(pageNumber);
@@ -263,32 +274,48 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     normMat = glm::dmat3{ glm::inverse(m_Models[pageNumber][modelIndex].viewMat) };
 
-    if (m_ReQueueModels || m_Models[pageNumber][modelIndex].remesh) {
-        // Clear global VertexBuffers before re-queuing (matches vkrender.cc: data
-        // accumulates in persistent VertexBuffers; clear before each frame).
-        materialData.clear();
-        colorData.clear();
-        lineData.clear();
-        transparentData.clear();
-
-        bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
-
-        m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
-
-        // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
-        bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty();
-
-        if (!hasRenderableData) {
-            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
-            image.fill(Qt::black);
-            return image;
-        }
-
-        // Upload happens inside recordCommandBuffer (vkrender.cc: drawBuffer records
-        // upload + draw into the same command buffer session).
-        m_Models[pageNumber][modelIndex].remesh = false;
-        m_ReQueueModels = false;
+    // Match Asymptote prepareScene(): when display is triggered (m_HasChanged=true),
+    // always clearData() + pic->render(). The per-object fast path (!remesh && onscreen)
+    // avoids re-tessellation — algorithm §\ref{cull}.
+    if (switchedModel) {
+        lastPage = pageNumber;
+        lastModel = modelIndex;
     }
+
+    // clearData() — matches Asymptote prepareScene()
+    materialData.clear();
+    colorData.clear();
+    lineData.clear();
+    transparentData.clear();
+    pointData.clear();
+
+    bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
+
+    // pic->render(remesh) — matches Asymptote prepareScene()
+    // Reset renderCount before each render so upload gate fires (matches vkrender.cc
+    // where notRendered() is called during QueueMesh; we centralize it here since
+    // we always clear+QueueMesh when display is triggered).
+    materialData.renderCount = 0;
+    colorData.renderCount = 0;
+    lineData.renderCount = 0;
+    transparentData.renderCount = 0;
+    pointData.renderCount = 0;
+
+    m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
+
+    // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
+    bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty() || !pointData.indices.empty();
+
+    if (!hasRenderableData) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
+    }
+
+    // Match Asymptote prepareScene(): remesh is consumed after one non-OUTLINE render.
+    if (m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
+        m_Models[pageNumber][modelIndex].remesh = false;
+    m_ReQueueModels = false;
 
     m_Models[pageNumber][modelIndex].initialized = true;
 
@@ -319,14 +346,21 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].projMat,
         m_Models[pageNumber][modelIndex].normMat,
         m_Models[pageNumber][modelIndex].file->materials,
-        std::vector<V3dHeaderInfo::Light>{ m_Models[pageNumber][modelIndex].file->headerInfo.light },
+        m_Models[pageNumber][modelIndex].file->headerInfo.lights,
         pipelineMode,
         bgColor,
         m_Models[pageNumber][modelIndex].file->headerInfo.orthographic,
         useIBL,
         iblPath,
-        m_Models[pageNumber][modelIndex].drawMode
+        m_Models[pageNumber][modelIndex].drawMode,
+        m_Models[pageNumber][modelIndex].remesh
     );
+
+    if (!imageData) {
+        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
+        image.fill(Qt::black);
+        return image;
+    }
 
     unsigned char* imgDataTmp = imageData;
 
@@ -357,6 +391,13 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
     image = image.copy();  // Deep copy so we don't alias vectorData's buffer
 
+    // Convert to RGB32 (no alpha channel) so Qt/Okular draws the pixels
+    // directly without any compositing over its paperColor background.
+    // The A-buffer blend shader already composited all transparent fragments
+    // against the v3d background color, so the final pixel colors are correct
+    // and no further alpha blending is needed.
+    image = image.convertToFormat(QImage::Format_RGB32);
+
     // Prevent Qt/Okular from applying sRGB gamma correction on display.
     // The shader handles color space (OUTPUT_AS_SRGB when srgb=true).
     // With no managed color space, Qt treats pixel values as-is.
@@ -365,15 +406,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // No vertical mirror needed: viewport {0,H,W,-H} maps NDC Y=+1 to
     // framebuffer row 0, and QImage row 0 = top of screen.
     // So scene +Y naturally appears at the top.
-
-    // Force all pixels to fully opaque so Okular draws them directly
-    // without alpha compositing over its paperColor background.
-    for (int y = 0; y < imageHeight; y++) {
-        unsigned char *row = image.scanLine(y);
-        for (int x = 0; x < imageWidth; x++) {
-            row[x * 4 + 3] = 255;
-        }
-    }
 
     m_Models[pageNumber][modelIndex].m_HasChanged = false;
     m_ModelImages[pageNumber][modelIndex] = image;
@@ -634,7 +666,13 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
-    if (event->angleDelta().y() < 0) {
+    // Asymptote ignores shift on scroll — just use whichever axis has the delta.
+    // Qt converts vertical→horizontal when shift is held, zeroing .y().
+    int deltaY = event->angleDelta().y();
+    if (deltaY == 0)
+        deltaY = event->angleDelta().x();
+
+    if (deltaY < 0) {
         targetModel->Zoom /= targetModel->file->headerInfo.zoomFactor;
     } else {
         targetModel->Zoom *= targetModel->file->headerInfo.zoomFactor;

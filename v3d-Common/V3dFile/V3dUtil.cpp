@@ -1,14 +1,14 @@
 #include "V3dUtil.h"
 
-float readReal(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision) {
-    float out;
+double readReal(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision) {
     if (doublePrecision) {
         double val;
         xdrFile >> val;
-        out = static_cast<float>(val);
+        return val;
     } else {
-        xdrFile >> out;
+        float val;
+        xdrFile >> val;
+        return static_cast<double>(val);
     }
-
-    return out;
 }
+

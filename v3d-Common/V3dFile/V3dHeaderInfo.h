@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "V3dTypes.h"
 
@@ -37,14 +38,14 @@ public:
     UINT canvasWidth = 500;
     UINT canvasHeight = 500;
     V3D_BOOL absolute = false;
-    TRIPLE minBound = { 0.0f, 0.0f, 0.0f };
-    TRIPLE maxBound = { 100.0f, 100.0f, 100.0f};
+    TRIPLE minBound = { 0.0, 0.0, 0.0 };
+    TRIPLE maxBound = { 100.0, 100.0, 100.0};
     V3D_BOOL orthographic = false;
-    REAL angleOfView = glm::radians(45.0f);
-    REAL initialZoom = 1.0f;
+    REAL angleOfView = glm::radians(45.0);
+    REAL initialZoom = 1.0;
     PAIR viewportShift = { 0.0f, 0.0f};
     PAIR viewportMargin = { 0.0f, 0.0f };
-    Light light = { { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } };
+    std::vector<Light> lights;
     RGBA background = { 1.0f, 1.0f, 1.0f, 1.0f };
     REAL zoomFactor = 1.0f;
     REAL zoomPinchFactor = 1.0f;

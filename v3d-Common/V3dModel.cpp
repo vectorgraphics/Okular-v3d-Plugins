@@ -157,6 +157,7 @@ void V3dModel::updateViewMatrix() {
 }
 
 void V3dModel::dragModeShift(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& /*displayDimensions*/) {
+    if (normalizedMousePosition == lastNormalizedMousePosition) return;
     // Match vkrender.cc shift(): X += dx * Zoominv, then xshift = (X/Width) * zoom.
     // Our inputs are already normalized [0,1] within the model area, so:
     //   deltaNorm * Width = pixel delta
@@ -170,6 +171,7 @@ void V3dModel::dragModeShift(const glm::vec2& normalizedMousePosition, const glm
 }
 
 void V3dModel::dragModeZoom(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
+    if (normalizedMousePosition == lastNormalizedMousePosition) return;
     float diff = lastNormalizedMousePosition.y - normalizedMousePosition.y;
 
     float stepPower = file->headerInfo.zoomStep * (pageViewSize.y / 2.0f) * diff;
@@ -193,6 +195,7 @@ void V3dModel::dragModeZoom(const glm::vec2& normalizedMousePosition, const glm:
 }
 
 void V3dModel::dragModePan(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
+    if (normalizedMousePosition == lastNormalizedMousePosition) return;
     if (file->headerInfo.orthographic) {
         dragModeShift(normalizedMousePosition, lastNormalizedMousePosition, pageViewSize);
     } else {

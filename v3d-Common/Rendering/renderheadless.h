@@ -38,6 +38,11 @@ template<> struct VertexInputTraits<ColorVertex> {
     static std::vector<VkVertexInputAttributeDescription> attributes(bool count);
 };
 
+template<> struct VertexInputTraits<PointVertex> {
+    static VkVertexInputBindingDescription binding();
+    static std::vector<VkVertexInputAttributeDescription> attributes(bool count);
+};
+
 // Pipeline configuration for createGraphicsPipeline<V>().  Matches vkrender.cc
 // PipelineConfig -- one config per pipeline, no boilerplate duplication.
 struct PipelineConfig {
@@ -87,7 +92,25 @@ struct GPULight
 class HeadlessRenderer
 {
 public:
-	static constexpr uint32_t maxFramesInFlight = 1; // TODO potentially have multiple frames in flight
+	// Per-frame objects for double-buffered rendering. Each frame has its own
+	// command buffers, fences, and semaphores so the CPU can record frame N+1
+	// while the GPU is still executing frame N — no CPU-GPU stalls needed.
+	// Matches vkrender.cc FrameObject pattern with maxFramesInFlight=2.
+	static constexpr uint32_t maxFramesInFlight = 2;
+
+	struct FrameObject {
+		VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };       // Main graphics command buffer
+		VkCommandBuffer transferCommandBuffer{ VK_NULL_HANDLE };// Vertex/index upload command buffer
+		VkCommandBuffer countCommandBuffer{ VK_NULL_HANDLE };   // Count pass command buffer
+		VkCommandBuffer computeCommandBuffer{ VK_NULL_HANDLE }; // Compute (sum1/2/3) command buffer
+
+		VkFence inComputeFence{ VK_NULL_HANDLE };              // Tracks compute submission completion
+		VkFence transferFence{ VK_NULL_HANDLE };               // Tracks transfer submission completion
+		VkFence inFlightFence{ VK_NULL_HANDLE };               // Tracks full frame (render+copy) completion
+		VkSemaphore transferDoneSemaphore{ VK_NULL_HANDLE };   // Signals when transfers complete
+
+		uint64_t timelineValue{ 0 };                           // Timeline value this frame signaled
+	};
 
 	VkInstance instance{ VK_NULL_HANDLE };
 	VkPhysicalDevice physicalDevice{ VK_NULL_HANDLE };
@@ -99,7 +122,8 @@ public:
 	uint32_t queueFamilyIndex;
 	VkQueue queue;
 	VkCommandPool commandPool{ VK_NULL_HANDLE };
-	VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };
+	FrameObject frameObjects[maxFramesInFlight];
+	uint32_t currentFrame{ 0 };  // Ping-pong index (0 or 1)
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout graphicsPipelineLayout{ VK_NULL_HANDLE };  // Single shared layout for ALL graphics pipelines (matches vkrender.cc)
 	VkPipeline materialPipeline{ VK_NULL_HANDLE };  // Opaque pipeline: MaterialVertex, no GENERAL/COLOR
@@ -107,6 +131,9 @@ public:
 
 	// Line pipeline: LINE_LIST topology for lineData (BezierCurve edges, V3dLineSegment)
 	VkPipeline linePipeline{ VK_NULL_HANDLE };
+
+	// Point pipeline: POINT_LIST topology for pointData (V3dPixel)
+	VkPipeline pointPipeline{ VK_NULL_HANDLE };
 
 	// Persistent GPU buffers per VertexBuffer type, following vkrender.cc FrameBufferPair pattern.
 	// Each pair (vertex+index) is allocated once and grows as needed; data is uploaded
@@ -180,6 +207,20 @@ public:
 	VkDeviceMemory lineIndexStagingMemory{ VK_NULL_HANDLE };
 	VkDeviceSize lineIndexStgSize{ 0 };
 
+	// Point vertex buffers (for V3dPixel / pointData -- PointVertex format)
+	VkBuffer pointVertexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointVertexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointVertexBufferSize{ 0 };
+	VkBuffer pointIndexBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointIndexMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointIndexBufferSize{ 0 };
+	VkBuffer pointVertexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointVertexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointVertexStgSize{ 0 };
+	VkBuffer pointIndexStagingBuffer{ VK_NULL_HANDLE };
+	VkDeviceMemory pointIndexStagingMemory{ VK_NULL_HANDLE };
+	VkDeviceSize pointIndexStgSize{ 0 };
+
 	UniformBufferObject cachedUbo{ };
 	VkBuffer uniformBuffer;
 	VkDeviceMemory uniformBufferMemory;
@@ -210,7 +251,9 @@ public:
 
 	glm::ivec2 currentTargetSize{ 0, 0 };
 	bool initialized{ false };
+	bool initFailed{ false };  // True when Vulkan device creation failed (e.g., bad OKULAR_V3D_DEVICE)
 	bool interlock{ false };
+	bool Opaque{ true };  // Matches Asymptote: set once per QueueMesh via setOpaque()
 	bool srgb{ false }; // TODO: control via env var
 	MeshPipelineMode currentPipelineMode{ MeshPipelineMode::MaterialOnly };
 	DrawMode currentDrawMode{ DRAWMODE_NORMAL };
@@ -308,20 +351,8 @@ public:
 	uint64_t currentTimelineValue{ 0 };
 	uint64_t computeTimelineValue{ 0 };
 
-	// Binary semaphore for vertex upload synchronization (matches vkrender.cc transferDoneSemaphore).
-	// Signals when transfer command buffer completes; count/compute submit waits on it.
-	VkSemaphore transferDoneSemaphore{ VK_NULL_HANDLE };
-	VkCommandBuffer transferCommandBuffer{ VK_NULL_HANDLE };
-	VkFence transferFence{ VK_NULL_HANDLE };  // Tracks transfer completion for safe reset (matches vkrender.cc transferFence)
 	bool transferHasPendingWork{ false };
-
-	// Persistent count+compute command buffers (matches vkrender.cc pattern:
-	// allocated once, reset and re-recorded each frame in refreshBuffers).
-	VkCommandBuffer countCommandBuffer{ VK_NULL_HANDLE };
-	VkCommandBuffer computeCommandBuffer{ VK_NULL_HANDLE };
-
-	// Compute fence created in signaled state (matches vkrender.cc inComputeFence).
-	VkFence inComputeFence{ VK_NULL_HANDLE };
+	bool copied{ false };  // Per-frame guard: prevents double-uploads within a single frame (matches vkrender.cc)
 
 	std::string shaderPath;
 	float queuePriority{ 0.5f };
@@ -349,6 +380,7 @@ private:
 	void createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
 	void createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
 	void createLinePipeline(int targetWidth, int targetHeight);
+	void createPointPipeline(int targetWidth, int targetHeight);
 	void recreateGraphicsPipelines(DrawMode drawMode, int targetWidth, int targetHeight);
 	void uploadToPersistentBuffer(VkCommandBuffer cmd, VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
 	                              VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
@@ -356,13 +388,14 @@ private:
 	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
 	void recordComputeCommandBuffer();
 	// Transfer recording split (matches vkrender.cc pattern):
-	// beginTransferRecording -> recordUploads(cmd) -> endAndSubmitTransfers
+	// beginTransferRecording -> recordUploads(cmd, remesh) -> endAndSubmitTransfers
 	void beginTransferRecording();
-	void recordUploads(VkCommandBuffer cmd);
+	void recordUploads(VkCommandBuffer cmd, bool remesh);
 	void endAndSubmitTransfers();
 	void uploadVertexData();  // Thin wrapper: calls all three above
 	void refreshBuffers(size_t indexCount, size_t lightCount);
 	void readFeedback();  // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback
+	void recordCopyToHost(VkCommandBuffer cmd, glm::ivec2 targetSize, bool useResolve);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 
 	void createHostReadableDestinationImage(glm::ivec2 size);
@@ -431,7 +464,8 @@ public:
 		bool orthographic = false,
 		bool useIBL = false,
 		const std::string& iblPath = "",
-		DrawMode drawMode = DRAWMODE_NORMAL
+		DrawMode drawMode = DRAWMODE_NORMAL,
+		bool remesh = true
 	);
 
 	uint32_t getMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties);
@@ -443,4 +477,5 @@ public:
 
 	glm::vec4 m_BackgroundColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 	bool m_Orthographic{ false };
+	bool remesh{ true };  // Per-frame upload gate (matches vkrender.cc global remesh flag)
 };

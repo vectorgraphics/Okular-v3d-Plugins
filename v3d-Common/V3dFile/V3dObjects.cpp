@@ -1,18 +1,108 @@
 #include "V3dObjects.h"
 
+#include "rgba.h"
+#include "bezierpatch.h"
+#include "beziercurve.h"
+#include "bbox.h"
+#include "bound.h"
+
 #include <iostream>
 
 #include "V3dUtil.h"
 
-#include "rgba.h"
-#include "bezierpatch.h"
-#include "beziercurve.h"
-
-using namespace std;
 using namespace camp;
 
 // Definition of the global materials pointer declared in V3dObjects.h.
 namespace camp { const std::vector<V3dMaterial>* materials = nullptr; }
+
+// Compute tight Bézier patch bounds via recursive subdivision (matches drawsurface.cc).
+static void computeBezierPatchBounds(const triple* controls, triple& Min, triple& Max) {
+    double cx[16], cy[16], cz[16];
+    for (int i = 0; i < 16; ++i) {
+        cx[i] = controls[i].getx();
+        cy[i] = controls[i].gety();
+        cz[i] = controls[i].getz();
+    }
+
+    double c0 = cx[0];
+    double fuzz = Fuzz * run::norm(cx, 16);
+    double x = bound(cx, min, c0, fuzz, maxdepth);
+    double X = bound(cx, max, c0, fuzz, maxdepth);
+
+    c0 = cy[0];
+    fuzz = Fuzz * run::norm(cy, 16);
+    double y = bound(cy, min, c0, fuzz, maxdepth);
+    double Y = bound(cy, max, c0, fuzz, maxdepth);
+
+    c0 = cz[0];
+    fuzz = Fuzz * run::norm(cz, 16);
+    double z = bound(cz, min, c0, fuzz, maxdepth);
+    double Z = bound(cz, max, c0, fuzz, maxdepth);
+
+    Min = triple(x, y, z);
+    Max = triple(X, Y, Z);
+}
+
+// Compute tight Bézier triangle bounds via recursive subdivision (matches drawsurface.cc).
+static void computeBezierTriangleBounds(const triple* controls, triple& Min, triple& Max) {
+    double cx[10], cy[10], cz[10];
+    for (int i = 0; i < 10; ++i) {
+        cx[i] = controls[i].getx();
+        cy[i] = controls[i].gety();
+        cz[i] = controls[i].getz();
+    }
+
+    double c0 = cx[0];
+    double fuzz = Fuzz * run::norm(cx, 10);
+    double x = boundtri(cx, min, c0, fuzz, maxdepth);
+    double X = boundtri(cx, max, c0, fuzz, maxdepth);
+
+    c0 = cy[0];
+    fuzz = Fuzz * run::norm(cy, 10);
+    double y = boundtri(cy, min, c0, fuzz, maxdepth);
+    double Y = boundtri(cy, max, c0, fuzz, maxdepth);
+
+    c0 = cz[0];
+    fuzz = Fuzz * run::norm(cz, 10);
+    double z = boundtri(cz, min, c0, fuzz, maxdepth);
+    double Z = boundtri(cz, max, c0, fuzz, maxdepth);
+
+    Min = triple(x, y, z);
+    Max = triple(X, Y, Z);
+}
+
+// Tight bounds for a cubic Bézier curve (4 control points).
+// Uses bound(triple z0,c0,c1,z1,...) from path3.cc, now in bound.cc.
+static double getx(const triple& v) { return v.getx(); }
+static double gety(const triple& v) { return v.gety(); }
+static double getz(const triple& v) { return v.getz(); }
+
+static void computeBezierCurveBounds(const triple* controls, triple& Min, triple& Max) {
+    double cx[4], cy[4], cz[4];
+    for (int i = 0; i < 4; ++i) {
+        cx[i] = controls[i].getx();
+        cy[i] = controls[i].gety();
+        cz[i] = controls[i].getz();
+    }
+
+    double c0 = cx[0];
+    double fuzz = Fuzz * run::norm(cx, 4);
+    double x = bound(controls[0], controls[1], controls[2], controls[3], min, getx, c0, fuzz, maxdepth);
+    double X = bound(controls[0], controls[1], controls[2], controls[3], max, getx, c0, fuzz, maxdepth);
+
+    c0 = cy[0];
+    fuzz = Fuzz * run::norm(cy, 4);
+    double y = bound(controls[0], controls[1], controls[2], controls[3], min, gety, c0, fuzz, maxdepth);
+    double Y = bound(controls[0], controls[1], controls[2], controls[3], max, gety, c0, fuzz, maxdepth);
+
+    c0 = cz[0];
+    fuzz = Fuzz * run::norm(cz, 4);
+    double z = bound(controls[0], controls[1], controls[2], controls[3], min, getz, c0, fuzz, maxdepth);
+    double Z = bound(controls[0], controls[1], controls[2], controls[3], max, getz, c0, fuzz, maxdepth);
+
+    Min = triple(x, y, z);
+    Max = triple(X, Y, Z);
+}
 
 
 V3dBezierPatch::V3dBezierPatch(
@@ -28,13 +118,25 @@ V3dBezierPatch::V3dBezierPatch(
         xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[16];
+        for (int i = 0; i < 16; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierPatchBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 V3dBezierPatch::V3dBezierPatch(std::array<TRIPLE, 16> controlPoints, UINT centerIndex, UINT materialIndex) 
     : V3dObject{ ObjectTypes::BEZIER_PATCH }
     , controlPoints{ controlPoints }
     , centerIndex{ centerIndex }
-    , materialIndex{ materialIndex } { }
+    , materialIndex{ materialIndex } {
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[16];
+        for (int i = 0; i < 16; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierPatchBounds(Controls, V3dObject::Min, V3dObject::Max);
+    }
 
 
 void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
@@ -62,8 +164,6 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
     };
 
-    BezierPatch S;
-
     triple b=sceneMinBound;
     triple B=sceneMaxBound;
 
@@ -83,12 +183,16 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    triple Min=b;
-    triple Max=B;
-    
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
         fullyOnscreen = false;
         vertexData.clear();
         lineData.clear();
@@ -108,27 +212,15 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
         triple edge3[] = { Controls[3],  Controls[2],  Controls[1],  Controls[0]  };
         C.queue(edge3, straight, size3.length()/size2);
     } else {
-        if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
-            // Match Asymptote drawBezierPatch::render(): S.append() routes based on S.transparent.
-            // In WIREFRAME, force opaque regardless of prior isTransparent state.
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
+        if(!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+            S.append();
             return;
         }
 
         S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
-        fullyOnscreen = true;
+        fullyOnscreen = S.Onscreen;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = S.transparent;  // Only persist in NORMAL mode
-        vertexData = S.data;
-        if (S.transparent)
-            transparentData.extendColor(vertexData);
-        else if (color)
-            colorData.extendColor(vertexData);
-        else
-            materialData.extendMaterial(vertexData);
     }
 }
 
@@ -145,13 +237,25 @@ V3dBezierTriangle::V3dBezierTriangle(
         xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[10];
+        for (int i = 0; i < 10; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierTriangleBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 V3dBezierTriangle::V3dBezierTriangle(std::array<TRIPLE, 10> controlPoints, UINT centerIndex, UINT materialIndex) 
     : V3dObject{ ObjectTypes::BEZIER_TRIANGLE }
     , controlPoints{ controlPoints }
     , centerIndex{ centerIndex }
-    , materialIndex{ materialIndex } { }
+    , materialIndex{ materialIndex } {
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[10];
+        for (int i = 0; i < 10; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierTriangleBounds(Controls, V3dObject::Min, V3dObject::Max);
+    }
 
 void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
@@ -169,8 +273,6 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         triple(controlPoints[8].x, controlPoints[8].y, controlPoints[8].z),
         triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
     };
-
-    BezierTriangle S;
 
     triple b=sceneMinBound;
     triple B=sceneMaxBound;
@@ -191,12 +293,16 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
     bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    triple Min=b;
-    triple Max=B;
-    
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
         fullyOnscreen = false;
         vertexData.clear();
         lineData.clear();
@@ -214,27 +320,15 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
         triple edge2[] = { Controls[9], Controls[5], Controls[2], Controls[0] };
         C.queue(edge2, straight, size3.length()/size2);
     } else {
-        if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
-            // Match Asymptote drawBezierPatch::render(): S.append() routes based on S.transparent.
-            // In WIREFRAME, force opaque regardless of prior isTransparent state.
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
+        if(!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+            S.append();
             return;
         }
 
         S.queue(Controls,straight,size3.length()/size2,transparent,NULL);
-        fullyOnscreen = true;
+        fullyOnscreen = S.Onscreen;
         if (drawMode == DRAWMODE_NORMAL)
             isTransparent = S.transparent;  // Only persist in NORMAL mode
-        vertexData = S.data;
-        if (S.transparent)
-            transparentData.extendColor(vertexData);
-        else if (color)
-            colorData.extendColor(vertexData);
-        else
-            materialData.extendMaterial(vertexData);
     }
 }
 
@@ -259,13 +353,19 @@ V3dBezierPatchWithCornerColors::V3dBezierPatchWithCornerColors(
             xdrFile >> cornerColors[i].b;
             xdrFile >> cornerColors[i].a;
         }
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[16];
+        for (int i = 0; i < 16; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierPatchBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
     if(drawMode == DRAWMODE_OUTLINE) {
         V3dBezierPatch patch(controlPoints, centerIndex, materialIndex);
-        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
         return;
     }
 
@@ -291,8 +391,6 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
         triple(controlPoints[15].x, controlPoints[15].y, controlPoints[15].z),
     };
 
-    BezierPatch S;
-
     triple b = sceneMinBound;
     triple B = sceneMaxBound;
 
@@ -305,27 +403,28 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    triple Min = b;
-    triple Max = B;
-
-    bool offscreen = bbox2(Min, Max).offscreen();
-
-    if (offscreen) {
-        fullyOnscreen = false;
-        vertexData.clear();
-        return;
-    }
-
     // Match Asymptote drawBezierPatch::render(): only detect transparency in NORMAL mode.
     // WIREFRAME/OUTLINE force opaque (commit 316f906894).
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
 
-    if (!remesh && fullyOnscreen) {
-        if (transparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
+
+    if (offscreen) {
+        // Match Asymptote drawBezierPatch::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
+        fullyOnscreen = false;
+        vertexData.clear();
+        return;
+    }
+
+    if (!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+        S.append();
         return;
     }
 
@@ -339,13 +438,7 @@ void V3dBezierPatchWithCornerColors::QueueMesh(int imageWidth, int imageHeight, 
     }
 
     S.queue(Controls, straight, size3.length() / size2, transparent, corners);
-    fullyOnscreen = true;
-    vertexData = S.data;
-    // Match Asymptote BezierPatch::append(): route based on transparency.
-    if (S.transparent)
-        transparentData.extendColor(vertexData);
-    else
-        colorData.extendColor(vertexData);
+    fullyOnscreen = S.Onscreen;
 }
 
 
@@ -368,7 +461,13 @@ V3dBezierTriangleWithCornerColors::V3dBezierTriangleWithCornerColors(
             xdrFile >> cornerColors[i].g;
             xdrFile >> cornerColors[i].b;
             xdrFile >> cornerColors[i].a;
-        }    
+        }
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[10];
+        for (int i = 0; i < 10; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierTriangleBounds(Controls, V3dObject::Min, V3dObject::Max);
     }
 
 void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
@@ -393,8 +492,6 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
         triple(controlPoints[9].x, controlPoints[9].y, controlPoints[9].z),
     };
 
-    BezierTriangle S;
-
     triple b = sceneMinBound;
     triple B = sceneMaxBound;
 
@@ -407,26 +504,28 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    triple Min = b;
-    triple Max = B;
+    // Match Asymptote: only detect transparency in NORMAL mode (commit 316f906894).
+    bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
+                        cornerColors[2].a < 3.0f);
 
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierTriangle::Min/Max).
     bool offscreen = bbox2(Min, Max).offscreen();
 
+
     if (offscreen) {
+        // Match Asymptote drawBezierTriangle::render(): S.Onscreen=false, S.data.clear(), S.notRendered().
+        S.Onscreen = false;
+        S.data.clear();
+        S.transparent = transparent;
+        S.color = NULL;
+        S.notRendered();
         fullyOnscreen = false;
         vertexData.clear();
         return;
     }
 
-    // Match Asymptote: only detect transparency in NORMAL mode (commit 316f906894).
-    bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
-                        cornerColors[2].a < 3.0f);
-
-    if (!remesh && fullyOnscreen) {
-        if (transparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
+    if (!remesh && S.Onscreen) { // Fully onscreen; no need to re-render (matches Asymptote)
+        S.append();
         return;
     }
 
@@ -440,13 +539,7 @@ void V3dBezierTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeigh
     }
 
     S.queue(Controls, straight, size3.length() / size2, transparent, corners);
-    fullyOnscreen = true;
-    vertexData = S.data;
-    // Match Asymptote BezierPatch::append(): route based on transparency.
-    if (S.transparent)
-        transparentData.extendColor(vertexData);
-    else
-        colorData.extendColor(vertexData);
+    fullyOnscreen = S.Onscreen;
 }
 
 
@@ -475,13 +568,27 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
 
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        quadOnscreen = false;
+        S.clear();
+        return;
+    }
 
     if(drawMode == DRAWMODE_OUTLINE) {
-        // Match drawsurface.cc: OUTLINE mode only queues boundary curves via C.queue().
-        // Does NOT call S.queue(), does NOT touch surface state.
-
         triple v[] = {
             triple(p1.x, p1.y, p1.z),
             triple(p2.x, p2.y, p2.z),
@@ -501,66 +608,57 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
         C.queue(edge2, straight, size3.length() / size2);
         triple edge3[] = { v[3], v[3], v[0], v[0] };
         C.queue(edge3, straight, size3.length() / size2);
-    } else {
-        // Match Asymptote drawBezierPatch::render(): fast path for fully onscreen.
-        if(!remesh && fullyOnscreen) {
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
-            return;
-        }
-
-        // Match Asymptote drawsurface.cc: check material alpha in NORMAL mode only.
-        // WIREFRAME/OUTLINE force opaque (commit 316f906894).
-        bool transparent = false;
-        if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-            transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-        }
-
-        vertexData.clear();
-        if (transparent) {
-            transparentData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            transparentData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 4);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 3);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 4);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 1);
-
-            vertexData.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-            vertexData.indices = {0, 1, 2, 0, 2, 3};
-        } else {
-            materialData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-            materialData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-            materialData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
-            materialData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
-
-            materialData.indices.push_back(materialData.materialVertices.size() - 4);
-            materialData.indices.push_back(materialData.materialVertices.size() - 3);
-            materialData.indices.push_back(materialData.materialVertices.size() - 2);
-            materialData.indices.push_back(materialData.materialVertices.size() - 4);
-            materialData.indices.push_back(materialData.materialVertices.size() - 2);
-            materialData.indices.push_back(materialData.materialVertices.size() - 1);
-
-            vertexData.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
-            vertexData.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
-            vertexData.indices = {0, 1, 2, 0, 2, 3};
-        }
-
-        fullyOnscreen = true;
-        if (drawMode == DRAWMODE_NORMAL)
-            isTransparent = transparent;  // Only persist in NORMAL mode
+        return;
     }
+
+    // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
+    bool transparent = false;
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
+    }
+
+    // Fast path: fully onscreen, same vertex format — just re-append S to global buffer.
+    if (!remesh && quadOnscreen && centerIndex == 0) {
+        if (S_color) transparentData.extendColor(S);
+        else materialData.extendMaterial(S);
+        return;
+    }
+
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    S.clear();
+    quadOnscreen = true;
+    fullyOnscreen = true;
+
+    // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
+    triple tri0[] = { p1, p2, p3 };
+    triple tri1[] = { p1, p3, p4 };
+    bool t0Off = bbox2(3, tri0).offscreen();
+    bool t1Off = bbox2(3, tri1).offscreen();
+    if (t0Off || t1Off) { quadOnscreen = false; fullyOnscreen = false; }
+
+    // Build S with the correct vertex format.
+    S_color = transparent;  // transparent → ColorVertex, opaque → MaterialVertex
+    if (transparent) {
+        size_t base = S.colorVertices.size();
+        S.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
+        transparentData.extendColor(S);
+    } else {
+        size_t base = S.materialVertices.size();
+        S.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
+        if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
+        materialData.extendMaterial(S);
+    }
+
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -622,12 +720,27 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
+
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 3; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        triOnscreen = false;
+        S.clear();
+        return;
+    }
 
     if(drawMode == DRAWMODE_OUTLINE) {
-        // Match drawsurface.cc: OUTLINE mode only queues boundary curves via C.queue().
-        // Does NOT call S.queue(), does NOT touch surface state.
-
         triple v[] = {
             triple(p1.x, p1.y, p1.z),
             triple(p2.x, p2.y, p2.z),
@@ -644,56 +757,46 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
         C.queue(edge1, straight, size3.length() / size2);
         triple edge2[] = { v[2], v[2], v[0], v[0] };
         C.queue(edge2, straight, size3.length() / size2);
-    } else {
-        // Match Asymptote drawBezierTriangle::render(): fast path for fully onscreen.
-        if(!remesh && fullyOnscreen) {
-            if (drawMode == DRAWMODE_NORMAL && isTransparent)
-                transparentData.extendColor(vertexData);
-            else
-                materialData.extendMaterial(vertexData);
-            return;
-        }
-
-        // Match Asymptote drawsurface.cc: check material alpha in NORMAL mode only.
-        // WIREFRAME/OUTLINE force opaque (commit 316f906894).
-        bool transparent = false;
-        if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-            transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-        }
-
-        vertexData.clear();
-        if (transparent) {
-            transparentData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            transparentData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            transparentData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 3);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 2);
-            transparentData.indices.push_back(transparentData.colorVertices.size() - 1);
-
-            vertexData.colorVertices.push_back(ColorVertex{ p1, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.colorVertices.push_back(ColorVertex{ p2, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.colorVertices.push_back(ColorVertex{ p3, normal, 1+materialIndex, glm::vec4(0,0,0,0) });
-            vertexData.indices = {0, 1, 2};
-        } else {
-            materialData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
-            materialData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
-            materialData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
-
-            materialData.indices.push_back(materialData.materialVertices.size() - 3);
-            materialData.indices.push_back(materialData.materialVertices.size() - 2);
-            materialData.indices.push_back(materialData.materialVertices.size() - 1);
-
-            vertexData.materialVertices.push_back(MaterialVertex{ p1, normal, materialIndex });
-            vertexData.materialVertices.push_back(MaterialVertex{ p2, normal, materialIndex });
-            vertexData.materialVertices.push_back(MaterialVertex{ p3, normal, materialIndex });
-            vertexData.indices = {0, 1, 2};
-        }
-
-        fullyOnscreen = true;
-        if (drawMode == DRAWMODE_NORMAL)
-            isTransparent = transparent;  // Only persist in NORMAL mode
+        return;
     }
+
+    bool transparent = false;
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
+    }
+
+    // Fast path: fully onscreen, same vertex format — just re-append S to global buffer.
+    if (!remesh && triOnscreen && centerIndex == 0) {
+        if (S_color) transparentData.extendColor(S);
+        else materialData.extendMaterial(S);
+        return;
+    }
+
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    S.clear();
+    triOnscreen = true;
+    fullyOnscreen = true;
+    triple tri[] = { p1, p2, p3 };
+    if (bbox2(3, tri).offscreen()) { triOnscreen = false; fullyOnscreen = false; }
+
+    S_color = transparent;
+    if (transparent) {
+        size_t base = S.colorVertices.size();
+        S.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        transparentData.extendColor(S);
+    } else {
+        size_t base = S.materialVertices.size();
+        S.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
+        S.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+        if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+        materialData.extendMaterial(S);
+    }
+
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -730,7 +833,27 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
+
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 4; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        quadOnscreen = false;
+        S.clear();
+        if (S_color) transparentData.renderCount = 0;
+        else colorData.renderCount = 0;
+        return;
+    }
 
     if(drawMode == DRAWMODE_OUTLINE) {
         triple v[] = { p1, p2, p3, p4 };
@@ -749,20 +872,23 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
         return;
     }
 
-    if(!remesh && fullyOnscreen) {
-        if (drawMode == DRAWMODE_NORMAL && isTransparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
-        return;
-    }
-
-    // Match Asymptote: WIREFRAME forces opaque, NORMAL checks alpha.
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a + cornerColors[1].a +
                         cornerColors[2].a + cornerColors[3].a < 4.0f);
 
-    vertexData.clear();
-    VertexBuffer& target = transparent ? transparentData : colorData;
+    // Fast path: fully onscreen — just re-append S to global buffer.
+    if (!remesh && quadOnscreen && centerIndex == 0) {
+        if (transparent) transparentData.extendColor(S);
+        else colorData.extendColor(S);
+        return;
+    }
+
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    if (transparent) transparentData.renderCount = 0;
+    else colorData.renderCount = 0;
+
+    S.clear();
+    quadOnscreen = true;
+    fullyOnscreen = true;
 
     RGBA c0{ cornerColors[0].r, cornerColors[0].g, cornerColors[0].b, cornerColors[0].a };
     RGBA c1{ cornerColors[1].r, cornerColors[1].g, cornerColors[1].b, cornerColors[1].a };
@@ -775,27 +901,27 @@ void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageH
     glm::vec4 vc3{ c3.r, c3.g, c3.b, c3.a };
 
     int matIdx = -1 - (int)materialIndex;
-    target.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    target.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    target.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    target.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
 
-    target.indices.push_back(target.colorVertices.size() - 4);
-    target.indices.push_back(target.colorVertices.size() - 3);
-    target.indices.push_back(target.colorVertices.size() - 2);
-    target.indices.push_back(target.colorVertices.size() - 4);
-    target.indices.push_back(target.colorVertices.size() - 2);
-    target.indices.push_back(target.colorVertices.size() - 1);
+    // Two triangles: T0=(p1,p2,p3), T1=(p1,p3,p4).
+    triple tri0[] = { p1, p2, p3 };
+    triple tri1[] = { p1, p3, p4 };
+    bool t0Off = bbox2(3, tri0).offscreen();
+    bool t1Off = bbox2(3, tri1).offscreen();
+    if (t0Off || t1Off) { quadOnscreen = false; fullyOnscreen = false; }
 
-    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    vertexData.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
-    vertexData.indices = {0, 1, 2, 0, 2, 3};
+    S_color = true;  // Always ColorVertex for corner-colored geometry
+    size_t base = S.colorVertices.size();
+    S.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
+    S.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
+    S.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
+    S.colorVertices.push_back(ColorVertex{p4, normal, matIdx, vc3});
+    if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
+    if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
 
-    fullyOnscreen = true;
-    if (drawMode == DRAWMODE_NORMAL)
-        isTransparent = transparent;
+    if (transparent) transparentData.extendColor(S);
+    else colorData.extendColor(S);
+
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -831,7 +957,27 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     TRIPLE A = p2 - p1;
     TRIPLE B = p3 - p1;
 
-    glm::vec3 normal = glm::normalize(glm::cross(A, B));
+    glm::dvec3 normal = glm::normalize(glm::cross(A, B));
+
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min{vertices[0].x, vertices[0].y, vertices[0].z};
+    triple Max{vertices[0].x, vertices[0].y, vertices[0].z};
+    for (int i = 1; i < 3; ++i) {
+        Min = triple(std::min(Min.getx(), (double)vertices[i].x),
+                     std::min(Min.gety(), (double)vertices[i].y),
+                     std::min(Min.getz(), (double)vertices[i].z));
+        Max = triple(std::max(Max.getx(), (double)vertices[i].x),
+                     std::max(Max.gety(), (double)vertices[i].y),
+                     std::max(Max.getz(), (double)vertices[i].z));
+    }
+
+    if (bbox2(Min, Max).offscreen()) {
+        triOnscreen = false;
+        S.clear();
+        if (S_color) transparentData.renderCount = 0;
+        else colorData.renderCount = 0;
+        return;
+    }
 
     if(drawMode == DRAWMODE_OUTLINE) {
         triple v[] = { p1, p2, p3 };
@@ -848,20 +994,25 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
         return;
     }
 
-    if(!remesh && fullyOnscreen) {
-        if (drawMode == DRAWMODE_NORMAL && isTransparent)
-            transparentData.extendColor(vertexData);
-        else
-            colorData.extendColor(vertexData);
-        return;
-    }
-
-    // Match Asymptote drawsurface.cc: WIREFRAME forces opaque, NORMAL checks alpha.
     bool transparent = (drawMode == DRAWMODE_NORMAL && cornerColors[0].a +
                         cornerColors[1].a + cornerColors[2].a < 3.0f);
 
-    vertexData.clear();
-    VertexBuffer& target = transparent ? transparentData : colorData;
+    // Fast path: fully onscreen — just re-append S to global buffer.
+    if (!remesh && triOnscreen && centerIndex == 0) {
+        if (transparent) transparentData.extendColor(S);
+        else colorData.extendColor(S);
+        return;
+    }
+
+    // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    if (transparent) transparentData.renderCount = 0;
+    else colorData.renderCount = 0;
+
+    S.clear();
+    triOnscreen = true;
+    fullyOnscreen = true;
+    triple tri[] = { p1, p2, p3 };
+    if (bbox2(3, tri).offscreen()) { triOnscreen = false; fullyOnscreen = false; }
 
     RGBA c0{ cornerColors[0].r, cornerColors[0].g, cornerColors[0].b, cornerColors[0].a };
     RGBA c1{ cornerColors[1].r, cornerColors[1].g, cornerColors[1].b, cornerColors[1].a };
@@ -872,22 +1023,18 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
     glm::vec4 vc2{ c2.r, c2.g, c2.b, c2.a };
 
     int matIdx = -1 - (int)materialIndex;
-    target.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    target.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    target.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
 
-    target.indices.push_back(target.colorVertices.size() - 3);
-    target.indices.push_back(target.colorVertices.size() - 2);
-    target.indices.push_back(target.colorVertices.size() - 1);
+    S_color = true;  // Always ColorVertex for corner-colored geometry
+    size_t base = S.colorVertices.size();
+    S.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
+    S.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
+    S.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
+    if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
 
-    vertexData.colorVertices.push_back(ColorVertex{p1, normal, matIdx, vc0});
-    vertexData.colorVertices.push_back(ColorVertex{p2, normal, matIdx, vc1});
-    vertexData.colorVertices.push_back(ColorVertex{p3, normal, matIdx, vc2});
-    vertexData.indices = {0, 1, 2};
+    if (transparent) transparentData.extendColor(S);
+    else colorData.extendColor(S);
 
-    fullyOnscreen = true;
-    if (drawMode == DRAWMODE_NORMAL)
-        isTransparent = transparent;
+    if (drawMode == DRAWMODE_NORMAL) isTransparent = transparent;
 }
 
 
@@ -992,10 +1139,39 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         return;
     }
 
+    // Offscreen cull: match algorithm §\ref{cull}.
+    triple Min = sceneMinBound;
+    triple Max = sceneMaxBound;
+    if (bbox2(Min, Max).offscreen()) {
+        fullyOnscreen = false;
+        vertexData.clear();
+        // Match Asymptote: S.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        colorData.renderCount = 0;
+        return;
+    }
+
     bool transparent = false;
     if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
+
+    if (!remesh && fullyOnscreen && centerIndex == 0) {
+        // Fast path: already onscreen, just re-append.
+        if (transparent)
+            transparentData.extendColor(vertexData);
+        else
+            colorData.extendColor(vertexData);
+        return;
+    }
+
+    // Match Asymptote Triangles::notRendered() — reset renderCount so upload gate fires.
+    if (transparent)
+        transparentData.renderCount = 0;
+    else
+        colorData.renderCount = 0;
+
+    vertexData.clear();
 
     // Match Asymptote Triangles::queue(): with per-vertex colors, store as ColorVertex
     // and check per-triangle corner alpha (transparent |= c0+c1+c2 < 3.0).
@@ -1044,6 +1220,7 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         VertexBuffer colBuffer;
         colBuffer.colorVertices = colVertices;
         colBuffer.indices = outIndices;
+        vertexData = colBuffer;
         if (transparent)
             transparentData.extendColor(colBuffer);
         else
@@ -1079,11 +1256,16 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
         VertexBuffer colBuffer;
         colBuffer.colorVertices = std::move(colVertices);
         colBuffer.indices = outIndices;
+        vertexData = colBuffer;
         if (transparent)
             transparentData.extendColor(colBuffer);
         else
             colorData.extendColor(colBuffer);
     }
+
+    fullyOnscreen = true;
+    if (drawMode == DRAWMODE_NORMAL)
+        isTransparent = transparent;
 }
 
 
@@ -1135,6 +1317,113 @@ public:
     }
 };
 
+// ---------------------------------------------------------------------------
+// Sphere-octant helpers (from three_octant.asy / gl.ts).
+// The first-octant triangles are computed once and cached, exactly like
+// gl.ts's IIFE `const sphereOctant`.
+// ---------------------------------------------------------------------------
+
+static inline double dot3(const triple& a, const triple& b) {
+    return a.getx()*b.getx() + a.gety()*b.gety() + a.getz()*b.getz();
+}
+
+static inline double norm3(const triple& v) {
+    return std::sqrt(dot3(v, v));
+}
+
+static inline triple unit3(const triple& v) {
+    double n = norm3(v);
+    return triple(v.getx()/n, v.gety()/n, v.getz()/n);
+}
+
+// Midpoint of great-circle arc from P to Q.
+static inline triple gcMidPoint(triple P, triple Q) {
+    double scale = 1.0 / (std::sqrt(2.0) * std::sqrt(1.0 + dot3(P, Q)));
+    return triple((P.getx()+Q.getx())*scale,
+                  (P.gety()+Q.gety())*scale,
+                  (P.getz()+Q.getz())*scale);
+}
+
+// Optimal cubic Bezier edge control points for great-circle arc P → Q.
+static inline std::array<triple, 2> bezierEdge(triple P, triple Q) {
+    double x = dot3(P, Q);
+    double k = (4.0/3.0)*std::sqrt(1.0-x)/
+               (std::sqrt(2.0)+std::sqrt(1.0+x));
+    triple u = unit3(triple(Q.getx()-x*P.getx(),
+                            Q.gety()-x*P.gety(),
+                            Q.getz()-x*P.getz()));
+    triple v = unit3(triple(P.getx()-x*Q.getx(),
+                            P.gety()-x*Q.gety(),
+                            P.getz()-x*Q.getz()));
+    return {{
+        triple(P.getx()+k*u.getx(), P.gety()+k*u.gety(), P.getz()+k*u.getz()),
+        triple(Q.getx()+k*v.getx(), Q.gety()+k*v.gety(), Q.getz()+k*v.getz())
+    }};
+}
+
+// Build a single Bezier triangle (10 control points) for spherical triangle ABC.
+// Interior point tuned so the barycentric centroid lies on the unit sphere.
+static std::array<TRIPLE, 10> makeBezierTriangle(triple A, triple B, triple C) {
+    auto ab = bezierEdge(A, B);
+    auto bc = bezierEdge(B, C);
+    auto ca = bezierEdge(C, A);
+
+    triple S9 = triple(
+        A.getx()+B.getx()+C.getx() + 3.0*(ab[0].getx()+ab[1].getx()+bc[0].getx()+bc[1].getx()+ca[0].getx()+ca[1].getx()),
+        A.gety()+B.gety()+C.gety() + 3.0*(ab[0].gety()+ab[1].gety()+bc[0].gety()+bc[1].gety()+ca[0].gety()+ca[1].gety()),
+        A.getz()+B.getz()+C.getz() + 3.0*(ab[0].getz()+ab[1].getz()+bc[0].getz()+bc[1].getz()+ca[0].getz()+ca[1].getz())
+    );
+    triple dir = unit3(triple(A.getx()+B.getx()+C.getx(),
+                              A.gety()+B.gety()+C.gety(),
+                              A.getz()+B.getz()+C.getz()));
+    double dotSD = dot3(S9, dir);
+    double disc = 144.0*dotSD*dotSD - 144.0*(dot3(S9,S9) - 729.0);
+    if (disc < 0) disc = 0;
+    double R = (-12.0*dotSD + std::sqrt(disc)) / 72.0;
+    triple p9 = triple(R*dir.getx(), R*dir.gety(), R*dir.getz());
+
+    // Row-major: A, ab[0], ca[1], ab[1], p9, ca[0], B, bc[0], bc[1], C
+    return {{
+        TRIPLE(A.getx(),     A.gety(),     A.getz()),
+        TRIPLE(ab[0].getx(), ab[0].gety(), ab[0].getz()),
+        TRIPLE(ca[1].getx(), ca[1].gety(), ca[1].getz()),
+        TRIPLE(ab[1].getx(), ab[1].gety(), ab[1].getz()),
+        TRIPLE(p9.getx(),    p9.gety(),    p9.getz()),
+        TRIPLE(ca[0].getx(), ca[0].gety(), ca[0].getz()),
+        TRIPLE(B.getx(),     B.gety(),     B.getz()),
+        TRIPLE(bc[0].getx(), bc[0].gety(), bc[0].getz()),
+        TRIPLE(bc[1].getx(), bc[1].gety(), bc[1].getz()),
+        TRIPLE(C.getx(),     C.gety(),     C.getz())
+    }};
+}
+
+// Recursively subdivide spherical triangle ABC into 4^depth Bezier triangles.
+static void subdivideTriangle(triple A, triple B, triple C, int depth,
+                              std::vector<std::array<TRIPLE,10>>& result) {
+    if (depth == 0) {
+        result.push_back(makeBezierTriangle(A, B, C));
+        return;
+    }
+    triple midAB = gcMidPoint(A, B);
+    triple midBC = gcMidPoint(B, C);
+    triple midCA = gcMidPoint(C, A);
+
+    subdivideTriangle(A,     midAB, midCA, depth-1, result);
+    subdivideTriangle(B,     midBC, midAB, depth-1, result);
+    subdivideTriangle(C,     midCA, midBC, depth-1, result);
+    subdivideTriangle(midAB, midBC, midCA, depth-1, result);
+}
+
+// Cached first-octant triangles (depth=2 → 16 triangles).
+// Computed once at first use, matching gl.ts's IIFE `sphereOctant`.
+static const std::vector<std::array<TRIPLE,10>>& getSphereOctant() {
+    static std::vector<std::array<TRIPLE,10>> octant;
+    if (octant.empty()) {
+        subdivideTriangle(triple(1,0,0), triple(0,1,0), triple(0,0,1), 2, octant);
+    }
+    return octant;
+}
+
 V3dSphere::V3dSphere(
     xdr::ixstream& xdrFile, 
     V3D_BOOL doublePrecision)
@@ -1154,114 +1443,48 @@ void sphere(
     triple center,
     double r,
     triple* dir,
-    int imageWidth, 
-    int imageHeight, 
-    triple sceneMinBound, 
-    triple sceneMaxBound, 
-    bool remesh, 
+    int imageWidth,
+    int imageHeight,
+    triple sceneMinBound,
+    triple sceneMaxBound,
+    bool remesh,
     bool orthographic,
     DrawMode drawMode,
     UINT centerIndex,
     UINT materialIndex
 ) {
-    double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
-    double b = 0.524670512339254;
-    double c = 0.595936986722291;
-    double d = 0.954967051233925;
-    double e = 0.0820155480083437;
-    double f = 0.996685028842544;
-    double g = 0.0549670512339254;
-    double h = 0.998880711874577;
-    double i = 0.0405017186586849;
-
-    std::array<triple, 16> patchOctant = {
-        triple(1, 0, 0),
-        triple(1, 0, b),
-        triple(c, 0, d),
-        triple(e, 0, f),
-
-        triple(1, a, 0),
-        triple(1, a, b),
-        triple(c, a * c, d),
-        triple(e, a * e, f),
-
-        triple(a, 1, 0),
-        triple(a, 1, b),
-        triple(a * c, c, d),
-        triple(a * e, e, f),
-
-        triple(0, 1, 0),
-        triple(0, 1, b),
-        triple(0, c, d),
-        triple(0, e, f)
-    };
-
-    std::array<triple, 10> triangleOctant {
-        triple(e, 0, f),
-        triple(e, a * e, f),
-        triple(g, 0, h),
-        triple(a * e, e, f),
-
-        triple(i, i, 1),
-        triple(0.05 * a, 0, 1),
-        triple(0, e, f),
-        triple(0, g, h),
-
-        triple(0, 0.05 * a, 1),
-        triple(0, 0, 1)
-    };
-
-    double rx, ry, rz;
+    // Cached first-octant triangles (16 Bezier triangles, depth=2).
+    const auto& octantTriangles = getSphereOctant();
 
     Align A(center, dir);
 
     int s;
-    double z;
-    std::function<triple(const triple&)> t;
+    std::function<TRIPLE(const TRIPLE&)> t;
 
-    if(dir) {
+    if (dir) {
         s = 1;
-        z = 0;
         t = [&](const TRIPLE& v) { return A.T(v); };
     } else {
         s = -1;
-        z = -r;
         t = [&](const TRIPLE& v) { return A.T0(v); };
     }
 
-    auto TPatch = [&](const std::array<triple, 16>& V) {
-        std::array<TRIPLE, 16> p{ };
-
-        for(size_t i = 0; i < V.size(); ++i) {
-            const TRIPLE& v = V[i];
-            p[i] = t(TRIPLE(rx * v.x, ry * v.y, rz * v.z));
-        }
-
-        return p;
-    };
-
-    auto TTriangle = [&](const std::array<triple, 10>& V) {
-        std::array<TRIPLE, 10> p{ };
-
-        for(size_t i = 0; i < V.size(); ++i) {
-            const TRIPLE& v = V[i];
-            p[i] = t(TRIPLE(rx * v.x, ry * v.y, rz * v.z));
-        }
-
-        return p;
-    };
-
-    for(int ix = -1; ix <= 1; ix += 2) {
-        rx = ix * r;
-        for(int iy = -1; iy <= 1; iy += 2) {
-            ry = iy * r;
-            for(int iz = s; iz <= 1; iz += 2) {
-                rz = iz * r;
-                V3dBezierPatch patch{ TPatch(patchOctant), centerIndex, materialIndex };
-                patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
-
-                V3dBezierTriangle triangle{ TTriangle(triangleOctant), centerIndex, materialIndex };
-                triangle.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+    // Reflect across coordinate planes to cover all octants (mirrors gl.ts).
+    for (int ix = -1; ix <= 1; ix += 2) {
+        double rx = ix * r;
+        for (int iy = -1; iy <= 1; iy += 2) {
+            double ry = iy * r;
+            for (int iz = s; iz <= 1; iz += 2) {
+                double rz = iz * r;
+                for (const auto& tri : octantTriangles) {
+                    std::array<TRIPLE, 10> p;
+                    for (int i = 0; i < 10; ++i) {
+                        p[i] = t(TRIPLE(rx*tri[i].x, ry*tri[i].y, rz*tri[i].z));
+                    }
+                    V3dBezierTriangle triangle{p, centerIndex, materialIndex};
+                    triangle.QueueMesh(imageWidth, imageHeight, sceneMinBound,
+                                       sceneMaxBound, true, orthographic, drawMode);
+                }
             }
         }
     }
@@ -1348,16 +1571,16 @@ void disk(
     Align A{center,dir};
 
     auto TPatch = [&](const std::array<triple, 16>& V) {
-        std::array<glm::vec3, 16> p{ };
+        std::array<TRIPLE, 16> p{ };
         for(int i=0; i < V.size(); ++i) {
-            const glm::vec3& v=V[i];
-            p[i]=A.T(glm::vec3{r*v.x, r*v.y, 0.0});
+            TRIPLE v{V[i].getx(), V[i].gety(), V[i].getz()};
+            p[i]=A.T(triple{r*v.x, r*v.y, 0.0});
         }
         return p;
     };
 
     V3dBezierPatch patch{ TPatch(unitdisk), centerIndex, materialIndex };
-    patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+    patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
 }
 
 
@@ -1437,18 +1660,18 @@ void cylinder(
         for(int j=-1; j <= 1; j += 2) {
             ry=j*r;
             auto TPatch = [&](const std::array<triple, 16>& V) {
-                std::array<glm::vec3, 16> p{ };
+                std::array<TRIPLE, 16> p{ };
 
                 for(size_t i = 0; i < V.size(); ++i) {
-                    const glm::vec3& v = V[i];
-                    p[i] = t(glm::vec3(rx * v.x, ry * v.y, h * v.z));
+                    TRIPLE v{V[i].getx(), V[i].gety(), V[i].getz()};
+                    p[i] = t(triple(rx * v.x, ry * v.y, h * v.z));
                 }
 
                 return p;
             };
 
             V3dBezierPatch patch{ TPatch(unitcylinder), centerIndex, materialIndex };
-            patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+            patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
         }
     }
 
@@ -1460,7 +1683,7 @@ void cylinder(
         };
 
         V3dLineSegment line{ endpoints, centerIndex, materialIndex };
-        line.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        line.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
     }
 }
 
@@ -1673,7 +1896,7 @@ void tube(
         };
 
         V3dBezierPatch patch{ Convert(s), centerIndex, materialIndex };
-        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        patch.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
 
     };
 
@@ -1683,15 +1906,15 @@ void tube(
     f(0.0,1.0,-1.0,0.0);
 
     if(core) {
-        std::array<glm::vec3, 4> curveControlPoints = {
-            glm::vec3{ v[0].getx(), v[0].gety(), v[0].getz() },
-            glm::vec3{ v[1].getx(), v[1].gety(), v[1].getz() },
-            glm::vec3{ v[2].getx(), v[2].gety(), v[2].getz() },
-            glm::vec3{ v[3].getx(), v[3].gety(), v[3].getz() }
+        std::array<TRIPLE, 4> curveControlPoints = {
+            TRIPLE{ v[0].getx(), v[0].gety(), v[0].getz() },
+            TRIPLE{ v[1].getx(), v[1].gety(), v[1].getz() },
+            TRIPLE{ v[2].getx(), v[2].gety(), v[2].getz() },
+            TRIPLE{ v[3].getx(), v[3].gety(), v[3].getz() }
         };
 
         V3dBezierCurve curve{ curveControlPoints, centerIndex, materialIndex };
-        curve.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
+        curve.QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, true, orthographic, drawMode);
     }
 }
 
@@ -1738,6 +1961,12 @@ V3dBezierCurve::V3dBezierCurve(xdr::ixstream& xdrFile, V3D_BOOL doublePrecision)
     xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
     xdrFile >> materialIndex;
+
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[4];
+        for (int i = 0; i < 4; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierCurveBounds(Controls, V3dObject::Min, V3dObject::Max);
 }
 
 V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerIndex, UINT materialIndex) 
@@ -1745,8 +1974,12 @@ V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerI
     , controlPoints{ controlPoints }
     , centerIndex{ centerIndex }
     , materialIndex{ materialIndex } {
-
-}
+        // Compute tight bounds at construction time (matches drawsurface.cc).
+        triple Controls[4];
+        for (int i = 0; i < 4; ++i)
+            Controls[i] = triple(controlPoints[i].x, controlPoints[i].y, controlPoints[i].z);
+        computeBezierCurveBounds(Controls, V3dObject::Min, V3dObject::Max);
+    }
 
 void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
@@ -1780,24 +2013,25 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
-    triple Min=b;
-    triple Max=B;
-    
-    bool offscreen=bbox2(Min,Max).offscreen();
+    // Use tight bounds computed at construction time (matches Asymptote drawPath3::Min/Max).
+    bool offscreen = bbox2(Min, Max).offscreen();
 
     if(offscreen) { // Fully offscreen
         fullyOnscreen = false;
         vertexData.clear();
+        // Match Asymptote: C.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
     
-    if(!remesh && fullyOnscreen) { // Fully onscreen; no need to re-render
+    if(!remesh && fullyOnscreen && centerIndex == 0) { // Fully onscreen; no need to re-render
         materialData.extendMaterial(vertexData);
         return;
     }
 
     S.queue(Controls,straight,size3.length()/size2);
-    fullyOnscreen = true;
+    fullyOnscreen = S.Onscreen;
     vertexData = S.data;
 }
 
@@ -1815,6 +2049,18 @@ V3dLineSegment::V3dLineSegment(
         xdrFile >> centerIndex;
         V3dObject::centerIndex = centerIndex;
         xdrFile >> materialIndex;    
+
+        // Straight geometry: bounds = min/max of endpoints.
+        V3dObject::Min = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        V3dObject::Max = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        for (int i = 1; i < 2; ++i) {
+            V3dObject::Min = triple(min(V3dObject::Min.getx(), endpoints[i].x),
+                                    min(V3dObject::Min.gety(), endpoints[i].y),
+                                    min(V3dObject::Min.getz(), endpoints[i].z));
+            V3dObject::Max = triple(max(V3dObject::Max.getx(), endpoints[i].x),
+                                    max(V3dObject::Max.gety(), endpoints[i].y),
+                                    max(V3dObject::Max.getz(), endpoints[i].z));
+        }
     }
 
 V3dLineSegment::V3dLineSegment(std::array<TRIPLE, 2> endpoints, UINT centerIndex, UINT materialIndex) 
@@ -1822,8 +2068,18 @@ V3dLineSegment::V3dLineSegment(std::array<TRIPLE, 2> endpoints, UINT centerIndex
     , endpoints{ endpoints }
     , centerIndex{ centerIndex }
     , materialIndex{ materialIndex } {
-
-}
+        // Straight geometry: bounds = min/max of endpoints.
+        V3dObject::Min = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        V3dObject::Max = triple(endpoints[0].x, endpoints[0].y, endpoints[0].z);
+        for (int i = 1; i < 2; ++i) {
+            V3dObject::Min = triple(min(V3dObject::Min.getx(), endpoints[i].x),
+                                    min(V3dObject::Min.gety(), endpoints[i].y),
+                                    min(V3dObject::Min.getz(), endpoints[i].z));
+            V3dObject::Max = triple(max(V3dObject::Max.getx(), endpoints[i].x),
+                                    max(V3dObject::Max.gety(), endpoints[i].y),
+                                    max(V3dObject::Max.getz(), endpoints[i].z));
+        }
+    }
 
 void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
@@ -1851,24 +2107,20 @@ void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     const camp::pair size3(s * (B.getx() - b.getx()), s * (B.gety() - b.gety()));
 
-    triple Min = b;
-    triple Max = B;
-
+    // Use tight bounds computed at construction time (matches Asymptote drawBezierTriangle::Min/Max).
     bool offscreen = bbox2(Min, Max).offscreen();
 
     if (offscreen) {
         fullyOnscreen = false;
         vertexData.clear();
-        return;
-    }
-
-    if (!remesh && fullyOnscreen) {
-        lineData.extendMaterial(vertexData);
+        // Match Asymptote: C.notRendered() ensures upload gate fires when object comes back onscreen.
+        transparentData.renderCount = 0;
+        materialData.renderCount = 0;
         return;
     }
 
     S.queue(Controls, straight, size3.length() / size2);
-    fullyOnscreen = true;
+    fullyOnscreen = S.Onscreen;
     vertexData = S.data;
 }
 
@@ -1889,6 +2141,28 @@ V3dPixel::V3dPixel(
 void V3dPixel::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
 
-    std::cout << "V3dPixel cannot queue" << std::endl;
-    return;
+    // Match Asymptote drawPixel::render(): offscreen check using bbox2(Min,Max).
+    triple Min{position.x, position.y, position.z};
+    triple Max{position.x, position.y, position.z};
+
+    if (bbox2(Min, Max).offscreen()) { // Fully offscreen
+        fullyOnscreen = false;
+        vertexData.clear();
+        // Match Asymptote: notRendered() ensures upload gate fires when object comes back onscreen.
+        pointData.renderCount = 0;
+        return;
+    }
+
+    // Match Asymptote Pixel::queue() exactly.
+    VertexBuffer data;
+    data.clear();
+    pointData.renderCount = 0;
+    data.indices.push_back(data.addVertex(PointVertex{
+        glm::vec3(position.x, position.y, position.z),
+        static_cast<float>(width),
+        static_cast<glm::i32>(materialIndex)
+    }));
+
+    pointData.extendPoint(data);
+    fullyOnscreen = true;
 }

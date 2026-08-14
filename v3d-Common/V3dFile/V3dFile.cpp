@@ -69,6 +69,11 @@ V3dFile::V3dFile(xdr::memixstream& xdrFile) {
 
 void V3dFile::load(xdr::ixstream& xdrFile) {
     xdrFile >> versionNumber;
+    if (versionNumber < 1) {
+        std::cout << "ERROR: v3d file version " << versionNumber
+                  << " is not supported (need >= 1)" << std::endl;
+        return;
+    }
     xdrFile >> doublePrecisionFlag;
 
     UINT objectType;
@@ -99,7 +104,10 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
             xdrFile >> material.shininess;
             xdrFile >> material.metallic;
             xdrFile >> material.fresnel0;
-            xdrFile >> material.lightOn;
+            if (versionNumber >= 2)
+                xdrFile >> material.lightOn;
+            else
+                material.lightOn = 1.0f;
 
             materials.push_back(material);
             break;
@@ -196,15 +204,18 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                         headerInfo.viewportMargin.y = readReal(xdrFile, doublePrecisionFlag); 
                         break;
 
-                    case LIGHT:
-                        headerInfo.light.direction.x = readReal(xdrFile, doublePrecisionFlag);
-                        headerInfo.light.direction.y = readReal(xdrFile, doublePrecisionFlag); 
-                        headerInfo.light.direction.z = readReal(xdrFile, doublePrecisionFlag);
+                    case LIGHT: {
+                        V3dHeaderInfo::Light l{};
+                        l.direction.x = readReal(xdrFile, doublePrecisionFlag);
+                        l.direction.y = readReal(xdrFile, doublePrecisionFlag); 
+                        l.direction.z = readReal(xdrFile, doublePrecisionFlag);
 
-                        xdrFile >> headerInfo.light.color.r;
-                        xdrFile >> headerInfo.light.color.g;       
-                        xdrFile >> headerInfo.light.color.b;              
-                        break;       
+                        xdrFile >> l.color.r;
+                        xdrFile >> l.color.g;       
+                        xdrFile >> l.color.b;
+                        headerInfo.lights.push_back(l);
+                        break;
+                    }       
 
                     case BACKGROUND:
                         xdrFile >> headerInfo.background.r;
