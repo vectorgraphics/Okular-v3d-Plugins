@@ -106,6 +106,7 @@ public:
 
 		VkFence inComputeFence{ VK_NULL_HANDLE };              // Tracks compute submission completion
 		VkFence transferFence{ VK_NULL_HANDLE };               // Tracks transfer submission completion
+		VkFence inFlightFence{ VK_NULL_HANDLE };               // Tracks full frame (render+copy) completion
 		VkSemaphore transferDoneSemaphore{ VK_NULL_HANDLE };   // Signals when transfers complete
 
 		uint64_t timelineValue{ 0 };                           // Timeline value this frame signaled
@@ -393,6 +394,7 @@ private:
 	void uploadVertexData();  // Thin wrapper: calls all three above
 	void refreshBuffers(size_t indexCount, size_t lightCount);
 	void readFeedback();  // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback
+	void recordCopyToHost(VkCommandBuffer cmd, glm::ivec2 targetSize, bool useResolve);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 
 	void createHostReadableDestinationImage(glm::ivec2 size);

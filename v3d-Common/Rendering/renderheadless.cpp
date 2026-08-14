@@ -251,6 +251,8 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 			VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &frameObjects[i].inComputeFence));
 			VkFenceCreateInfo tfCI = fenceCI;
 			VK_CHECK_RESULT(vkCreateFence(device, &tfCI, nullptr, &frameObjects[i].transferFence));
+			VkFenceCreateInfo ifCI = fenceCI;
+			VK_CHECK_RESULT(vkCreateFence(device, &ifCI, nullptr, &frameObjects[i].inFlightFence));
 			VK_CHECK_RESULT(vkCreateSemaphore(device, &semCI, nullptr, &frameObjects[i].transferDoneSemaphore));
 		}
 
@@ -2276,115 +2278,71 @@ void HeadlessRenderer::readFeedback() {
 	}
 }
 
-unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve) {
-	// Copy framebuffer image to host visible image.
-	// When useResolve=true, reads from resolveAttachment (final composite from blend pass).
-	// When useResolve=false, reads from colorAttachment (opaque path).
+// Record image copy commands into an already-begun command buffer.
+// Copies from the render target (resolveAttachment or colorAttachment) to the
+// host-readable destination image, with proper layout transitions.
+void HeadlessRenderer::recordCopyToHost(VkCommandBuffer cmd, glm::ivec2 targetSize, bool useResolve) {
 	VkImage srcImage = useResolve ? resolveAttachment.image : colorAttachment.image;
-	unsigned char* returnData;
 
 	if (targetSize.x != hostReadableDestinationImageSize.x || targetSize.y != hostReadableDestinationImageSize.y) {
 		if (hostReadableDestinationImageInitalized) {
 			destroyHostReadableDestinationImage();
 		}
-
 		hostReadableDestinationImageSize = targetSize;
-
 		createHostReadableDestinationImage(hostReadableDestinationImageSize);
-
-		// Map image memory so we can copy from it
 		vkMapMemory(device, hostReadableDestinationImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&hostReadableDestinationImageMapped);
-
 		hostReadableDestinationImageInitalized = true;
 	}
 
-	// Do the actual blit from the offscreen image to our host visible destination image
-	VkCommandBufferAllocateInfo cmdBufAllocateInfo = vks::initializers::commandBufferAllocateInfo(commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-	VkCommandBuffer copyCmd;
-	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocateInfo, &copyCmd));
-	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
-	VK_CHECK_RESULT(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
+	VkImageSubresourceRange subrange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
 	// Transition source image to TRANSFER_SRC_OPTIMAL.
-	// For resolve path (useResolve=true), finalLayout is already TRANSFER_SRC_OPTIMAL,
-	// so oldLayout matches and no actual transition occurs.
-	// For opaque path (useResolve=false), transitions from COLOR_ATTACHMENT_OPTIMAL.
 	VkImageMemoryBarrier srcBarrier = {};
 	srcBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	srcBarrier.oldLayout = useResolve ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	srcBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	srcBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	srcBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	srcBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	srcBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	srcBarrier.image = srcImage;
-	srcBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	srcBarrier.subresourceRange.baseMipLevel = 0;
-	srcBarrier.subresourceRange.levelCount = 1;
-	srcBarrier.subresourceRange.baseArrayLayer = 0;
-	srcBarrier.subresourceRange.layerCount = 1;
-	vkCmdPipelineBarrier(copyCmd,
-		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
+	srcBarrier.subresourceRange = subrange;
+	vkCmdPipelineBarrier(cmd,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 		0, 0, nullptr, 0, nullptr, 1, &srcBarrier);
 
-	// Transition destination image to transfer destination layout
-	vks::tools::insertImageMemoryBarrier(
-		copyCmd,
-		hostReadableDestinationImage,
-		0,
-		VK_ACCESS_TRANSFER_WRITE_BIT,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
-	VkImageCopy imageCopyRegion{};
-	imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	imageCopyRegion.srcSubresource.layerCount = 1;
-	imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	imageCopyRegion.dstSubresource.layerCount = 1;
-	imageCopyRegion.extent.width = targetSize.x;
-	imageCopyRegion.extent.height = targetSize.y;
-	imageCopyRegion.extent.depth = 1;
+	// Transition destination image to transfer destination layout.
+	vks::tools::insertImageMemoryBarrier(cmd, hostReadableDestinationImage,
+		0, VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, subrange);
 
-	vkCmdCopyImage(
-		copyCmd,
-		srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		hostReadableDestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		1,
-		&imageCopyRegion);
+	VkImageCopy region = {};
+	region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.srcSubresource.layerCount = 1;
+	region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.dstSubresource.layerCount = 1;
+	region.extent.width = targetSize.x;
+	region.extent.height = targetSize.y;
+	region.extent.depth = 1;
+	vkCmdCopyImage(cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		hostReadableDestinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-	// Transition destination image to general layout, which is the required layout for mapping the image memory later on
-	vks::tools::insertImageMemoryBarrier(
-		copyCmd,
-		hostReadableDestinationImage,
-		VK_ACCESS_TRANSFER_WRITE_BIT,
-		VK_ACCESS_MEMORY_READ_BIT,
-		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		VK_IMAGE_LAYOUT_GENERAL,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
+	// Transition destination to GENERAL layout for host mapping.
+	vks::tools::insertImageMemoryBarrier(cmd, hostReadableDestinationImage,
+		VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, subrange);
 
-	// Transition source image back to COLOR_ATTACHMENT_OPTIMAL
-	// (vkrender.cc: exportSingleTile transitions back after copy).
-	vks::tools::insertImageMemoryBarrier(
-		copyCmd,
-		srcImage,
-		VK_ACCESS_TRANSFER_READ_BIT,
-		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
+	// Transition source image back to COLOR_ATTACHMENT_OPTIMAL for next frame.
+	vks::tools::insertImageMemoryBarrier(cmd, srcImage,
+		VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, subrange);
+}
 
-	VK_CHECK_RESULT(vkEndCommandBuffer(copyCmd));
-
-	submitWork(copyCmd, queue);
-
-	// Get layout of the image (including row pitch)
+// CPU-side pixel read from already-mapped host-visible image.
+// The GPU copy was recorded into the main command buffer and executed as part
+// of a single submit.  We only wait + read here — no Vulkan recording or submission.
+unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool /*useResolve*/) {
 	VkImageSubresource subResource{};
 	subResource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	VkSubresourceLayout subResourceLayout;
@@ -2393,10 +2351,9 @@ unsigned char* HeadlessRenderer::copyToHost(glm::ivec2 targetSize, VkSubresource
 	*imageSubresourceLayout = subResourceLayout;
 
 	const char* imagedata = (const char*)hostReadableDestinationImageMapped;
-
 	imagedata += subResourceLayout.offset;
 
-	returnData = new unsigned char[imageSubresourceLayout->size];
+	unsigned char* returnData = new unsigned char[imageSubresourceLayout->size];
 	std::memcpy(returnData, imagedata, imageSubresourceLayout->size);
 
 	return returnData;
@@ -2905,6 +2862,11 @@ void HeadlessRenderer::cleanup() {
 			vkDestroyFence(device, frameObjects[i].transferFence, nullptr);
 			VkFenceCreateInfo fc = {}; fc.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO; fc.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 			VK_CHECK_RESULT(vkCreateFence(device, &fc, nullptr, &frameObjects[i].transferFence));
+		}
+		if (frameObjects[i].inFlightFence != VK_NULL_HANDLE) {
+			vkDestroyFence(device, frameObjects[i].inFlightFence, nullptr);
+			VkFenceCreateInfo fc = {}; fc.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO; fc.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+			VK_CHECK_RESULT(vkCreateFence(device, &fc, nullptr, &frameObjects[i].inFlightFence));
 		}
 		if (frameObjects[i].transferDoneSemaphore != VK_NULL_HANDLE) {
 			vkDestroySemaphore(device, frameObjects[i].transferDoneSemaphore, nullptr);
@@ -3504,18 +3466,16 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	}
 
 	vkCmdEndRenderPass(frameObjects[currentFrame].commandBuffer);
+
+	// Record the image copy-to-host commands directly into the main command buffer
+	// so render + copy execute as a single GPU batch with one CPU-GPU round-trip.
+	recordCopyToHost(frameObjects[currentFrame].commandBuffer, targetSize, hasTransparency);
+
 	VK_CHECK_RESULT(vkEndCommandBuffer(frameObjects[currentFrame].commandBuffer));
 
 	// End and submit any pending buffer transfers before the main render pass
-	// (matches vkrender.cc drawFrame: endAndSubmitTransfers called after recording)
 	bool hasPendingTransfers = transferHasPendingWork;
 	endAndSubmitTransfers();
-
-	// Matches vkrender.cc drawFrame() graphics submit exactly:
-	// Uses vkQueueSubmit with VkTimelineSemaphoreSubmitInfo via pNext.
-	// Wait on frameObjects[currentFrame].transferDoneSemaphore if pending, signal timeline.
-	// (vkrender.cc does NOT wait on timelineSemaphore from count/compute for transparent
-	//  scenes - it relies on CPU-side fence wait via resizeFragmentBuffer/readFeedback)
 
 	VkCommandBuffer cmdBuffers[1] = { frameObjects[currentFrame].commandBuffer };
 	std::vector<VkSemaphore> waitSems;
@@ -3551,14 +3511,21 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
 	submitInfo.pSignalSemaphores = signalSems.data();
 
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, nullptr));
+	// Reset and attach inFlightFence so we can wait for the entire frame
+	// (render + copy-to-host) to complete before reading pixels.
+	uint32_t submitFrame = currentFrame;
+	VK_CHECK_RESULT(vkResetFences(device, 1, &frameObjects[submitFrame].inFlightFence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, frameObjects[submitFrame].inFlightFence));
 
 	// Record this frame's timeline value so the next render() call for this
 	// frame slot knows when to wait before reusing its command buffers.
-	frameObjects[currentFrame].timelineValue = currentTimelineValue;
+	frameObjects[submitFrame].timelineValue = currentTimelineValue;
 
 	// Advance to next frame slot (ping-pong between 0 and 1).
 	currentFrame = (currentFrame + 1) % maxFramesInFlight;
+
+	// Wait for GPU to finish render + copy, then read pixels from mapped memory.
+	VK_CHECK_RESULT(vkWaitForFences(device, 1, &frameObjects[submitFrame].inFlightFence, VK_TRUE, UINT64_MAX));
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 
