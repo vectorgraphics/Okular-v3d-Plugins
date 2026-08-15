@@ -11,6 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <chrono>
+#include <thread>
 #include <iostream>
 
 #include "seconds.h"
@@ -217,14 +218,28 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 
 		createLogicalDevice(&queueCreateInfo);
 
-		vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
+		vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);          // render queue
+		// Same single queue for transfers too. Matches vkrender.cc: on a
+		// single-family GPU both transferQueue and renderQueue are getQueue(family, 0),
+		// i.e., the SAME VkQueue. All submissions (transfers + count/compute + main
+		// render) therefore execute in strict submission order on one queue, so the
+		// transferDoneSemaphore handoff is trivially ordered and cannot deadlock.
+		transferQueue = queue;
 
-		// Command pool
+		// Render command pool
 		VkCommandPoolCreateInfo cmdPoolInfo = {};
 		cmdPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
 		cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 		VK_CHECK_RESULT(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &commandPool));
+
+		// Transfer command pool (matches vkrender.cc createCommandPools: a separate
+		// pool bound to the transfer queue for the per-frame upload command buffer).
+		VkCommandPoolCreateInfo transferPoolInfo = {};
+		transferPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		transferPoolInfo.queueFamilyIndex = queueFamilyIndex;
+		transferPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		VK_CHECK_RESULT(vkCreateCommandPool(device, &transferPoolInfo, nullptr, &transferCommandPool));
 
 		// Create timeline semaphore (matches vkrender.cc createSyncObjects).
 		timelineSemaphore = createTimelineSemaphore(0);
@@ -234,10 +249,18 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		// Allocate per-frame command buffers and sync objects (matches vkrender.cc
 		// FrameObject pattern). Each frame has its own set so the CPU can record
 		// frame N+1 while the GPU executes frame N.
+		// Render-queue command buffers: main + count + compute per frame.
 		VkCommandBufferAllocateInfo cmdAlloc = vks::initializers::commandBufferAllocateInfo(
-			commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, maxFramesInFlight * 4);
-		VkCommandBuffer allCmds[maxFramesInFlight * 4];
+			commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, maxFramesInFlight * 3);
+		VkCommandBuffer allCmds[maxFramesInFlight * 3];
 		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdAlloc, allCmds));
+
+		// Transfer-queue command buffer per frame (matches vkrender.cc copyCountCommandBuffer,
+		// allocated from the transfer command pool).
+		VkCommandBufferAllocateInfo transferCmdAlloc = vks::initializers::commandBufferAllocateInfo(
+			transferCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, maxFramesInFlight);
+		VkCommandBuffer allTransferCmds[maxFramesInFlight];
+		VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &transferCmdAlloc, allTransferCmds));
 
 		VkFenceCreateInfo fenceCI = {};
 		fenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -247,10 +270,10 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 		semCI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
 		for (uint32_t i = 0; i < maxFramesInFlight; i++) {
-			frameObjects[i].commandBuffer       = allCmds[4 * i];
-			frameObjects[i].countCommandBuffer  = allCmds[4 * i + 1];
-			frameObjects[i].computeCommandBuffer= allCmds[4 * i + 2];
-			frameObjects[i].transferCommandBuffer = allCmds[4 * i + 3];
+			frameObjects[i].commandBuffer       = allCmds[3 * i];
+			frameObjects[i].countCommandBuffer  = allCmds[3 * i + 1];
+			frameObjects[i].computeCommandBuffer= allCmds[3 * i + 2];
+			frameObjects[i].transferCommandBuffer = allTransferCmds[i];
 
 			VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &frameObjects[i].inComputeFence));
 			VkFenceCreateInfo tfCI = fenceCI;
@@ -485,6 +508,16 @@ void HeadlessRenderer::createPhysicalDevice() {
 	maxComputeWorkGroupCountX = deviceProps.limits.maxComputeWorkGroupCount[0];
 	maxFramebufferWidth = deviceProps.limits.maxFramebufferWidth;
 	maxFramebufferHeight = deviceProps.limits.maxFramebufferHeight;
+
+	// Wait timeout matching vkrender.cc pickPhysicalDevice(): 30 seconds for CPU
+	// (software) renderers whose JIT shader compilation causes cold-start delays,
+	// 1 second for hardware GPUs so genuine hangs are detected promptly. In correct
+	// operation this timeout never fires.
+	if (deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
+		vkTimeout = 30'000'000'000ULL; // 30 seconds for software renderers
+	} else {
+		vkTimeout = 1'000'000'000ULL;  // 1 second for hardware GPUs
+	}
 }
 
 VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
@@ -498,7 +531,16 @@ VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
 			queueFamilyIndex = i;
 			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 			queueCreateInfo.queueFamilyIndex = i;
+			// Request a SINGLE queue from the graphics family, matching vkrender.cc
+			// which requests one queue per family (queueCount=1). On the common
+			// single-family GPU, transferQueue and renderQueue are the SAME queue
+			// (both getQueue(family, 0)), so every submission executes in strict
+			// submission order on one queue. Splitting into two real queues turns
+			// the transferDoneSemaphore handoff into a genuine cross-queue sync,
+			// which is a classic source of a permanent queue stall; the reference
+			// never has that problem because it uses one queue.
 			queueCreateInfo.queueCount = 1;
+			queuePriority = 0.5f;
 			queueCreateInfo.pQueuePriorities = &queuePriority;
 			break;
 		}
@@ -1889,71 +1931,92 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 
 	vkCmdBeginRenderPass(frameObjects[currentFrame].countCommandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-	// Bind descriptor sets once for all subpasses
-	vkCmdBindDescriptorSets(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+	// Bind descriptor sets once for all subpasses (matches vkrender.cc: bindDescriptorSets
+	// is called immediately after beginCountFrameRender, before any count draw).
+	vkCmdBindDescriptorSets(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-	// Helper: inline upload + draw per data type (matches vkrender.cc drawBuffer()).
-	// Upload decision: (remesh || renderCount < maxFramesInFlight || badBuffer) && !copied.
+	// Per-type inline upload + draw (matches vkrender.cc: refreshBuffers() calls
+	// drawBuffer() once per data type). Each type uploads ONLY its own buffers via
+	// uploadBuffer() -- which does NOT modify `copied` -- then draws. The opaque count
+	// draws are wrapped in "if (!interlock)" exactly like vkrender.cc (with interlock,
+	// opaque geometry is counted in the graphics pass, not here).
 	VkDeviceSize offsets[1] = { 0 };
-	auto recordCountDraw = [this, &offsets](auto& data, auto& vertBuf, auto& idxBuf, VkPipeline pipeline, uint32_t idxCount) {
-		if (data.indices.empty()) return;
-
-		bool badBuffer = (vertBuf == VK_NULL_HANDLE);
-		bool needUpload = (!copied) && (remesh || data.renderCount < maxFramesInFlight || badBuffer);
-
-		if (needUpload) {
-			recordUploads(frameObjects[currentFrame].transferCommandBuffer, true);
-			copied = true;
-		}
-
-		vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-		vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &vertBuf, offsets);
-		vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, idxBuf, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, idxCount, 1, 0, 0, 0);
-	};
 
 	glm::uvec4 constants{ 0 };
 	constants.x = lightCount;
 	constants.y = currentTargetSize.x;
 
-	// When interlock=true, opaque geometry writes directly to opaqueColor/opaqueDepth
-	// in the graphics pass via fragment shader interlock.  Do NOT also count them
-	// here via atomics, or we double-count and get stale A-buffer garbage during rotation.
-	// Matches vkrender.cc: refreshBuffers() wraps these draws in "if (!interlock)".
 	if (!interlock) {
 		vkCmdPushConstants(frameObjects[currentFrame].countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
 
 		// materialData (MaterialVertex format) -- matches vkrender.cc drawBuffer(materialBuffers)
-		recordCountDraw(materialData, materialVertexBuffer, materialIndexBuffer,
-		                materialCountPipeline, static_cast<uint32_t>(materialData.indices.size()));
+		if (!materialData.indices.empty()) {
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, materialData, true,
+				materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+				materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
+				materialData.materialVertices.data(), (VkDeviceSize)materialData.materialVertices.size() * sizeof(MaterialVertex),
+				materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+				materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize);
+			vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
+			vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &materialVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
+		}
 
 		// colorData (ColorVertex format) -- matches vkrender.cc drawBuffer(colorBuffers)
-		recordCountDraw(colorData, colorVertexBuffer, colorIndexBuffer,
-		                colorCountPipeline, static_cast<uint32_t>(colorData.indices.size()));
+		if (!colorData.indices.empty()) {
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, colorData, true,
+				colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+				colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
+				colorData.colorVertices.data(), (VkDeviceSize)colorData.colorVertices.size() * sizeof(ColorVertex),
+				colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+				colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize);
+			vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorCountPipeline);
+			vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &colorVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
+		}
 
 		// lineData (LINE_LIST topology, MaterialVertex format) -- matches vkrender.cc drawBuffer(lineBuffers)
-		recordCountDraw(lineData, lineVertexBuffer, lineIndexBuffer,
-		                materialCountPipeline, static_cast<uint32_t>(lineData.indices.size()));
+		if (!lineData.indices.empty()) {
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, lineData, true,
+				lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+				lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
+				lineData.materialVertices.data(), (VkDeviceSize)lineData.materialVertices.size() * sizeof(MaterialVertex),
+				lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+				lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize);
+			vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialCountPipeline);
+			vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &lineVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
+		}
 
 		// triangleData (ColorVertex+GENERAL format) -- matches vkrender.cc drawBuffer(triangleBuffers)
-		recordCountDraw(triangleData, triangleVertexBuffer, triangleIndexBuffer,
-		                triangleCountPipeline, static_cast<uint32_t>(triangleData.indices.size()));
+		if (!triangleData.indices.empty()) {
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, triangleData, true,
+				triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
+				triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
+				triangleData.colorVertices.data(), (VkDeviceSize)triangleData.colorVertices.size() * sizeof(ColorVertex),
+				triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
+				triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize);
+			vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleCountPipeline);
+			vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &triangleVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
+		}
 	}
-
 
 	// Advance to subpass 1 for transparentData counting (vkrender.cc: nextSubpass + drawTransparent)
 	vkCmdNextSubpass(frameObjects[currentFrame].countCommandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-	// transparentData count -- always counted (interlock or not)
+	// transparentData count -- always counted (interlock or not). Uploads its own buffers.
 	if (!transparentData.indices.empty()) {
-		bool badBuffer = (transparentVertexBuffer == VK_NULL_HANDLE);
-		bool needUpload = (!copied) && (remesh || transparentData.renderCount < maxFramesInFlight || badBuffer);
-
-		if (needUpload) {
-			recordUploads(frameObjects[currentFrame].transferCommandBuffer, true);
-			copied = true;
-		}
-
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, transparentData, true,
+			transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+			transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
+			transparentData.colorVertices.data(), (VkDeviceSize)transparentData.colorVertices.size() * sizeof(ColorVertex),
+			transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+			transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize);
 		vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &transparentVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -1975,8 +2038,14 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(frameObjects[currentFrame].computeCommandBuffer, &cmdBufInfo));
 
-	uint32_t g = (elements + groupSize - 1) / groupSize;
-	g = std::min(g, maxComputeWorkGroupCountX);
+	// Matches vkrender.cc refreshBuffers(): g = ceilquotient(elements, groupSize);
+	// elements = groupSize * g (round elements up to a multiple of groupSize). The
+	// dispatch X size is additionally clamped to maxComputeWorkGroupCountX as a safety
+	// measure -- vkrender.cc is missing this clamp (see asymptote/asymptoteUpdate.md).
+	// For normal image sizes the clamp never triggers, so behavior matches vkrender.cc.
+	uint32_t g = (elements + groupSize - 1) / groupSize;   // ceilquotient(elements, groupSize)
+	elements = groupSize * g;                              // round elements up to a multiple of groupSize
+	uint32_t dispatchG = std::min(g, maxComputeWorkGroupCountX);
 	uint32_t blockSize_val = (g + localSize - 1) / localSize;
 	uint32_t final_val = elements - 1;
 
@@ -1998,7 +2067,7 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 
 	// Dispatch sum1
 	vkCmdBindPipeline(frameObjects[currentFrame].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computeSum1Pipeline);
-	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, g, 1, 1);
+	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, dispatchG, 1, 1);
 
 	// Barrier between compute passes
 	vkCmdPipelineBarrier(frameObjects[currentFrame].computeCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2014,7 +2083,7 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 
 	// Dispatch sum3
 	vkCmdBindPipeline(frameObjects[currentFrame].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computeSum3Pipeline);
-	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, g, 1, 1);
+	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, dispatchG, 1, 1);
 
 	// Barrier for host readback
 	VkMemoryBarrier hostReadBarrier = {};
@@ -2042,9 +2111,36 @@ void HeadlessRenderer::beginTransferRecording() {
 	}
 	VK_CHECK_RESULT(vkResetCommandBuffer(frameObjects[currentFrame].transferCommandBuffer, 0));
 
+	// Plain resettable command buffer (no ONE_TIME_SUBMIT flag), matching
+	// vkrender.cc beginTransferRecording(): object.copyCountCommandBuffer->begin(
+	// vk::CommandBufferBeginInfo()). The per-frame transfer buffer is submitted and
+	// reset more than once across a frame (count pass + main render), so it must be
+	// a normal resettable buffer, not a one-time-submit buffer.
 	VkCommandBufferBeginInfo beginInfo = vks::initializers::commandBufferBeginInfo();
-	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VK_CHECK_RESULT(vkBeginCommandBuffer(frameObjects[currentFrame].transferCommandBuffer, &beginInfo));
+}
+
+void HeadlessRenderer::uploadBuffer(VkCommandBuffer cmd, VertexBuffer& data, bool remesh,
+                                    VkBuffer& vBuf, VkDeviceMemory& vMem, VkDeviceSize& vSize,
+                                    VkBuffer& vStg, VkDeviceMemory& vStgMem, VkDeviceSize& vStgSize,
+                                    const void* vdata, VkDeviceSize vbytes,
+                                    VkBuffer& iBuf, VkDeviceMemory& iMem, VkDeviceSize& iSize,
+                                    VkBuffer& iStg, VkDeviceMemory& iStgMem, VkDeviceSize& iStgSize) {
+	// Matches vkrender.cc drawBuffer() exactly: copy = (remesh || renderCount < maxFramesInFlight || badBuffer) && !copied.
+	// Uploads ONLY this data type's own buffers. Does NOT modify `copied`.
+	bool badBuffer = (vBuf == VK_NULL_HANDLE);
+	bool copy = (!copied) && (remesh || data.renderCount < maxFramesInFlight || badBuffer);
+	if (!copy) return;
+
+	if (vdata != nullptr && vbytes > 0) {
+		uploadToPersistentBuffer(cmd, vBuf, vMem, vSize, vStg, vStgMem, vStgSize, vdata, vbytes, true);
+		transferHasPendingWork = true;
+	}
+	if (!data.indices.empty()) {
+		VkDeviceSize ibytes = (VkDeviceSize)(data.indices.size() * sizeof(uint32_t));
+		uploadToPersistentBuffer(cmd, iBuf, iMem, iSize, iStg, iStgMem, iStgSize, data.indices.data(), ibytes, false);
+		transferHasPendingWork = true;
+	}
 }
 
 void HeadlessRenderer::recordUploads(VkCommandBuffer cmd, bool remesh) {
@@ -2159,9 +2255,11 @@ void HeadlessRenderer::endAndSubmitTransfers() {
 
 	// Reset fence before submission (matches vkrender.cc).
 	// The fence may be in signaled state (from prior submit) or unsignaled (just created).
-	// Both are valid to reset — only PENDING fences must not be reset.
+	// Both are valid to reset — only PENDING fences must not be reset.	// Submit to the dedicated transfer queue (matches vkrender.cc: endAndSubmitTransfers
+	// submits to transferQueue). The count+compute and main-render submissions stay on the
+	// render queue and wait on transferDoneSemaphore for the cross-queue handoff.
 	VK_CHECK_RESULT(vkResetFences(device, 1, &frameObjects[currentFrame].transferFence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, frameObjects[currentFrame].transferFence));
+	VK_CHECK_RESULT(vkQueueSubmit(transferQueue, 1, &submitInfo, frameObjects[currentFrame].transferFence));
 }
 
 void HeadlessRenderer::uploadVertexData() {
@@ -2195,12 +2293,10 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 	// draws go into frameObjects[currentFrame].countCommandBuffer.
 	recordCountCommandBuffer(indexCount, lightCount);
 
-	// If interlock is not available, uploads happened during count recording above.
-	// Set copied=true to prevent redundant uploads in the main render path.
-	// Matches vkrender.cc: if (!interlock) copied=true;
-	if (!interlock) {
-		copied = true;
-	}
+	// NOTE: `copied` is intentionally NOT set here. Matches vkrender.cc preDrawBuffers():
+	// copied stays false through the count pass (uploadBuffer never sets it); it is only
+	// set to true AFTER resizeFragmentBuffer() when !interlock, in render(). This lets the
+	// interlock path upload opaque geometry in the main render pass, exactly like vkrender.cc.
 
 	// Record compute command buffer (matches vkrender.cc).
 	recordComputeCommandBuffer();
@@ -2259,6 +2355,14 @@ void HeadlessRenderer::readFeedback() {
 	fragments = feedbackMappedPtr[1];
 	uint32_t maxDepth = feedbackMappedPtr[0];
 
+	// Matches vkrender.cc resizeFragmentBuffer(): after a full recreation, resetDepth
+	// forces the depth/size back to 1 before re-growing, so stale A-buffer bounds from a
+	// previous (larger) scene don't persist across resource recreation.
+	if (resetDepth) {
+		maxSize = maxDepth = 1;
+		resetDepth = false;
+	}
+
 	if (maxDepth > maxSize) {
 		maxSize = 1;
 		while (maxSize < maxDepth) maxSize *= 2;
@@ -2279,6 +2383,9 @@ void HeadlessRenderer::readFeedback() {
 
 		updateTransparencyDescriptors();
 
+		// Update the fragment/depth descriptors in EVERY per-frame descriptor set,
+		// matching vkrender.cc updateSceneDependentBuffers() (which loops over all
+		// frameObjects and rewrites bindings 5 & 6 for each).
 		VkDescriptorBufferInfo fragmentBufferInfo = {};
 		fragmentBufferInfo.buffer = fragmentBuffer;
 		fragmentBufferInfo.offset = 0;
@@ -2289,22 +2396,24 @@ void HeadlessRenderer::readFeedback() {
 		depthFragBufferInfo.offset = 0;
 		depthFragBufferInfo.range = VK_WHOLE_SIZE;
 
-		VkWriteDescriptorSet writes[2] = {};
-		writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		writes[0].dstSet = descriptorSets[0];
-		writes[0].dstBinding = 5;
-		writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		writes[0].descriptorCount = 1;
-		writes[0].pBufferInfo = &fragmentBufferInfo;
+		for (size_t i = 0; i < maxFramesInFlight; i++) {
+			VkWriteDescriptorSet writes[2] = {};
+			writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[0].dstSet = descriptorSets[i];
+			writes[0].dstBinding = 5;
+			writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			writes[0].descriptorCount = 1;
+			writes[0].pBufferInfo = &fragmentBufferInfo;
 
-		writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		writes[1].dstSet = descriptorSets[0];
-		writes[1].dstBinding = 6;
-		writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		writes[1].descriptorCount = 1;
-		writes[1].pBufferInfo = &depthFragBufferInfo;
+			writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[1].dstSet = descriptorSets[i];
+			writes[1].dstBinding = 6;
+			writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			writes[1].descriptorCount = 1;
+			writes[1].pBufferInfo = &depthFragBufferInfo;
 
-		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+			vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+		}
 	}
 }
 
@@ -2757,7 +2866,7 @@ void HeadlessRenderer::destroyIBLResources() {
 
 bool HeadlessRenderer::safeWaitForFences(VkFence fence, const char* context) {
 	if (fence == VK_NULL_HANDLE) return true;
-	VkResult res = vkWaitForFences(device, 1, &fence, VK_TRUE, kVkWaitTimeout);
+	VkResult res = vkWaitForFences(device, 1, &fence, VK_TRUE, vkTimeout);
 	if (res == VK_SUCCESS) return true;
 	// Timeout or error: recover by forcing device idle and logging.
 	std::cerr << "[v3d-error] safeWaitForFences(" << context << ") failed: " << res
@@ -2780,14 +2889,35 @@ bool HeadlessRenderer::safeWaitTimelineSemaphore(uint64_t value, const char* con
 	uint64_t waitValue = value;
 	waitInfo.pValues = &waitValue;
 
-	VkResult res = vkWaitSemaphores(device, &waitInfo, kVkWaitTimeout);
-	if (res == VK_SUCCESS) return true;
+	// Retry loop with exponential backoff + a short sleep, matching vkrender.cc
+	// waitForTimelineSemaphore(): retryTimeout starts at 0.1*timeout and doubles each
+	// attempt (capped at timeout), up to maxRetries attempts, sleeping 100us between
+	// retries to avoid busy-waiting the CPU.
+	uint64_t retryTimeout = vkTimeout / 10;
+	if (retryTimeout == 0) retryTimeout = 1;
+	const uint64_t maxRetries = 10;
+	uint64_t retryCount = 0;
+
+	while (retryCount < maxRetries) {
+		VkResult res = vkWaitSemaphores(device, &waitInfo, retryTimeout);
+		if (res == VK_SUCCESS) return true;
+		if (res == VK_TIMEOUT) {
+			retryCount++;
+			retryTimeout *= 2;
+			if (retryTimeout > vkTimeout) retryTimeout = vkTimeout;
+			std::this_thread::sleep_for(std::chrono::microseconds(100));
+		} else {
+			// Other error - report and fall through to recovery.
+			break;
+		}
+	}
 
 	// Timeout or error: the timeline semaphore may have been destroyed/recreated
 	// while a stale value was still referenced. Recover by forcing device idle
 	// and resetting all timeline counters so subsequent renders start fresh.
 	std::cerr << "[v3d-error] safeWaitTimelineSemaphore(" << context << ", value=" << value
-	          << ") failed: " << res << ". Recovering via vkDeviceWaitIdle + timeline reset." << std::endl;
+	          << ") timed out after " << (1.0e-9 * vkTimeout)
+	          << " seconds. Recovering via vkDeviceWaitIdle + timeline reset." << std::endl;
 	vkDeviceWaitIdle(device);
 	currentTimelineValue = 0;
 	computeTimelineValue = 0;
@@ -2911,6 +3041,10 @@ void HeadlessRenderer::cleanup() {
 	timelineSemaphore = createTimelineSemaphore(0);
 	currentTimelineValue = 0;
 	computeTimelineValue = 0;
+
+	// Matches vkrender.cc recreateSwapChain(): reset depth/size bounds so the next
+	// readFeedback() starts from maxSize=maxDepth=1 and re-grows as needed.
+	resetDepth = true;
 
 	// After vkDeviceWaitIdle above, all per-frame fences are guaranteed signaled.
 	// Destroy and recreate ALL per-frame sync objects uniformly (matches vkrender.cc
@@ -3298,45 +3432,12 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	} else {
 		// No recreation needed. Wait for the current frame's previous GPU work to
 		// complete via timeline semaphore before reusing its command buffers.
-		// Matches vkrender.cc: waitForTimelineSemaphore(frameObject.timelineValue).
+		// Matches vkrender.cc drawFrame(): wait ONLY on our own slot's timeline value,
+		// never on the other frame slot. (The cross-frame "other-frame timeline" wait
+		// that was added here is a deviation from the reference and has been removed.)
 		FrameObject& fo = frameObjects[currentFrame];
 		if (fo.timelineValue > 0) {
 			safeWaitTimelineSemaphore(fo.timelineValue, "per-frame timeline");
-		}
-
-		// Before uploading new vertex data into shared persistent GPU buffers,
-		// wait for the OTHER frame slot's GPU work to complete. The persistent
-		// vertex buffers (materialVertexBuffer, etc.) are read by the GPU during
-		// rendering and overwritten by the CPU during uploads. If frame N+1
-		// uploads new data while frame N is still reading old data, the GPU
-		// reads corrupted memory causing DEVICE_LOST.
-		// This only affects model switches (different geometry) where remesh=true.
-		// For same-model rotation (remesh=false), no upload occurs so no wait needed.
-		//
-		// IMPORTANT: Do NOT use safeWaitForFences here. The inFlightFence is a
-		// VK_WHITELIST fence that gets reset at the top of the next frame's render()
-		// call (safeResetFences(frameObjects[currentFrame].inFlightFence)). If we
-		// wait on the other frame's fence and it was already consumed+reset by a
-		// prior iteration, vkWaitForFences returns immediately (fence is in
-		 // "signaled" state after reset), giving NO actual GPU synchronization.
-		// Worse, if the fence is still pending (GPU still working), we block the
-		// CPU thread indefinitely -- and if that thread holds a Vulkan lock or the
-		// GPU driver's internal state expects timely fence resets, we get
-		// VK_ERROR_DEVICE_LOST.
-		//
-		// The per-frame timeline semaphore wait above (fo.timelineValue) already
-		// guarantees the CURRENT frame slot's prior GPU work is done before we
-		// reuse its command buffers. For cross-frame persistent buffer safety,
-		// the timeline values are strictly increasing: when we submit frame N+1,
-		// its timeline wait ensures all prior GPU reads of those buffers (from
-		// frames <= N) have completed. The inFlightFence is only used for
-		// command buffer recycling safety at the top of render(), not here.
-		{
-			uint32_t otherFrame = (currentFrame + 1) % maxFramesInFlight;
-			FrameObject& otherFo = frameObjects[otherFrame];
-			if (otherFo.timelineValue > 0) {
-				safeWaitTimelineSemaphore(otherFo.timelineValue, "other-frame timeline");
-			}
 		}
 	}
 
@@ -3425,17 +3526,22 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	refreshBuffers(materialData.indices.size(), lights.size());
 	if (!isOpaque) {
 		readFeedback();  // Matches vkrender.cc: resizeFragmentBuffer() after refreshBuffers()
+		// Matches vkrender.cc preDrawBuffers(): AFTER resizeFragmentBuffer, if !interlock
+		// set copied=true so the main render pass does NOT re-upload (all done in count pass).
+		// For interlock, copied stays false so opaque geometry uploads happen in the main path.
+		if (!interlock) {
+			copied = true;
+		}
 	}
 
 	// Begin recording buffer transfers for the main render pass
 	// (matches vkrender.cc drawFrame: beginTransferRecording called AFTER preDrawBuffers)
 	beginTransferRecording();
 
-	// Record uploads into the transfer command buffer.
-	// For transparent scenes without interlock, refreshBuffers already uploaded
-	// everything and set copied=true, so recordUploads is a no-op.
-	// For opaque scenes and interlock+transparent, uploads happen here.
-	recordUploads(frameObjects[currentFrame].transferCommandBuffer, remesh);
+	// NOTE: uploads are now done per-type inline with each draw below (matches vkrender.cc
+	// drawBuffer(): upload own buffers + draw). Gated by uploadBuffer()'s
+	// (!copied && (remesh || renderCount < maxFramesInFlight || badBuffer)) check.
+	// No monolithic recordUploads() call here anymore.
 
 	// Reset and reuse persistent graphics command buffer (matches vkrender.cc drawFrame).
 	VK_CHECK_RESULT(vkResetCommandBuffer(frameObjects[currentFrame].commandBuffer, 0));
@@ -3480,8 +3586,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	memcpy(pushData, &transConstants, sizeof(glm::uvec4));
 	glm::vec4 background = m_BackgroundColor;
 	memcpy(pushData + sizeof(glm::uvec4), &background, sizeof(glm::vec4));
-
-	vkCmdBindDescriptorSets(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[0], 0, nullptr);
+	vkCmdBindDescriptorSets(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
 	// === SUBPASS 0: ALL geometry ===
 	// Matches vkrender.cc drawBuffers(): getPipelineType() selects opaque or transparent pipeline.
@@ -3491,7 +3596,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	VkPipeline lnPipeline  = isOpaque ? linePipeline : lineTransparentPipeline;
 
 	// materialData (MaterialVertex format) -- matches vkrender.cc drawMaterials()
-	if (!materialData.indices.empty() && materialVertexBuffer != VK_NULL_HANDLE) {
+	if (!materialData.indices.empty()) {
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, materialData, remesh,
+			materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
+			materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
+			materialData.materialVertices.data(), (VkDeviceSize)materialData.materialVertices.size() * sizeof(MaterialVertex),
+			materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
+			materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize);
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, matPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &materialVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3501,7 +3612,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	materialData.renderCount++;
 
 	// colorData (ColorVertex format) -- matches vkrender.cc drawColors()
-	if (!colorData.indices.empty() && colorVertexBuffer != VK_NULL_HANDLE) {
+	if (!colorData.indices.empty()) {
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, colorData, remesh,
+			colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
+			colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
+			colorData.colorVertices.data(), (VkDeviceSize)colorData.colorVertices.size() * sizeof(ColorVertex),
+			colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
+			colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize);
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &colorVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3511,7 +3628,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	colorData.renderCount++;
 
 	// lineData (LINE_LIST topology, MaterialVertex format) -- matches vkrender.cc drawLines()
-	if (!lineData.indices.empty() && lineVertexBuffer != VK_NULL_HANDLE) {
+	if (!lineData.indices.empty()) {
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, lineData, remesh,
+			lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
+			lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
+			lineData.materialVertices.data(), (VkDeviceSize)lineData.materialVertices.size() * sizeof(MaterialVertex),
+			lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
+			lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize);
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lnPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &lineVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3522,7 +3645,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	// triangleData (ColorVertex+GENERAL format) -- always uses transparent pipeline since it needs GENERAL path
 	// Matches vkrender.cc: drawTriangles() uses getPipelineType(trianglePipelines)
-	if (!triangleData.indices.empty() && triangleVertexBuffer != VK_NULL_HANDLE) {
+	if (!triangleData.indices.empty()) {
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, triangleData, remesh,
+			triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
+			triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
+			triangleData.colorVertices.data(), (VkDeviceSize)triangleData.colorVertices.size() * sizeof(ColorVertex),
+			triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
+			triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize);
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleTransparentPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &triangleVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3535,7 +3664,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	if (!isOpaque) {
 		vkCmdNextSubpass(frameObjects[currentFrame].commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-		if (!transparentData.indices.empty() && transparentVertexBuffer != VK_NULL_HANDLE) {
+		if (!transparentData.indices.empty()) {
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, transparentData, remesh,
+				transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
+				transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
+				transparentData.colorVertices.data(), (VkDeviceSize)transparentData.colorVertices.size() * sizeof(ColorVertex),
+				transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
+				transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize);
 			vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline);
 			vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &transparentVertexBuffer, offsets);
 			vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3601,11 +3736,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
 	submitInfo.pSignalSemaphores = signalSems.data();
 
-	// Reset and attach inFlightFence so we can wait for the entire frame
-	// (render + copy-to-host) to complete before reading pixels.
+	// Submit the main render with a nullptr fence (matches vkrender.cc drawFrame:
+	// renderQueue.submit(1, &submitInfo, nullptr)). Frame completion is observed via
+	// the timeline semaphore, exactly like vkrender.cc Export().
 	uint32_t submitFrame = currentFrame;
-	VK_CHECK_RESULT(vkResetFences(device, 1, &frameObjects[submitFrame].inFlightFence));
-	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, frameObjects[submitFrame].inFlightFence));
+	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, nullptr));
 
 	// Record this frame's timeline value so the next render() call for this
 	// frame slot knows when to wait before reusing its command buffers.
@@ -3614,8 +3749,10 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// Advance to next frame slot (ping-pong between 0 and 1).
 	currentFrame = (currentFrame + 1) % maxFramesInFlight;
 
-	// Wait for GPU to finish render + copy, then read pixels from mapped memory.
-	safeWaitForFences(frameObjects[submitFrame].inFlightFence, "render inFlight");
+	// Block until the GPU finishes render + copy-to-host, then read pixels from
+	// mapped memory. Matches vkrender.cc Export(): waitForTimelineSemaphore on the
+	// frame's timeline value. (Okular/Qt requires valid pixels when render() returns.)
+	safeWaitTimelineSemaphore(frameObjects[submitFrame].timelineValue, "render timeline");
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 

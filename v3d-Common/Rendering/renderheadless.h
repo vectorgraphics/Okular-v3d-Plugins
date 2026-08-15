@@ -96,7 +96,12 @@ public:
 	// command buffers, fences, and semaphores so the CPU can record frame N+1
 	// while the GPU is still executing frame N — no CPU-GPU stalls needed.
 	// Matches vkrender.cc FrameObject pattern with maxFramesInFlight=2.
-	static constexpr uint32_t maxFramesInFlight = 2;
+	// Headless path uses a single in-flight frame slot, matching vkrender.cc's
+	// `maxFramesInFlight = View ? setting : 1`. Our render() blocks on the timeline
+	// semaphore for full GPU completion before returning pixels (okular/Qt requires
+	// valid pixels immediately), so we never overlap frames anyway -- extra slots give
+	// no benefit and only add per-frame state + descriptor-pool overhead.
+	static constexpr uint32_t maxFramesInFlight = 1;
 
 	struct FrameObject {
 		VkCommandBuffer commandBuffer{ VK_NULL_HANDLE };       // Main graphics command buffer
@@ -120,8 +125,10 @@ public:
 	uint32_t maxFramebufferWidth{ 16384 };
 	uint32_t maxFramebufferHeight{ 16384 };
 	uint32_t queueFamilyIndex;
-	VkQueue queue;
-	VkCommandPool commandPool{ VK_NULL_HANDLE };
+	VkQueue queue;                 // Render queue: count+compute and main render (vkrender.cc renderQueue)
+	VkQueue transferQueue;         // Transfer queue: vertex/index uploads (vkrender.cc transferQueue)
+	VkCommandPool commandPool{ VK_NULL_HANDLE };            // Render-queue command pool
+	VkCommandPool transferCommandPool{ VK_NULL_HANDLE };    // Transfer-queue command pool (vkrender.cc transferCommandPool)
 	FrameObject frameObjects[maxFramesInFlight];
 	uint32_t currentFrame{ 0 };  // Ping-pong index (0 or 1)
 	VkDescriptorSetLayout descriptorSetLayout;
@@ -344,6 +351,7 @@ public:
 	uint32_t fragments{ 0 };
 	uint32_t maxFragments{ 0 };
 	uint32_t maxSize{ 1 };
+	bool resetDepth{ false };  // Matches vkrender.cc: set on recreation, forces maxSize=maxDepth=1 once in readFeedback
 
 	// Timeline semaphore synchronization (matches vkrender.cc renderTimelineSemaphore).
 	// Enables GPU-side chaining between count/compute and graphics submissions.
@@ -356,6 +364,7 @@ public:
 
 	std::string shaderPath;
 	float queuePriority{ 0.5f };
+	float queuePriorities[2]{ 0.5f, 0.5f };  // Two queues requested from the graphics family (render + transfer)
 
 	VkDebugReportCallbackEXT debugReportCallback{};
 
@@ -391,6 +400,16 @@ private:
 	// beginTransferRecording -> recordUploads(cmd, remesh) -> endAndSubmitTransfers
 	void beginTransferRecording();
 	void recordUploads(VkCommandBuffer cmd, bool remesh);
+	// Per-type upload (matches vkrender.cc drawBuffer()): uploads ONLY this data
+	// type's vertex+index buffers into the transfer command buffer, gated by
+	// (!copied) && (remesh || renderCount < maxFramesInFlight || badBuffer). Does NOT
+	// modify `copied` (vkrender.cc drawBuffer never sets it; only preDrawBuffers does).
+	void uploadBuffer(VkCommandBuffer cmd, VertexBuffer& data, bool remesh,
+	                  VkBuffer& vBuf, VkDeviceMemory& vMem, VkDeviceSize& vSize,
+	                  VkBuffer& vStg, VkDeviceMemory& vStgMem, VkDeviceSize& vStgSize,
+	                  const void* vdata, VkDeviceSize vbytes,
+	                  VkBuffer& iBuf, VkDeviceMemory& iMem, VkDeviceSize& iSize,
+	                  VkBuffer& iStg, VkDeviceMemory& iStgMem, VkDeviceSize& iStgSize);
 	void endAndSubmitTransfers();
 	void uploadVertexData();  // Thin wrapper: calls all three above
 	void refreshBuffers(size_t indexCount, size_t lightCount);
@@ -453,7 +472,10 @@ private:
 	// Finite-timeout Vulkan wait helpers with error recovery.
 	// Prevents permanent hangs if a fence/semaphore is in an unexpected state
 	// after resource recreation (resize + draw mode change sequences).
-	static constexpr uint64_t kVkWaitTimeout = 30ULL * 1000 * 1000 * 1000; // 30 seconds
+	// Timeout in nanoseconds, set per device type in createPhysicalDevice() to match
+	// vkrender.cc pickPhysicalDevice(): 1 second for hardware GPUs, 30 seconds for
+	// CPU (software) renderers. In correct operation the wait never fires.
+	uint64_t vkTimeout{ 1'000'000'000ULL };
 
 	bool safeWaitForFences(VkFence fence, const char* context);
 	bool safeWaitTimelineSemaphore(uint64_t value, const char* context);
