@@ -68,6 +68,29 @@ VertexInputTraits<ColorVertex>::attributes(bool count) {
 	return attrs;
 }
 
+VkVertexInputBindingDescription
+VertexInputTraits<PointVertex>::binding() {
+	VkVertexInputBindingDescription bd{};
+	bd.binding = 0;
+	bd.stride = sizeof(PointVertex);
+	bd.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	return bd;
+}
+
+std::vector<VkVertexInputAttributeDescription>
+VertexInputTraits<PointVertex>::attributes(bool count) {
+	std::vector<VkVertexInputAttributeDescription> attrs;
+	// NOTE: this project's helper is vertexInputAttributeDescription(binding, location, format, offset).
+	// Matches vkrender.cc pointVertexAttributes locations: position=0, width=4 (always), material=2.
+	attrs.push_back(vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(PointVertex, position)));
+	// Always include width for points so the vertex shader can set gl_PointSize even in the count pass.
+	attrs.push_back(vks::initializers::vertexInputAttributeDescription(0, 4, VK_FORMAT_R32_SFLOAT, offsetof(PointVertex, width)));
+	if (!count) {
+		attrs.push_back(vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32_SINT, offsetof(PointVertex, material)));
+	}
+	return attrs;
+}
+
 // Helper functions for common pipeline state creation.  Extracted from the
 // repeated boilerplate in each create*Pipeline function to match vkrender.cc
 // pattern where invariant Vulkan state is built once per pipeline.
@@ -1949,9 +1972,23 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 	if (!interlock) {
 		vkCmdPushConstants(frameObjects[currentFrame].countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
 
+		// pointData (PointVertex format) -- matches vkrender.cc drawBuffer(pointBuffers), counted first.
+		if (!pointData.indices.empty()) {
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, pointData, remesh,
+				pointVertexBuffer, pointVertexMemory, pointVertexBufferSize,
+				pointVertexStagingBuffer, pointVertexStagingMemory, pointVertexStgSize,
+				pointData.pointVertices.data(), (VkDeviceSize)pointData.pointVertices.size() * sizeof(PointVertex),
+				pointIndexBuffer, pointIndexMemory, pointIndexBufferSize,
+				pointIndexStagingBuffer, pointIndexStagingMemory, pointIndexStgSize);
+			vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pointCountPipeline);
+			vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &pointVertexBuffer, offsets);
+			vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, pointIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, static_cast<uint32_t>(pointData.indices.size()), 1, 0, 0, 0);
+		}
+
 		// materialData (MaterialVertex format) -- matches vkrender.cc drawBuffer(materialBuffers)
 		if (!materialData.indices.empty()) {
-			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, materialData, true,
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, materialData, remesh,
 				materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
 				materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
 				materialData.materialVertices.data(), (VkDeviceSize)materialData.materialVertices.size() * sizeof(MaterialVertex),
@@ -1965,7 +2002,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 
 		// colorData (ColorVertex format) -- matches vkrender.cc drawBuffer(colorBuffers)
 		if (!colorData.indices.empty()) {
-			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, colorData, true,
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, colorData, remesh,
 				colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
 				colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
 				colorData.colorVertices.data(), (VkDeviceSize)colorData.colorVertices.size() * sizeof(ColorVertex),
@@ -1979,7 +2016,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 
 		// lineData (LINE_LIST topology, MaterialVertex format) -- matches vkrender.cc drawBuffer(lineBuffers)
 		if (!lineData.indices.empty()) {
-			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, lineData, true,
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, lineData, remesh,
 				lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
 				lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
 				lineData.materialVertices.data(), (VkDeviceSize)lineData.materialVertices.size() * sizeof(MaterialVertex),
@@ -1993,7 +2030,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 
 		// triangleData (ColorVertex+GENERAL format) -- matches vkrender.cc drawBuffer(triangleBuffers)
 		if (!triangleData.indices.empty()) {
-			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, triangleData, true,
+			uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, triangleData, remesh,
 				triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
 				triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
 				triangleData.colorVertices.data(), (VkDeviceSize)triangleData.colorVertices.size() * sizeof(ColorVertex),
@@ -2011,7 +2048,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightC
 
 	// transparentData count -- always counted (interlock or not). Uploads its own buffers.
 	if (!transparentData.indices.empty()) {
-		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, transparentData, true,
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, transparentData, remesh,
 			transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
 			transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
 			transparentData.colorVertices.data(), (VkDeviceSize)transparentData.colorVertices.size() * sizeof(ColorVertex),
@@ -2097,9 +2134,8 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	VK_CHECK_RESULT(vkEndCommandBuffer(frameObjects[currentFrame].computeCommandBuffer));
 }
 
-// Upload ALL vertex data into persistent GPU buffers (matches vkrender.cc updateBuffers).
-// Split into three functions matching vkrender.cc pattern:
-//   beginTransferRecording() -> recordUploads(cmd) -> endAndSubmitTransfers()
+// Transfer recording split (matches vkrender.cc pattern):
+//   beginTransferRecording() -> per-type uploadBuffer() calls -> endAndSubmitTransfers()
 
 void HeadlessRenderer::beginTransferRecording() {
 	transferHasPendingWork = false;
@@ -2139,83 +2175,6 @@ void HeadlessRenderer::uploadBuffer(VkCommandBuffer cmd, VertexBuffer& data, boo
 	if (!data.indices.empty()) {
 		VkDeviceSize ibytes = (VkDeviceSize)(data.indices.size() * sizeof(uint32_t));
 		uploadToPersistentBuffer(cmd, iBuf, iMem, iSize, iStg, iStgMem, iStgSize, data.indices.data(), ibytes, false);
-		transferHasPendingWork = true;
-	}
-}
-
-void HeadlessRenderer::recordUploads(VkCommandBuffer cmd, bool remesh) {
-	// Match vkrender.cc drawBuffer(): copy = (remesh || data->renderCount < maxFramesInFlight || badBuffer) && !copied
-	auto shouldUpload = [this](VertexBuffer& data, VkBuffer& buf, bool r) {
-		return (!copied) && (r || data.renderCount < maxFramesInFlight);
-	};
-
-	if (!materialData.materialVertices.empty() && shouldUpload(materialData, materialVertexBuffer, remesh)) {
-		VkDeviceSize vsize = materialData.materialVertices.size() * sizeof(MaterialVertex);
-		uploadToPersistentBuffer(cmd, materialVertexBuffer, materialVertexMemory, materialVertexBufferSize,
-		                         materialVertexStagingBuffer, materialVertexStagingMemory, materialVertexStgSize,
-		                         materialData.materialVertices.data(), vsize, true);
-		transferHasPendingWork = true;
-	}
-	if (!materialData.indices.empty() && shouldUpload(materialData, materialVertexBuffer, remesh)) {
-		VkDeviceSize isize = materialData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(cmd, materialIndexBuffer, materialIndexMemory, materialIndexBufferSize,
-		                         materialIndexStagingBuffer, materialIndexStagingMemory, materialIndexStgSize,
-		                         materialData.indices.data(), isize, false);
-		transferHasPendingWork = true;
-	}
-	if (!lineData.materialVertices.empty() && shouldUpload(lineData, lineVertexBuffer, remesh)) {
-		VkDeviceSize vsize = lineData.materialVertices.size() * sizeof(MaterialVertex);
-		uploadToPersistentBuffer(cmd, lineVertexBuffer, lineVertexMemory, lineVertexBufferSize,
-		                         lineVertexStagingBuffer, lineVertexStagingMemory, lineVertexStgSize,
-		                         lineData.materialVertices.data(), vsize, true);
-		VkDeviceSize isize = lineData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(cmd, lineIndexBuffer, lineIndexMemory, lineIndexBufferSize,
-		                         lineIndexStagingBuffer, lineIndexStagingMemory, lineIndexStgSize,
-		                         lineData.indices.data(), isize, false);
-		transferHasPendingWork = true;
-	}
-	if (!colorData.colorVertices.empty() && shouldUpload(colorData, colorVertexBuffer, remesh)) {
-		VkDeviceSize vsize = colorData.colorVertices.size() * sizeof(ColorVertex);
-		uploadToPersistentBuffer(cmd, colorVertexBuffer, colorVertexMemory, colorVertexBufferSize,
-		                         colorVertexStagingBuffer, colorVertexStagingMemory, colorVertexStgSize,
-		                         colorData.colorVertices.data(), vsize, true);
-		VkDeviceSize isize = colorData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(cmd, colorIndexBuffer, colorIndexMemory, colorIndexBufferSize,
-		                         colorIndexStagingBuffer, colorIndexStagingMemory, colorIndexStgSize,
-		                         colorData.indices.data(), isize, false);
-		transferHasPendingWork = true;
-	}
-	if (!transparentData.colorVertices.empty() && shouldUpload(transparentData, transparentVertexBuffer, remesh)) {
-		VkDeviceSize vsize = transparentData.colorVertices.size() * sizeof(ColorVertex);
-		uploadToPersistentBuffer(cmd, transparentVertexBuffer, transparentVertexMemory, transparentVertexBufferSize,
-		                         transparentVertexStagingBuffer, transparentVertexStagingMemory, transparentVertexStgSize,
-		                         transparentData.colorVertices.data(), vsize, true);
-		VkDeviceSize isize = transparentData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(cmd, transparentIndexBuffer, transparentIndexMemory, transparentIndexBufferSize,
-		                         transparentIndexStagingBuffer, transparentIndexStagingMemory, transparentIndexStgSize,
-		                         transparentData.indices.data(), isize, false);
-		transferHasPendingWork = true;
-	}
-	if (!triangleData.colorVertices.empty() && shouldUpload(triangleData, triangleVertexBuffer, remesh)) {
-		VkDeviceSize vsize = triangleData.colorVertices.size() * sizeof(ColorVertex);
-		uploadToPersistentBuffer(cmd, triangleVertexBuffer, triangleVertexMemory, triangleVertexBufferSize,
-		                         triangleVertexStagingBuffer, triangleVertexStagingMemory, triangleVertexStgSize,
-		                         triangleData.colorVertices.data(), vsize, true);
-		VkDeviceSize isize = triangleData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(cmd, triangleIndexBuffer, triangleIndexMemory, triangleIndexBufferSize,
-		                         triangleIndexStagingBuffer, triangleIndexStagingMemory, triangleIndexStgSize,
-		                         triangleData.indices.data(), isize, false);
-		transferHasPendingWork = true;
-	}
-	if (!pointData.pointVertices.empty() && shouldUpload(pointData, pointVertexBuffer, remesh)) {
-		VkDeviceSize vsize = pointData.pointVertices.size() * sizeof(PointVertex);
-		uploadToPersistentBuffer(cmd, pointVertexBuffer, pointVertexMemory, pointVertexBufferSize,
-		                         pointVertexStagingBuffer, pointVertexStagingMemory, pointVertexStgSize,
-		                         pointData.pointVertices.data(), vsize, true);
-		VkDeviceSize isize = pointData.indices.size() * sizeof(uint32_t);
-		uploadToPersistentBuffer(cmd, pointIndexBuffer, pointIndexMemory, pointIndexBufferSize,
-		                         pointIndexStagingBuffer, pointIndexStagingMemory, pointIndexStgSize,
-		                         pointData.indices.data(), isize, false);
 		transferHasPendingWork = true;
 	}
 }
@@ -2260,13 +2219,6 @@ void HeadlessRenderer::endAndSubmitTransfers() {
 	// render queue and wait on transferDoneSemaphore for the cross-queue handoff.
 	VK_CHECK_RESULT(vkResetFences(device, 1, &frameObjects[currentFrame].transferFence));
 	VK_CHECK_RESULT(vkQueueSubmit(transferQueue, 1, &submitInfo, frameObjects[currentFrame].transferFence));
-}
-
-void HeadlessRenderer::uploadVertexData() {
-	// Thin wrapper: calls the three split functions for backward compatibility.
-	beginTransferRecording();
-	recordUploads(frameObjects[currentFrame].transferCommandBuffer, true);
-	endAndSubmitTransfers();
 }
 
 void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
@@ -2941,6 +2893,7 @@ void HeadlessRenderer::cleanup() {
 
 	// Cleanup line pipeline resources
 	if (linePipeline) vkDestroyPipeline(device, linePipeline, nullptr);
+	if (pointPipeline) vkDestroyPipeline(device, pointPipeline, nullptr);
 	if (lineVertexBuffer) { vkDestroyBuffer(device, lineVertexBuffer, nullptr); vkFreeMemory(device, lineVertexMemory, nullptr); }
 	if (lineIndexBuffer) { vkDestroyBuffer(device, lineIndexBuffer, nullptr); vkFreeMemory(device, lineIndexMemory, nullptr); }
 	linePipeline = VK_NULL_HANDLE;
@@ -2962,11 +2915,13 @@ void HeadlessRenderer::cleanup() {
 	if (colorCountPipeline) vkDestroyPipeline(device, colorCountPipeline, nullptr);
 	if (triangleCountPipeline) vkDestroyPipeline(device, triangleCountPipeline, nullptr);
 	if (transparentCountPipeline) vkDestroyPipeline(device, transparentCountPipeline, nullptr);
+	if (pointCountPipeline) vkDestroyPipeline(device, pointCountPipeline, nullptr);
 
 	if (materialTransparentPipeline) vkDestroyPipeline(device, materialTransparentPipeline, nullptr);
 	if (colorTransparentPipeline) vkDestroyPipeline(device, colorTransparentPipeline, nullptr);
 	if (triangleTransparentPipeline) vkDestroyPipeline(device, triangleTransparentPipeline, nullptr);
 	if (lineTransparentPipeline) vkDestroyPipeline(device, lineTransparentPipeline, nullptr);
+	if (pointTransparentPipeline) vkDestroyPipeline(device, pointTransparentPipeline, nullptr);
 	if (transparentPipeline) vkDestroyPipeline(device, transparentPipeline, nullptr);
 
 	if (blendPipeline) vkDestroyPipeline(device, blendPipeline, nullptr);
@@ -3002,10 +2957,12 @@ void HeadlessRenderer::cleanup() {
 	colorCountPipeline = VK_NULL_HANDLE;
 	triangleCountPipeline = VK_NULL_HANDLE;
 	transparentCountPipeline = VK_NULL_HANDLE;
+	pointCountPipeline = VK_NULL_HANDLE;
 	materialTransparentPipeline = VK_NULL_HANDLE;
 	colorTransparentPipeline = VK_NULL_HANDLE;
 	triangleTransparentPipeline = VK_NULL_HANDLE;
 	lineTransparentPipeline = VK_NULL_HANDLE;
+	pointTransparentPipeline = VK_NULL_HANDLE;
 	transparentPipeline = VK_NULL_HANDLE;
 	blendPipeline = VK_NULL_HANDLE;
 	materialPipeline = VK_NULL_HANDLE;
@@ -3106,6 +3063,11 @@ void HeadlessRenderer::cleanup() {
 	triangleVertexBuffer = VK_NULL_HANDLE; triangleVertexMemory = VK_NULL_HANDLE; triangleVertexBufferSize = 0;
 	if (triangleIndexBuffer) { vkDestroyBuffer(device, triangleIndexBuffer, nullptr); vkFreeMemory(device, triangleIndexMemory, nullptr); }
 	triangleIndexBuffer = VK_NULL_HANDLE; triangleIndexMemory = VK_NULL_HANDLE; triangleIndexBufferSize = 0;
+	// Point persistent buffers (V3dPixel)
+	if (pointVertexBuffer) { vkDestroyBuffer(device, pointVertexBuffer, nullptr); vkFreeMemory(device, pointVertexMemory, nullptr); }
+	pointVertexBuffer = VK_NULL_HANDLE; pointVertexMemory = VK_NULL_HANDLE; pointVertexBufferSize = 0;
+	if (pointIndexBuffer) { vkDestroyBuffer(device, pointIndexBuffer, nullptr); vkFreeMemory(device, pointIndexMemory, nullptr); }
+	pointIndexBuffer = VK_NULL_HANDLE; pointIndexMemory = VK_NULL_HANDLE; pointIndexBufferSize = 0;
 
 	// Cleanup persistent staging buffers (prevents leaks on full resource recreation).
 	if (materialVertexStagingBuffer) { vkDestroyBuffer(device, materialVertexStagingBuffer, nullptr); vkFreeMemory(device, materialVertexStagingMemory, nullptr); }
@@ -3128,6 +3090,10 @@ void HeadlessRenderer::cleanup() {
 	triangleVertexStagingBuffer = VK_NULL_HANDLE; triangleVertexStagingMemory = VK_NULL_HANDLE; triangleVertexStgSize = 0;
 	if (triangleIndexStagingBuffer) { vkDestroyBuffer(device, triangleIndexStagingBuffer, nullptr); vkFreeMemory(device, triangleIndexStagingMemory, nullptr); }
 	triangleIndexStagingBuffer = VK_NULL_HANDLE; triangleIndexStagingMemory = VK_NULL_HANDLE; triangleIndexStgSize = 0;
+	if (pointVertexStagingBuffer) { vkDestroyBuffer(device, pointVertexStagingBuffer, nullptr); vkFreeMemory(device, pointVertexStagingMemory, nullptr); }
+	pointVertexStagingBuffer = VK_NULL_HANDLE; pointVertexStagingMemory = VK_NULL_HANDLE; pointVertexStgSize = 0;
+	if (pointIndexStagingBuffer) { vkDestroyBuffer(device, pointIndexStagingBuffer, nullptr); vkFreeMemory(device, pointIndexStagingMemory, nullptr); }
+	pointIndexStagingBuffer = VK_NULL_HANDLE; pointIndexStagingMemory = VK_NULL_HANDLE; pointIndexStgSize = 0;
 
 	// Cleanup IBL resources
 	destroyIBLResources();
@@ -3144,6 +3110,49 @@ void HeadlessRenderer::createLinePipeline(int targetWidth, int targetHeight) {
 		opaqueRenderPass, 0, true, "vertex", "fragment"
 	};
 	createGraphicsPipeline<MaterialVertex>(cfg, targetWidth, targetHeight, &linePipeline);
+}
+
+// Point pipelines (V3dPixel). Matches vkrender.cc: POINT_LIST + PolygonMode POINT,
+// pointShaderOptions = {"NOLIGHTS","WIDTH"} (+ MATERIAL/OPAQUE via modifyShaderOptions).
+// Points are never alpha-transparent; the two main-path variants differ only by render pass.
+void HeadlessRenderer::createPointPipeline(int targetWidth, int targetHeight) {
+	std::vector<std::string> options{ "NOLIGHTS", "WIDTH", "MATERIAL", "OPAQUE" };
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	PipelineConfig cfg{
+		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT, std::move(options),
+		opaqueRenderPass, 0, true, "vertex", "fragment"
+	};
+	createGraphicsPipeline<PointVertex>(cfg, targetWidth, targetHeight, &pointPipeline);
+}
+
+void HeadlessRenderer::createPointTransparentPipeline(int targetWidth, int targetHeight) {
+	std::vector<std::string> options{ "NOLIGHTS", "WIDTH", "MATERIAL" };
+	if (ibl) { options.push_back("USE_IBL"); }
+	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
+	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
+	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
+
+	PipelineConfig cfg{
+		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT, std::move(options),
+		graphicsRenderPass, 0, true, "vertex", "fragment"
+	};
+	createGraphicsPipeline<PointVertex>(cfg, targetWidth, targetHeight, &pointTransparentPipeline);
+}
+
+void HeadlessRenderer::createPointCountPipeline(int targetWidth, int targetHeight) {
+	// Matches vkrender.cc: the COUNT variant uses countShaderOptions (empty) + WIDTH for
+	// POINT_LIST. Point size is applied so counting reflects the real point footprint.
+	std::vector<std::string> countOptions{ "WIDTH" };
+	if (m_Orthographic) { countOptions.push_back("ORTHOGRAPHIC"); }
+
+	PipelineConfig cfg{
+		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT, std::move(countOptions),
+		countRenderPass, 0, true, "vertex", "count"
+	};
+	createGraphicsPipeline<PointVertex>(cfg, targetWidth, targetHeight, &pointCountPipeline);
 }
 
 
@@ -3168,16 +3177,19 @@ void HeadlessRenderer::recreateGraphicsPipelines(DrawMode drawMode, int targetWi
 	vkDestroyPipeline(device, materialPipeline, nullptr);
 	vkDestroyPipeline(device, colorPipeline, nullptr);
 	if (linePipeline) vkDestroyPipeline(device, linePipeline, nullptr);
+	if (pointPipeline) vkDestroyPipeline(device, pointPipeline, nullptr);
 
 	if (materialCountPipeline) vkDestroyPipeline(device, materialCountPipeline, nullptr);
 	if (colorCountPipeline) vkDestroyPipeline(device, colorCountPipeline, nullptr);
 	if (triangleCountPipeline) vkDestroyPipeline(device, triangleCountPipeline, nullptr);
 	if (transparentCountPipeline) vkDestroyPipeline(device, transparentCountPipeline, nullptr);
+	if (pointCountPipeline) vkDestroyPipeline(device, pointCountPipeline, nullptr);
 
 	if (materialTransparentPipeline) vkDestroyPipeline(device, materialTransparentPipeline, nullptr);
 	if (colorTransparentPipeline) vkDestroyPipeline(device, colorTransparentPipeline, nullptr);
 	if (triangleTransparentPipeline) vkDestroyPipeline(device, triangleTransparentPipeline, nullptr);
 	if (lineTransparentPipeline) vkDestroyPipeline(device, lineTransparentPipeline, nullptr);
+	if (pointTransparentPipeline) vkDestroyPipeline(device, pointTransparentPipeline, nullptr);
 	if (transparentPipeline) vkDestroyPipeline(device, transparentPipeline, nullptr);
 
 	if (blendPipeline) vkDestroyPipeline(device, blendPipeline, nullptr);
@@ -3190,14 +3202,17 @@ void HeadlessRenderer::recreateGraphicsPipelines(DrawMode drawMode, int targetWi
 	createMaterialPipeline(drawMode, targetWidth, targetHeight);
 	createColorPipeline(drawMode, targetWidth, targetHeight);
 	createLinePipeline(targetWidth, targetHeight);
+	createPointPipeline(targetWidth, targetHeight);
 	createMaterialCountPipeline(targetWidth, targetHeight);
 	createColorCountPipeline(targetWidth, targetHeight);
 	createTriangleCountPipeline(targetWidth, targetHeight);
 	createTransparentCountPipeline(targetWidth, targetHeight);
+	createPointCountPipeline(targetWidth, targetHeight);
 	createMaterialTransparentPipeline(targetWidth, targetHeight);
 	createColorTransparentPipeline(targetWidth, targetHeight);
 	createTriangleTransparentPipeline(targetWidth, targetHeight);
 	createLineTransparentPipeline(targetWidth, targetHeight);
+	createPointTransparentPipeline(targetWidth, targetHeight);
 	createTransparentPipeline(targetWidth, targetHeight);
 	createBlendPipeline(targetWidth, targetHeight);
 }
@@ -3367,6 +3382,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createMaterialPipeline(drawMode, targetSize.x, targetSize.y);
 		createColorPipeline(drawMode, targetSize.x, targetSize.y);
 		createLinePipeline(targetSize.x, targetSize.y);
+		createPointPipeline(targetSize.x, targetSize.y);
 
 		createUniformBuffer();
 		// TODO potentially move
@@ -3415,6 +3431,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createColorCountPipeline(targetSize.x, targetSize.y);
 		createTriangleCountPipeline(targetSize.x, targetSize.y);
 		createTransparentCountPipeline(targetSize.x, targetSize.y);
+		createPointCountPipeline(targetSize.x, targetSize.y);
 
 		// Set currentDrawMode BEFORE creating draw-mode-dependent pipelines.
 		// Transparent pipelines read currentDrawMode for polygon mode selection.
@@ -3424,6 +3441,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createColorTransparentPipeline(targetSize.x, targetSize.y);
 		createTriangleTransparentPipeline(targetSize.x, targetSize.y);
 		createLineTransparentPipeline(targetSize.x, targetSize.y);
+		createPointTransparentPipeline(targetSize.x, targetSize.y);
 		createTransparentPipeline(targetSize.x, targetSize.y);
 		createBlendPipeline(targetSize.x, targetSize.y);
 
@@ -3541,7 +3559,6 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// NOTE: uploads are now done per-type inline with each draw below (matches vkrender.cc
 	// drawBuffer(): upload own buffers + draw). Gated by uploadBuffer()'s
 	// (!copied && (remesh || renderCount < maxFramesInFlight || badBuffer)) check.
-	// No monolithic recordUploads() call here anymore.
 
 	// Reset and reuse persistent graphics command buffer (matches vkrender.cc drawFrame).
 	VK_CHECK_RESULT(vkResetCommandBuffer(frameObjects[currentFrame].commandBuffer, 0));
@@ -3594,6 +3611,23 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	VkPipeline matPipeline = isOpaque ? materialPipeline : materialTransparentPipeline;
 	VkPipeline colPipeline = isOpaque ? colorPipeline : colorTransparentPipeline;
 	VkPipeline lnPipeline  = isOpaque ? linePipeline : lineTransparentPipeline;
+	VkPipeline ptPipeline  = isOpaque ? pointPipeline : pointTransparentPipeline;
+
+	// pointData (PointVertex format) -- matches vkrender.cc drawPoints(), drawn first.
+	if (!pointData.indices.empty()) {
+		uploadBuffer(frameObjects[currentFrame].transferCommandBuffer, pointData, remesh,
+			pointVertexBuffer, pointVertexMemory, pointVertexBufferSize,
+			pointVertexStagingBuffer, pointVertexStagingMemory, pointVertexStgSize,
+			pointData.pointVertices.data(), (VkDeviceSize)pointData.pointVertices.size() * sizeof(PointVertex),
+			pointIndexBuffer, pointIndexMemory, pointIndexBufferSize,
+			pointIndexStagingBuffer, pointIndexStagingMemory, pointIndexStgSize);
+		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ptPipeline);
+		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &pointVertexBuffer, offsets);
+		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, pointIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(pointData.indices.size()), 1, 0, 0, 0);
+	}
+	pointData.renderCount++;
 
 	// materialData (MaterialVertex format) -- matches vkrender.cc drawMaterials()
 	if (!materialData.indices.empty()) {

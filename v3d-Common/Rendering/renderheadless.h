@@ -139,8 +139,12 @@ public:
 	// Line pipeline: LINE_LIST topology for lineData (BezierCurve edges, V3dLineSegment)
 	VkPipeline linePipeline{ VK_NULL_HANDLE };
 
-	// Point pipeline: POINT_LIST topology for pointData (V3dPixel)
-	VkPipeline pointPipeline{ VK_NULL_HANDLE };
+	// Point pipelines: POINT_LIST topology for pointData (V3dPixel). Points are never
+	// alpha-transparent (transparency is only implemented for surfaces, matching
+	// vkrender.cc); the opaque vs graphics-pass variants differ only by which render
+	// pass they're bound to. Matches vkrender.cc pointPipelines[OPAQUE]/[TRANSPARENT].
+	VkPipeline pointPipeline{ VK_NULL_HANDLE };             // PointVertex, POINT_LIST, opaqueRenderPass subpass 0
+	VkPipeline pointTransparentPipeline{ VK_NULL_HANDLE };  // PointVertex, POINT_LIST, graphicsRenderPass subpass 0
 
 	// Persistent GPU buffers per VertexBuffer type, following vkrender.cc FrameBufferPair pattern.
 	// Each pair (vertex+index) is allocated once and grows as needed; data is uploaded
@@ -315,6 +319,7 @@ public:
 	VkPipeline colorCountPipeline{ VK_NULL_HANDLE };
 	VkPipeline triangleCountPipeline{ VK_NULL_HANDLE };    // ColorVertex+GENERAL, countRenderPass subpass 0 (for triangleData count)
 	VkPipeline transparentCountPipeline{ VK_NULL_HANDLE };  // ColorVertex, countRenderPass subpass 1 (for transparentData count)
+	VkPipeline pointCountPipeline{ VK_NULL_HANDLE };        // PointVertex, POINT_LIST, countRenderPass subpass 0 (for pointData count)
 
 	VkPipeline materialTransparentPipeline{ VK_NULL_HANDLE };  // MaterialVertex, TRIANGLE_LIST, graphicsRenderPass subpass 0
 	VkPipeline colorTransparentPipeline{ VK_NULL_HANDLE };     // ColorVertex, TRIANGLE_LIST, graphicsRenderPass subpass 0
@@ -390,6 +395,8 @@ private:
 	void createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
 	void createLinePipeline(int targetWidth, int targetHeight);
 	void createPointPipeline(int targetWidth, int targetHeight);
+	void createPointTransparentPipeline(int targetWidth, int targetHeight);
+	void createPointCountPipeline(int targetWidth, int targetHeight);
 	void recreateGraphicsPipelines(DrawMode drawMode, int targetWidth, int targetHeight);
 	void uploadToPersistentBuffer(VkCommandBuffer cmd, VkBuffer& dstBuf, VkDeviceMemory& dstMem, VkDeviceSize& dstSize,
 	                              VkBuffer& stgBuf, VkDeviceMemory& stgMem, VkDeviceSize& stgSize,
@@ -397,9 +404,8 @@ private:
 	void recordCountCommandBuffer(size_t indexCount, size_t lightCount);
 	void recordComputeCommandBuffer();
 	// Transfer recording split (matches vkrender.cc pattern):
-	// beginTransferRecording -> recordUploads(cmd, remesh) -> endAndSubmitTransfers
+	// beginTransferRecording -> per-type uploadBuffer() calls -> endAndSubmitTransfers
 	void beginTransferRecording();
-	void recordUploads(VkCommandBuffer cmd, bool remesh);
 	// Per-type upload (matches vkrender.cc drawBuffer()): uploads ONLY this data
 	// type's vertex+index buffers into the transfer command buffer, gated by
 	// (!copied) && (remesh || renderCount < maxFramesInFlight || badBuffer). Does NOT
@@ -411,7 +417,6 @@ private:
 	                  VkBuffer& iBuf, VkDeviceMemory& iMem, VkDeviceSize& iSize,
 	                  VkBuffer& iStg, VkDeviceMemory& iStgMem, VkDeviceSize& iStgSize);
 	void endAndSubmitTransfers();
-	void uploadVertexData();  // Thin wrapper: calls all three above
 	void refreshBuffers(size_t indexCount, size_t lightCount);
 	void readFeedback();  // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback
 	void recordCopyToHost(VkCommandBuffer cmd, glm::ivec2 targetSize, bool useResolve);

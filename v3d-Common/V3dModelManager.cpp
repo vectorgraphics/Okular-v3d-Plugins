@@ -289,16 +289,13 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-    // pic->render(remesh) — matches Asymptote prepareScene()
-    // Reset renderCount before each render so upload gate fires (matches vkrender.cc
-    // where notRendered() is called during QueueMesh; we centralize it here since
-    // we always clear+QueueMesh when display is triggered).
-    materialData.renderCount = 0;
-    colorData.renderCount = 0;
-    lineData.renderCount = 0;
-    transparentData.renderCount = 0;
-    pointData.renderCount = 0;
-
+    // pic->render(remesh) — matches Asymptote prepareScene() exactly. Do NOT centrally
+    // reset renderCount here: the reference resets it via notRendered() inside each
+    // object's queue()/clear() during QueueMesh, and the per-object fast path
+    // (!remesh && Onscreen) intentionally leaves renderCount untouched so stable
+    // geometry is not re-uploaded. Forcing remesh=true on a page/image switch (above)
+    // makes every object re-queue -> notRendered() -> full re-upload, matching the
+    // single-scene reference where remesh drives the same behavior.
     m_Models[pageNumber][modelIndex].file->QueueMesh(imageWidth, imageHeight, sceneMinBound, sceneMaxBound, m_Models[pageNumber][modelIndex].remesh, orthographic, m_Models[pageNumber][modelIndex].drawMode);
 
     // Check if any VertexBuffer has data to render (vkrender.cc: drawBuffer skips empty).
