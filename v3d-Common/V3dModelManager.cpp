@@ -271,6 +271,11 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     if (switchedModel) {
         m_Models[pageNumber][modelIndex].remesh = true;
+        // Sync renderer draw mode to match the entering model, so the correct
+        // pipelines are used. Without this, model 1 could render with model 0's
+        // draw mode (e.g., WIREFRAME rendered as NORMAL).
+        if (m_HeadlessRenderer)
+            m_HeadlessRenderer->currentDrawMode = m_Models[pageNumber][modelIndex].drawMode;
         lastPage = pageNumber;
         lastModel = modelIndex;
     }
