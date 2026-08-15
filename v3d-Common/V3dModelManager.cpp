@@ -280,6 +280,22 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         lastModel = modelIndex;
     }
 
+    // Match Asymptote updateHandler()/zoom()/fitscreen(): whenever the rendered
+    // resolution changes, force a full re-tessellation (remesh=true) so every figure
+    // re-queues with culling/resolution matching the new frustum. On initial load
+    // Okular requests pixmaps at several sizes (background preload, then on-screen
+    // display). Only the FIRST render of a model starts with remesh=true and it is
+    // consumed after one render (see below). Without this, a later render at a
+    // different size would take the per-object fast path (!remesh && onscreen) and
+    // reuse geometry that was culled/tessellated for the old frustum -- which can
+    // drop a transparent surface until the user forces a remesh (e.g. presses 'h').
+    // Forcing remesh on a size change mirrors the reference, where any resize/zoom
+    // sets remesh=true so all figures rebuild their persistent state.
+    const QImage& cachedImage = m_ModelImages[pageNumber][modelIndex];
+    if (cachedImage.width() != imageWidth || cachedImage.height() != imageHeight) {
+        m_Models[pageNumber][modelIndex].remesh = true;
+    }
+
     // clearData() — matches Asymptote prepareScene()
     materialData.clear();
     colorData.clear();

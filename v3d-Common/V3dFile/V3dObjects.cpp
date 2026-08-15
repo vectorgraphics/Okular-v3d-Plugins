@@ -582,9 +582,20 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
                      std::max(Max.getz(), (double)vertices[i].z));
     }
 
+    // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
+    bool transparent = false;
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
+    }
+
     if (bbox2(Min, Max).offscreen()) {
         quadOnscreen = false;
         S.clear();
+        // Match Asymptote drawBezierPatch::render() offscreen path: notRendered().
+        // Reset the target buffer's renderCount so a later re-appearing object
+        // triggers an upload (drawBuffer gate) rather than drawing stale data.
+        if (transparent) transparentData.renderCount = 0;
+        else materialData.renderCount = 0;
         return;
     }
 
@@ -611,12 +622,6 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
         return;
     }
 
-    // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
-    bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-    }
-
     // Fast path: fully onscreen, same vertex format — just re-append S to global buffer.
     if (!remesh && quadOnscreen && centerIndex == 0) {
         if (S_color) transparentData.extendColor(S);
@@ -625,6 +630,15 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     }
 
     // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    // Match Asymptote BezierPatch::queue() -> notRendered(): whenever we re-tessellate
+    // (data can change), reset the target buffer's renderCount so drawBuffer()'s upload
+    // gate (remesh || renderCount < maxFramesInFlight || badBuffer) fires and the
+    // persistent index/vertex buffers are grown to fit. Without this, a remesh frame that
+    // grows the transparent data skips the upload (renderCount already >= 1) and draws
+    // past the end of the index buffer.
+    if (transparent) transparentData.renderCount = 0;
+    else materialData.renderCount = 0;
+
     S.clear();
     quadOnscreen = true;
     fullyOnscreen = true;
@@ -734,9 +748,20 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
                      std::max(Max.getz(), (double)vertices[i].z));
     }
 
+    // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
+    bool transparent = false;
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
+    }
+
     if (bbox2(Min, Max).offscreen()) {
         triOnscreen = false;
         S.clear();
+        // Match Asymptote drawBezierPatch::render() offscreen path: notRendered().
+        // Reset the target buffer's renderCount so a later re-appearing object
+        // triggers an upload (drawBuffer gate) rather than drawing stale data.
+        if (transparent) transparentData.renderCount = 0;
+        else materialData.renderCount = 0;
         return;
     }
 
@@ -760,11 +785,6 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
         return;
     }
 
-    bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-    }
-
     // Fast path: fully onscreen, same vertex format — just re-append S to global buffer.
     if (!remesh && triOnscreen && centerIndex == 0) {
         if (S_color) transparentData.extendColor(S);
@@ -773,6 +793,15 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     }
 
     // Slow path: rebuild S with per-triangle culling (algorithm §\ref{cull}).
+    // Match Asymptote BezierPatch::queue() -> notRendered(): whenever we re-tessellate
+    // (data can change), reset the target buffer's renderCount so drawBuffer()'s upload
+    // gate (remesh || renderCount < maxFramesInFlight || badBuffer) fires and the
+    // persistent index/vertex buffers are grown to fit. Without this, a remesh frame that
+    // grows the transparent data skips the upload (renderCount already >= 1) and draws
+    // past the end of the index buffer.
+    if (transparent) transparentData.renderCount = 0;
+    else materialData.renderCount = 0;
+
     S.clear();
     triOnscreen = true;
     fullyOnscreen = true;
