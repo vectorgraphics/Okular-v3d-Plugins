@@ -3289,6 +3289,17 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 					frameObjects[i].timelineValue = 0;
 			}
 		}
+
+		// Before uploading new vertex data into shared persistent GPU buffers,
+		// wait for the OTHER frame slot's GPU work to complete. The persistent
+		// vertex buffers (materialVertexBuffer, etc.) are read by the GPU during
+		// rendering and overwritten by the CPU during uploads. If frame N+1
+		// uploads new data while frame N is still reading old data, the GPU
+		// reads corrupted memory causing DEVICE_LOST.
+		// This only affects model switches (different geometry) where remesh=true.
+		// For same-model rotation (remesh=false), no upload occurs so no wait needed.
+		uint32_t otherFrame = (currentFrame + 1) % maxFramesInFlight;
+		VK_CHECK_RESULT(vkWaitForFences(device, 1, &frameObjects[otherFrame].inFlightFence, VK_TRUE, UINT64_MAX));
 	}
 
 	UniformBufferObject ubo{ };
