@@ -450,6 +450,14 @@ private:
 
 	void cleanup();
 
+	// Finite-timeout Vulkan wait helpers with error recovery.
+	// Prevents permanent hangs if a fence/semaphore is in an unexpected state
+	// after resource recreation (resize + draw mode change sequences).
+	static constexpr uint64_t kVkWaitTimeout = 30ULL * 1000 * 1000 * 1000; // 30 seconds
+
+	bool safeWaitForFences(VkFence fence, const char* context);
+	bool safeWaitTimelineSemaphore(uint64_t value, const char* context);
+
 public:
 	unsigned char* render(
 		glm::ivec2 targetSize,

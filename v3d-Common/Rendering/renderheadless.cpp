@@ -2037,7 +2037,7 @@ void HeadlessRenderer::beginTransferRecording() {
 
 	// Wait for prior transfer submission (matches vkrender.cc beginTransferRecording).
 	if (frameObjects[currentFrame].transferFence != VK_NULL_HANDLE) {
-		VK_CHECK_RESULT(vkWaitForFences(device, 1, &frameObjects[currentFrame].transferFence, VK_TRUE, UINT64_MAX));
+		safeWaitForFences(frameObjects[currentFrame].transferFence, "beginTransferRecording");
 		VK_CHECK_RESULT(vkResetFences(device, 1, &frameObjects[currentFrame].transferFence));
 	}
 	VK_CHECK_RESULT(vkResetCommandBuffer(frameObjects[currentFrame].transferCommandBuffer, 0));
@@ -2148,16 +2148,18 @@ void HeadlessRenderer::endAndSubmitTransfers() {
 	submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
 	submitInfo.pSignalSemaphores = signalSems.data();
 
-	// Create fence lazily if missing (matches vkrender.cc endAndSubmitTransfers).
-	// After cleanup() destroys it, the next frame must recreate before submission.
+	// Create fence lazily if missing (safety net; after the cleanup() fix this
+	// should not trigger since all per-frame fences are properly recreated).
+	// Created without eSignaled to match vkrender.cc — we reset before submit anyway.
 	if (frameObjects[currentFrame].transferFence == VK_NULL_HANDLE) {
 		VkFenceCreateInfo tfCI = {};
 		tfCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		tfCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 		VK_CHECK_RESULT(vkCreateFence(device, &tfCI, nullptr, &frameObjects[currentFrame].transferFence));
 	}
 
 	// Reset fence before submission (matches vkrender.cc).
+	// The fence may be in signaled state (from prior submit) or unsignaled (just created).
+	// Both are valid to reset — only PENDING fences must not be reset.
 	VK_CHECK_RESULT(vkResetFences(device, 1, &frameObjects[currentFrame].transferFence));
 	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, frameObjects[currentFrame].transferFence));
 }
@@ -2178,19 +2180,7 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 
 	// Wait for previous compute submission via timeline semaphore.
 	if (computeTimelineValue > 0) {
-		VkSemaphoreWaitInfo waitInfo = {};
-		waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-		waitInfo.semaphoreCount = 1;
-		waitInfo.pSemaphores = &timelineSemaphore;
-		uint64_t waitValue = computeTimelineValue;
-		waitInfo.pValues = &waitValue;
-		VkResult res = vkWaitSemaphores(device, &waitInfo, UINT64_MAX);
-		if (res != VK_SUCCESS) {
-			std::cerr << "[v3d-error] Timeline semaphore wait failed: " << res << std::endl;
-			vkDeviceWaitIdle(device);
-			currentTimelineValue = 0;
-			computeTimelineValue = 0;
-		}
+		safeWaitTimelineSemaphore(computeTimelineValue, "refreshBuffers");
 	}
 
 	// Reset fence (matches vkrender.cc).
@@ -2257,7 +2247,7 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 
 // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback.
 void HeadlessRenderer::readFeedback() {
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &frameObjects[currentFrame].inComputeFence, VK_TRUE, UINT64_MAX));
+	safeWaitForFences(frameObjects[currentFrame].inComputeFence, "readFeedback");
 
 	VkMappedMemoryRange invalidateRange = {};
 	invalidateRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
@@ -2765,6 +2755,47 @@ void HeadlessRenderer::destroyIBLResources() {
 	if (reflectionImgMemory) { vkFreeMemory(device, reflectionImgMemory, nullptr); reflectionImgMemory = VK_NULL_HANDLE; }
 }
 
+bool HeadlessRenderer::safeWaitForFences(VkFence fence, const char* context) {
+	if (fence == VK_NULL_HANDLE) return true;
+	VkResult res = vkWaitForFences(device, 1, &fence, VK_TRUE, kVkWaitTimeout);
+	if (res == VK_SUCCESS) return true;
+	// Timeout or error: recover by forcing device idle and logging.
+	std::cerr << "[v3d-error] safeWaitForFences(" << context << ") failed: " << res
+	          << ". Recovering via vkDeviceWaitIdle." << std::endl;
+	vkDeviceWaitIdle(device);
+	// After device idle, the fence should be signaled. Reset it for reuse.
+	VkResult resetRes = vkResetFences(device, 1, &fence);
+	if (resetRes != VK_SUCCESS) {
+		std::cerr << "[v3d-error] Failed to reset fence after recovery (" << context << "): " << resetRes << std::endl;
+	}
+	return false;
+}
+
+bool HeadlessRenderer::safeWaitTimelineSemaphore(uint64_t value, const char* context) {
+	if (value == 0) return true;
+	VkSemaphoreWaitInfo waitInfo = {};
+	waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+	waitInfo.semaphoreCount = 1;
+	waitInfo.pSemaphores = &timelineSemaphore;
+	uint64_t waitValue = value;
+	waitInfo.pValues = &waitValue;
+
+	VkResult res = vkWaitSemaphores(device, &waitInfo, kVkWaitTimeout);
+	if (res == VK_SUCCESS) return true;
+
+	// Timeout or error: the timeline semaphore may have been destroyed/recreated
+	// while a stale value was still referenced. Recover by forcing device idle
+	// and resetting all timeline counters so subsequent renders start fresh.
+	std::cerr << "[v3d-error] safeWaitTimelineSemaphore(" << context << ", value=" << value
+	          << ") failed: " << res << ". Recovering via vkDeviceWaitIdle + timeline reset." << std::endl;
+	vkDeviceWaitIdle(device);
+	currentTimelineValue = 0;
+	computeTimelineValue = 0;
+	for (uint32_t i = 0; i < maxFramesInFlight; i++)
+		frameObjects[i].timelineValue = 0;
+	return false;
+}
+
 void HeadlessRenderer::cleanup() {
 	vkDestroyImageView(device, colorAttachment.view, nullptr);
 	vkDestroyImage(device, colorAttachment.image, nullptr);
@@ -2881,17 +2912,14 @@ void HeadlessRenderer::cleanup() {
 	currentTimelineValue = 0;
 	computeTimelineValue = 0;
 
-	if (frameObjects[currentFrame].transferDoneSemaphore != VK_NULL_HANDLE) {
-		vkDestroySemaphore(device, frameObjects[currentFrame].transferDoneSemaphore, nullptr);
-		frameObjects[currentFrame].transferDoneSemaphore = VK_NULL_HANDLE;
-	}
-	if (frameObjects[currentFrame].transferFence != VK_NULL_HANDLE) {
-		vkDestroyFence(device, frameObjects[currentFrame].transferFence, nullptr);
-		frameObjects[currentFrame].transferFence = VK_NULL_HANDLE;
-	}
-
 	// After vkDeviceWaitIdle above, all per-frame fences are guaranteed signaled.
-	// Destroy and recreate per-frame sync objects (matches vkrender.cc recreateSwapChain).
+	// Destroy and recreate ALL per-frame sync objects uniformly (matches vkrender.cc
+	// recreateSwapChain -> createSyncObjects which recreates every frame's objects).
+	// Previously this code destroyed currentFrame's transferFence/transferDoneSemaphore
+	// before the loop, causing the loop to skip them (NULL check) and leave them
+	// permanently NULL until lazily recreated. This inconsistency could lead to
+	// synchronization gaps when the sequence resize -> draw mode change -> rotate
+	// is repeated.
 	for (uint32_t i = 0; i < maxFramesInFlight; i++) {
 		if (frameObjects[i].inComputeFence != VK_NULL_HANDLE) {
 			vkDestroyFence(device, frameObjects[i].inComputeFence, nullptr);
@@ -3273,21 +3301,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		// Matches vkrender.cc: waitForTimelineSemaphore(frameObject.timelineValue).
 		FrameObject& fo = frameObjects[currentFrame];
 		if (fo.timelineValue > 0) {
-			VkSemaphoreWaitInfo waitInfo = {};
-			waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-			waitInfo.semaphoreCount = 1;
-			waitInfo.pSemaphores = &timelineSemaphore;
-			uint64_t waitValue = fo.timelineValue;
-			waitInfo.pValues = &waitValue;
-			VkResult res = vkWaitSemaphores(device, &waitInfo, UINT64_MAX);
-			if (res != VK_SUCCESS) {
-				std::cerr << "[v3d-error] Per-frame timeline wait failed: " << res << std::endl;
-				vkDeviceWaitIdle(device);
-				currentTimelineValue = 0;
-				computeTimelineValue = 0;
-				for (uint32_t i = 0; i < maxFramesInFlight; i++)
-					frameObjects[i].timelineValue = 0;
-			}
+			safeWaitTimelineSemaphore(fo.timelineValue, "per-frame timeline");
 		}
 
 		// Before uploading new vertex data into shared persistent GPU buffers,
@@ -3298,8 +3312,32 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		// reads corrupted memory causing DEVICE_LOST.
 		// This only affects model switches (different geometry) where remesh=true.
 		// For same-model rotation (remesh=false), no upload occurs so no wait needed.
-		uint32_t otherFrame = (currentFrame + 1) % maxFramesInFlight;
-		VK_CHECK_RESULT(vkWaitForFences(device, 1, &frameObjects[otherFrame].inFlightFence, VK_TRUE, UINT64_MAX));
+		//
+		// IMPORTANT: Do NOT use safeWaitForFences here. The inFlightFence is a
+		// VK_WHITELIST fence that gets reset at the top of the next frame's render()
+		// call (safeResetFences(frameObjects[currentFrame].inFlightFence)). If we
+		// wait on the other frame's fence and it was already consumed+reset by a
+		// prior iteration, vkWaitForFences returns immediately (fence is in
+		 // "signaled" state after reset), giving NO actual GPU synchronization.
+		// Worse, if the fence is still pending (GPU still working), we block the
+		// CPU thread indefinitely -- and if that thread holds a Vulkan lock or the
+		// GPU driver's internal state expects timely fence resets, we get
+		// VK_ERROR_DEVICE_LOST.
+		//
+		// The per-frame timeline semaphore wait above (fo.timelineValue) already
+		// guarantees the CURRENT frame slot's prior GPU work is done before we
+		// reuse its command buffers. For cross-frame persistent buffer safety,
+		// the timeline values are strictly increasing: when we submit frame N+1,
+		// its timeline wait ensures all prior GPU reads of those buffers (from
+		// frames <= N) have completed. The inFlightFence is only used for
+		// command buffer recycling safety at the top of render(), not here.
+		{
+			uint32_t otherFrame = (currentFrame + 1) % maxFramesInFlight;
+			FrameObject& otherFo = frameObjects[otherFrame];
+			if (otherFo.timelineValue > 0) {
+				safeWaitTimelineSemaphore(otherFo.timelineValue, "other-frame timeline");
+			}
+		}
 	}
 
 	UniformBufferObject ubo{ };
@@ -3577,7 +3615,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	currentFrame = (currentFrame + 1) % maxFramesInFlight;
 
 	// Wait for GPU to finish render + copy, then read pixels from mapped memory.
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &frameObjects[submitFrame].inFlightFence, VK_TRUE, UINT64_MAX));
+	safeWaitForFences(frameObjects[submitFrame].inFlightFence, "render inFlight");
 
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 
