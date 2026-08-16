@@ -388,7 +388,7 @@ private:
 	void createLightBuffer(const std::vector<GPULight>& lights);
 	void createDescriptorPool();
 	void createDescirptorSets();
-	void createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
+	bool createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void createDescriptorSetLayout();
 	void createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
@@ -418,7 +418,7 @@ private:
 	                  VkBuffer& iStg, VkDeviceMemory& iStgMem, VkDeviceSize& iStgSize);
 	void endAndSubmitTransfers();
 	void refreshBuffers(size_t indexCount, size_t lightCount);
-	void readFeedback();  // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback
+	bool readFeedback();  // Matches vkrender.cc resizeFragmentBuffer(): returns false on OOM
 	void recordCopyToHost(VkCommandBuffer cmd, glm::ivec2 targetSize, bool useResolve);
 	unsigned char* copyToHost(glm::ivec2 targetSize, VkSubresourceLayout* imageSubresourceLayout, bool useResolve = false);
 
@@ -426,7 +426,7 @@ private:
 	void destroyHostReadableDestinationImage();
 
 	// Transparency pipeline creation
-	void createTransparencyBuffers(int width, int height);
+	bool createTransparencyBuffers(int width, int height);
 	VkSemaphore createTimelineSemaphore(uint64_t initialValue);
 	void zeroTransparencyBuffers();
 	VkShaderModule createComputeShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);

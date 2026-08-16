@@ -386,7 +386,16 @@ VkResult HeadlessRenderer::createBuffer(VkBufferUsageFlags usageFlags, VkMemoryP
 	vkGetBufferMemoryRequirements(device, *buffer, &memReqs);
 	memAlloc.allocationSize = memReqs.size;
 	memAlloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits, memoryPropertyFlags);
-	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, memory));
+
+	VkResult allocRes = vkAllocateMemory(device, &memAlloc, nullptr, memory);
+	if (allocRes != VK_SUCCESS) {
+		// GPU out of memory: destroy the buffer handle and propagate the error
+		// so the caller can degrade gracefully instead of aborting.
+		vkDestroyBuffer(device, *buffer, nullptr);
+		*buffer = VK_NULL_HANDLE;
+		*memory = VK_NULL_HANDLE;
+		return allocRes;
+	}
 
 	if (data != nullptr) {
 		void *mapped;
@@ -945,7 +954,7 @@ VkSemaphore HeadlessRenderer::createTimelineSemaphore(uint64_t initialValue) {
 	return sem;
 }
 
-void HeadlessRenderer::createTransparencyBuffers(int width, int height) {
+bool HeadlessRenderer::createTransparencyBuffers(int width, int height) {
 	pixels = (uint32_t)(width + 1) * (uint32_t)(height + 1);
 
 	uint32_t G = (pixels + groupSize - 1) / groupSize;
@@ -957,38 +966,73 @@ void HeadlessRenderer::createTransparencyBuffers(int width, int height) {
 	VkDeviceSize opaqueColorSize = pixels * sizeof(glm::vec4);
 	VkDeviceSize opaqueDepthSize = sizeof(uint32_t) + (VkDeviceSize)pixels * sizeof(float);
 
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	// Helper: on OOM, clean up any partially-created transparency buffers and return false.
+	auto cleanupOnFail = [this]() {
+		if (countBuffer) { vkDestroyBuffer(device, countBuffer, nullptr); vkFreeMemory(device, countBufferMemory, nullptr); }
+		countBuffer = VK_NULL_HANDLE; countBufferMemory = VK_NULL_HANDLE;
+		if (globalSumBuffer) { vkDestroyBuffer(device, globalSumBuffer, nullptr); vkFreeMemory(device, globalSumBufferMemory, nullptr); }
+		globalSumBuffer = VK_NULL_HANDLE; globalSumBufferMemory = VK_NULL_HANDLE;
+		if (offsetBuffer) { vkDestroyBuffer(device, offsetBuffer, nullptr); vkFreeMemory(device, offsetBufferMemory, nullptr); }
+		offsetBuffer = VK_NULL_HANDLE; offsetBufferMemory = VK_NULL_HANDLE;
+		if (opaqueColorBuffer) { vkDestroyBuffer(device, opaqueColorBuffer, nullptr); vkFreeMemory(device, opaqueColorBufferMemory, nullptr); }
+		opaqueColorBuffer = VK_NULL_HANDLE; opaqueColorBufferMemory = VK_NULL_HANDLE;
+		if (opaqueDepthBuffer) { vkDestroyBuffer(device, opaqueDepthBuffer, nullptr); vkFreeMemory(device, opaqueDepthBufferMemory, nullptr); }
+		opaqueDepthBuffer = VK_NULL_HANDLE; opaqueDepthBufferMemory = VK_NULL_HANDLE;
+		if (fragmentBuffer) { vkDestroyBuffer(device, fragmentBuffer, nullptr); vkFreeMemory(device, fragmentBufferMemory, nullptr); }
+		fragmentBuffer = VK_NULL_HANDLE; fragmentBufferMemory = VK_NULL_HANDLE;
+		if (depthFragBuffer) { vkDestroyBuffer(device, depthFragBuffer, nullptr); vkFreeMemory(device, depthFragBufferMemory, nullptr); }
+		depthFragBuffer = VK_NULL_HANDLE; depthFragBufferMemory = VK_NULL_HANDLE;
+		if (feedbackBuffer) {
+			if (feedbackMappedPtr) vkUnmapMemory(device, feedbackBufferMemory);
+			vkDestroyBuffer(device, feedbackBuffer, nullptr); vkFreeMemory(device, feedbackBufferMemory, nullptr);
+		}
+		feedbackBuffer = VK_NULL_HANDLE; feedbackBufferMemory = VK_NULL_HANDLE;
+		feedbackMappedPtr = nullptr;
+	};
+
+	VkResult res;
+
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &countBuffer, &countBufferMemory, countBufferSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &globalSumBuffer, &globalSumBufferMemory, globalSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &offsetBuffer, &offsetBufferMemory, offsetBufferSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &opaqueColorBuffer, &opaqueColorBufferMemory, opaqueColorSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &opaqueDepthBuffer, &opaqueDepthBufferMemory, opaqueColorSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
 	VkDeviceSize fragmentBufferSize = maxFragments > 0 ? (VkDeviceSize)maxFragments * sizeof(glm::vec4) : pixels * sizeof(glm::vec4);
 	maxFragments = maxFragments > 0 ? maxFragments : pixels;
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &fragmentBuffer, &fragmentBufferMemory, fragmentBufferSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
 	VkDeviceSize depthBufferSize = fragmentBufferSize;
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &depthFragBuffer, &depthFragBufferMemory, depthBufferSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 
 	VkDeviceSize feedbackBufferSize = 2 * sizeof(uint32_t);
-	createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	res = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
 		&feedbackBuffer, &feedbackBufferMemory, feedbackBufferSize);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 	vkMapMemory(device, feedbackBufferMemory, 0, feedbackBufferSize, 0, (void**)&feedbackMappedPtr);
 
 	// Zero transparency buffers once at creation time (matches vkrender.cc createDependentBuffers).
 	zeroTransparencyBuffers();
+	return true;
 }
 
 static void vkFillBuffer(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize size) {
@@ -1028,7 +1072,23 @@ void HeadlessRenderer::zeroTransparencyBuffers() {
 	vkFreeCommandBuffers(device, commandPool, 1, &clearCmd);
 }
 
-void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight) {
+bool HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight) {
+	// Helper: clean up partially-created attachments on failure.
+	auto cleanupOnFail = [this]() {
+		if (colorAttachment.view) vkDestroyImageView(device, colorAttachment.view, nullptr);
+		if (colorAttachment.image) vkDestroyImage(device, colorAttachment.image, nullptr);
+		if (colorAttachment.memory) vkFreeMemory(device, colorAttachment.memory, nullptr);
+		colorAttachment = {};
+		if (depthAttachment.view) vkDestroyImageView(device, depthAttachment.view, nullptr);
+		if (depthAttachment.image) vkDestroyImage(device, depthAttachment.image, nullptr);
+		if (depthAttachment.memory) vkFreeMemory(device, depthAttachment.memory, nullptr);
+		depthAttachment = {};
+		if (resolveAttachment.view) vkDestroyImageView(device, resolveAttachment.view, nullptr);
+		if (resolveAttachment.image) vkDestroyImage(device, resolveAttachment.image, nullptr);
+		if (resolveAttachment.memory) vkFreeMemory(device, resolveAttachment.memory, nullptr);
+		resolveAttachment = {};
+	};
+
 	VkImageCreateInfo image = vks::initializers::imageCreateInfo();
 	image.imageType = VK_IMAGE_TYPE_2D;
 	image.format = colorFormat;
@@ -1048,7 +1108,8 @@ void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFor
 	vkGetImageMemoryRequirements(device, colorAttachment.image, &memReqs);
 	memAlloc.allocationSize = memReqs.size;
 	memAlloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &colorAttachment.memory));
+	VkResult res = vkAllocateMemory(device, &memAlloc, nullptr, &colorAttachment.memory);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 	VK_CHECK_RESULT(vkBindImageMemory(device, colorAttachment.image, colorAttachment.memory, 0));
 
 	VkImageViewCreateInfo colorImageView = vks::initializers::imageViewCreateInfo();
@@ -1071,7 +1132,8 @@ void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFor
 	vkGetImageMemoryRequirements(device, depthAttachment.image, &memReqs);
 	memAlloc.allocationSize = memReqs.size;
 	memAlloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &depthAttachment.memory));
+	res = vkAllocateMemory(device, &memAlloc, nullptr, &depthAttachment.memory);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 	VK_CHECK_RESULT(vkBindImageMemory(device, depthAttachment.image, depthAttachment.memory, 0));
 
 	VkImageViewCreateInfo depthStencilView = vks::initializers::imageViewCreateInfo();
@@ -1099,7 +1161,8 @@ void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFor
 	vkGetImageMemoryRequirements(device, resolveAttachment.image, &memReqs);
 	memAlloc.allocationSize = memReqs.size;
 	memAlloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &resolveAttachment.memory));
+	res = vkAllocateMemory(device, &memAlloc, nullptr, &resolveAttachment.memory);
+	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
 	VK_CHECK_RESULT(vkBindImageMemory(device, resolveAttachment.image, resolveAttachment.memory, 0));
 
 	VkImageViewCreateInfo resolveImageView = vks::initializers::imageViewCreateInfo();
@@ -1113,6 +1176,8 @@ void HeadlessRenderer::createAttachments(VkFormat colorFormat, VkFormat depthFor
 	resolveImageView.subresourceRange.layerCount = 1;
 	resolveImageView.image = resolveAttachment.image;
 	VK_CHECK_RESULT(vkCreateImageView(device, &resolveImageView, nullptr, &resolveAttachment.view));
+
+	return true;
 }
 
 void HeadlessRenderer::createCountRenderPass(int targetWidth, int targetHeight) {
@@ -2294,7 +2359,8 @@ void HeadlessRenderer::refreshBuffers(size_t indexCount, size_t lightCount) {
 }
 
 // Matches vkrender.cc resizeFragmentBuffer(): wait fence + invalidate + read feedback.
-void HeadlessRenderer::readFeedback() {
+// Returns false if fragment buffer growth failed due to OOM (caller must clean up).
+bool HeadlessRenderer::readFeedback() {
 	safeWaitForFences(frameObjects[currentFrame].inComputeFence, "readFeedback");
 
 	VkMappedMemoryRange invalidateRange = {};
@@ -2328,10 +2394,20 @@ void HeadlessRenderer::readFeedback() {
 		vkFreeMemory(device, depthFragBufferMemory, nullptr);
 
 		maxFragments = fragments * 11 / 10;
-		createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		VkResult fragRes = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &fragmentBuffer, &fragmentBufferMemory, newFragmentBufferSize);
-		createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		if (fragRes != VK_SUCCESS) {
+			std::cerr << "[v3d-error] readFeedback: fragment buffer growth OOM ("
+			          << newFragmentBufferSize << " bytes). Returning false." << std::endl;
+			return false;
+		}
+		fragRes = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &depthFragBuffer, &depthFragBufferMemory, newFragmentBufferSize);
+		if (fragRes != VK_SUCCESS) {
+			std::cerr << "[v3d-error] readFeedback: depthFrag buffer growth OOM ("
+			          << newFragmentBufferSize << " bytes). Returning false." << std::endl;
+			return false;
+		}
 
 		updateTransparencyDescriptors();
 
@@ -2367,6 +2443,7 @@ void HeadlessRenderer::readFeedback() {
 			vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 		}
 	}
+	return true;
 }
 
 // Record image copy commands into an already-begun command buffer.
@@ -3378,7 +3455,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 		vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
 
-		createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y);
+		if (!createAttachments(colorFormat, depthFormat, targetSize.x, targetSize.y)) {
+			std::cerr << "[v3d-error] createAttachments OOM at " << targetSize.x << "x" << targetSize.y
+			          << ". Returning blank (zoom out to recover)." << std::endl;
+			initialized = false;
+			currentTargetSize = glm::ivec2{ 0, 0 };
+			return nullptr;
+		}
 
 		createDescriptorSetLayout();
 
@@ -3433,7 +3516,14 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createDescirptorSets();
 
 		// Create transparency resources
-		createTransparencyBuffers(targetSize.x, targetSize.y);
+		if (!createTransparencyBuffers(targetSize.x, targetSize.y)) {
+			std::cerr << "[v3d-error] createTransparencyBuffers OOM at " << targetSize.x << "x" << targetSize.y
+			          << ". Returning blank (zoom out to recover)." << std::endl;
+			cleanup();
+			initialized = false;
+			currentTargetSize = glm::ivec2{ 0, 0 };
+			return nullptr;
+		}
 		updateTransparencyDescriptors();
 		createComputeDescriptorSetLayout();
 		createComputeDescriptorPool();
@@ -3557,7 +3647,14 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	elements = pixels;
 	refreshBuffers(materialData.indices.size(), lights.size());
 	if (!isOpaque) {
-		readFeedback();  // Matches vkrender.cc: resizeFragmentBuffer() after refreshBuffers()
+		if (!readFeedback()) {
+			// Fragment buffer growth OOM'd -- clean up and return blank.
+			std::cerr << "[v3d-error] render(): readFeedback failed (OOM). Cleaning up." << std::endl;
+			cleanup();
+			initialized = false;
+			currentTargetSize = glm::ivec2{ 0, 0 };
+			return nullptr;
+		}
 		// Matches vkrender.cc preDrawBuffers(): AFTER resizeFragmentBuffer, if !interlock
 		// set copied=true so the main render pass does NOT re-upload (all done in count pass).
 		// For interlock, copied stays false so opaque geometry uploads happen in the main path.
