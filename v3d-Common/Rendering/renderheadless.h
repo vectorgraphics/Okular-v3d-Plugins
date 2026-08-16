@@ -24,6 +24,12 @@
 #include "V3dModel.h"
 #include "Public/ShaderLang.h"
 
+// Ceiling division of two non-negative integers: ceil(a / b). Matches asymptote's
+// ceilquotient() (renderBase.h / align.h). Defined once here so v3d-Common is
+// self-contained and does not need to pull in an asymptote header for this utility.
+template<typename T>
+constexpr T ceilquotient(T a, T b) { return (a + b - 1) / b; }
+
 // Vertex input trait specializations: map a vertex struct type to its
 // Vulkan binding/attribute description free functions.  Matches vkrender.cc.
 template<typename V> struct VertexInputTraits;

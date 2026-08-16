@@ -2138,15 +2138,10 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(frameObjects[currentFrame].computeCommandBuffer, &cmdBufInfo));
 
-	// Matches vkrender.cc refreshBuffers(): g = ceilquotient(elements, groupSize);
-	// elements = groupSize * g (round elements up to a multiple of groupSize). The
-	// dispatch X size is additionally clamped to maxComputeWorkGroupCountX as a safety
-	// measure -- vkrender.cc is missing this clamp (see asymptote/asymptoteUpdate.md).
-	// For normal image sizes the clamp never triggers, so behavior matches vkrender.cc.
-	uint32_t g = (elements + groupSize - 1) / groupSize;   // ceilquotient(elements, groupSize)
+	uint32_t g = ceilquotient(elements, groupSize);
+	g = std::min(g, maxComputeWorkGroupCountX);
 	elements = groupSize * g;                              // round elements up to a multiple of groupSize
-	uint32_t dispatchG = std::min(g, maxComputeWorkGroupCountX);
-	uint32_t blockSize_val = (g + localSize - 1) / localSize;
+	uint32_t blockSize_val = ceilquotient(g, localSize);
 	uint32_t final_val = elements - 1;
 
 	VkMemoryBarrier writeBarrier = {};
@@ -2167,7 +2162,7 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 
 	// Dispatch sum1
 	vkCmdBindPipeline(frameObjects[currentFrame].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computeSum1Pipeline);
-	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, dispatchG, 1, 1);
+	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, g, 1, 1);
 
 	// Barrier between compute passes
 	vkCmdPipelineBarrier(frameObjects[currentFrame].computeCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2183,7 +2178,7 @@ void HeadlessRenderer::recordComputeCommandBuffer() {
 
 	// Dispatch sum3
 	vkCmdBindPipeline(frameObjects[currentFrame].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computeSum3Pipeline);
-	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, dispatchG, 1, 1);
+	vkCmdDispatch(frameObjects[currentFrame].computeCommandBuffer, g, 1, 1);
 
 	// Barrier for host readback
 	VkMemoryBarrier hostReadBarrier = {};
