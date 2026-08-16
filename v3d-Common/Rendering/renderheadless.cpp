@@ -2871,6 +2871,20 @@ bool HeadlessRenderer::safeWaitTimelineSemaphore(uint64_t value, const char* con
 	          << ") timed out after " << (1.0e-9 * vkTimeout)
 	          << " seconds. Recovering via vkDeviceWaitIdle + timeline reset." << std::endl;
 	vkDeviceWaitIdle(device);
+	// After device idle no submission references the timeline semaphore, so it is safe
+	// to recreate it at value 0. This is essential: vkDeviceWaitIdle does NOT reset a
+	// timeline semaphore's signaled value, so zeroing only the CPU counters here would
+	// leave the GPU semaphore stuck at its (higher) last value. The next frame would then
+	// signal a value LOWER than the current one (a no-op/invalid signal), and the
+	// end-of-frame blocking readback would return immediately (semaphore already >= the
+	// small CPU value) -- reading stale pixels before the render actually completes, so
+	// the scene appears blank until a viewport resize recreates the semaphore. Recreating
+	// it at 0 re-syncs CPU and GPU, exactly like cleanup() does on resize.
+	if (timelineSemaphore != VK_NULL_HANDLE) {
+		vkDestroySemaphore(device, timelineSemaphore, nullptr);
+		timelineSemaphore = VK_NULL_HANDLE;
+	}
+	timelineSemaphore = createTimelineSemaphore(0);
 	currentTimelineValue = 0;
 	computeTimelineValue = 0;
 	for (uint32_t i = 0; i < maxFramesInFlight; i++)
