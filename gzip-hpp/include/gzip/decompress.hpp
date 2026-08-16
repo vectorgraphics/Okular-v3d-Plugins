@@ -27,11 +27,11 @@ class Decompressor
     {
         z_stream inflate_s;
 
-        inflate_s.zalloc = Z_NULL;
-        inflate_s.zfree = Z_NULL;
-        inflate_s.opaque = Z_NULL;
+        inflate_s.zalloc = nullptr;
+        inflate_s.zfree = nullptr;
+        inflate_s.opaque = nullptr;
         inflate_s.avail_in = 0;
-        inflate_s.next_in = Z_NULL;
+        inflate_s.next_in = nullptr;
 
         // The windowBits parameter is the base two logarithm of the window size (the size of the history buffer).
         // It should be in the range 8..15 for this version of the library.

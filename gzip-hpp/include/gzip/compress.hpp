@@ -42,11 +42,11 @@ class Compressor
         }
 
         z_stream deflate_s;
-        deflate_s.zalloc = Z_NULL;
-        deflate_s.zfree = Z_NULL;
-        deflate_s.opaque = Z_NULL;
+        deflate_s.zalloc = nullptr;
+        deflate_s.zfree = nullptr;
+        deflate_s.opaque = nullptr;
         deflate_s.avail_in = 0;
-        deflate_s.next_in = Z_NULL;
+        deflate_s.next_in = nullptr;
 
         // The windowBits parameter is the base two logarithm of the window size (the size of the history buffer).
         // It should be in the range 8..15 for this version of the library.
