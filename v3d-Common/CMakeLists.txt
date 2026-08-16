@@ -31,7 +31,6 @@ target_include_directories(v3dCommon PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/tinyexr
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/tinyexr/deps/miniz
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/prc/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/backports/optional/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/LspCpp/include
 )
 

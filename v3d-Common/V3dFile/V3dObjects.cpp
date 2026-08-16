@@ -176,11 +176,10 @@ void V3dBezierPatch::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
     // Match Asymptote drawBezierPatch::render(): check material alpha in NORMAL mode only.
     // WIREFRAME/OUTLINE force opaque (commit 316f906894).
     bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
     bool straight=false;
-    bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
     // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
@@ -286,11 +285,10 @@ void V3dBezierTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneM
     // Match Asymptote drawBezierPatch::render(): check material alpha in NORMAL mode only.
     // WIREFRAME/OUTLINE force opaque (commit 316f906894).
     bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
     bool straight=false;
-    bool color=false;
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
     // Use tight bounds computed at construction time (matches Asymptote drawBezierPatch::Min/Max).
@@ -559,6 +557,7 @@ V3dStraightPlanarQuad::V3dStraightPlanarQuad(
     }
 
 void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)orthographic;
     camp::materialIndex = materialIndex;
 
     TRIPLE p1 = vertices[0];
@@ -584,7 +583,7 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
 
     // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
     bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
 
@@ -654,19 +653,21 @@ void V3dStraightPlanarQuad::QueueMesh(int imageWidth, int imageHeight, triple sc
     S_color = transparent;  // transparent → ColorVertex, opaque → MaterialVertex
     if (transparent) {
         size_t base = S.colorVertices.size();
-        S.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-        S.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-        S.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-        S.colorVertices.push_back(ColorVertex{p4, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        int matIdx = (int)(1+materialIndex);
+        S.colorVertices.push_back(ColorVertex{p1, normal, matIdx, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p2, normal, matIdx, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p3, normal, matIdx, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p4, normal, matIdx, glm::vec4(0,0,0,0)});
         if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
         if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
         transparentData.extendColor(S);
     } else {
         size_t base = S.materialVertices.size();
-        S.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-        S.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-        S.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
-        S.materialVertices.push_back(MaterialVertex{p4, normal, materialIndex});
+        int matIdx = (int)materialIndex;
+        S.materialVertices.push_back(MaterialVertex{p1, normal, matIdx});
+        S.materialVertices.push_back(MaterialVertex{p2, normal, matIdx});
+        S.materialVertices.push_back(MaterialVertex{p3, normal, matIdx});
+        S.materialVertices.push_back(MaterialVertex{p4, normal, matIdx});
         if (!t0Off) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
         if (!t1Off) { S.indices.push_back(base); S.indices.push_back(base+2); S.indices.push_back(base+3); }
         materialData.extendMaterial(S);
@@ -725,6 +726,7 @@ V3dStraightTriangle::V3dStraightTriangle(
 // }
 
 void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)orthographic;
     camp::materialIndex = materialIndex;
 
     TRIPLE p1 = vertices[0];
@@ -750,7 +752,7 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
 
     // Determine transparency (NORMAL mode only; WIREFRAME/OUTLINE force opaque).
     bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
 
@@ -811,16 +813,18 @@ void V3dStraightTriangle::QueueMesh(int imageWidth, int imageHeight, triple scen
     S_color = transparent;
     if (transparent) {
         size_t base = S.colorVertices.size();
-        S.colorVertices.push_back(ColorVertex{p1, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-        S.colorVertices.push_back(ColorVertex{p2, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
-        S.colorVertices.push_back(ColorVertex{p3, normal, 1+materialIndex, glm::vec4(0,0,0,0)});
+        int matIdx = (int)(1+materialIndex);
+        S.colorVertices.push_back(ColorVertex{p1, normal, matIdx, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p2, normal, matIdx, glm::vec4(0,0,0,0)});
+        S.colorVertices.push_back(ColorVertex{p3, normal, matIdx, glm::vec4(0,0,0,0)});
         if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
         transparentData.extendColor(S);
     } else {
         size_t base = S.materialVertices.size();
-        S.materialVertices.push_back(MaterialVertex{p1, normal, materialIndex});
-        S.materialVertices.push_back(MaterialVertex{p2, normal, materialIndex});
-        S.materialVertices.push_back(MaterialVertex{p3, normal, materialIndex});
+        int matIdx = (int)materialIndex;
+        S.materialVertices.push_back(MaterialVertex{p1, normal, matIdx});
+        S.materialVertices.push_back(MaterialVertex{p2, normal, matIdx});
+        S.materialVertices.push_back(MaterialVertex{p3, normal, matIdx});
         if (fullyOnscreen) { S.indices.push_back(base); S.indices.push_back(base+1); S.indices.push_back(base+2); }
         materialData.extendMaterial(S);
     }
@@ -852,6 +856,7 @@ V3dStraightPlanarQuadWithCornerColors::V3dStraightPlanarQuadWithCornerColors(
     }
 
 void V3dStraightPlanarQuadWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)orthographic;
     camp::materialIndex = materialIndex;
 
     TRIPLE p1 = vertices[0];
@@ -977,6 +982,7 @@ V3dStraightTriangleWithCornerColors::V3dStraightTriangleWithCornerColors(
     }
 
 void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)orthographic;
     camp::materialIndex = materialIndex;
 
     TRIPLE p1 = vertices[0];
@@ -1157,6 +1163,7 @@ V3dTriangleGroup::V3dTriangleGroup(
     }
 
 void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)imageWidth; (void)imageHeight; (void)orthographic;
     camp::materialIndex = materialIndex;
 
     if (nI == 0 || nP == 0) return;
@@ -1181,7 +1188,7 @@ void V3dTriangleGroup::QueueMesh(int imageWidth, int imageHeight, triple sceneMi
     }
 
     bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
+    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < camp::materials->size()) {
         transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
     }
 
@@ -1482,6 +1489,7 @@ void sphere(
     UINT centerIndex,
     UINT materialIndex
 ) {
+    (void)remesh;
     // Cached first-octant triangles (16 Bezier triangles, depth=2).
     const auto& octantTriangles = getSphereOctant();
 
@@ -1572,6 +1580,7 @@ void disk(
     bool orthographic,
     DrawMode drawMode
 ) {
+    (void)core; (void)remesh;
     double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
     double b=1.0-2.0*a/3.0;
 
@@ -1601,7 +1610,7 @@ void disk(
 
     auto TPatch = [&](const std::array<triple, 16>& V) {
         std::array<TRIPLE, 16> p{ };
-        for(int i=0; i < V.size(); ++i) {
+        for(size_t i=0; i < V.size(); ++i) {
             TRIPLE v{V[i].getx(), V[i].gety(), V[i].getz()};
             p[i]=A.T(triple{r*v.x, r*v.y, 0.0});
         }
@@ -1655,6 +1664,7 @@ void cylinder(
     bool orthographic,
     DrawMode drawMode
 ) {
+    (void)remesh;
     double a = 4.0/3.0*(std::sqrt(2.0)-1.0);
 
     std::array<triple, 16> unitcylinder = {
@@ -1679,7 +1689,7 @@ void cylinder(
         triple{0,1,1}
     };
 
-    double rx,ry,rz;
+    double rx,ry;
     Align A{center,dir};
 
     std::function<triple(const triple&)> t = [&](const triple& v) { return A.T(v); };
@@ -1742,7 +1752,6 @@ V3dCylinder::V3dCylinder(
 void V3dCylinder::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
     camp::materialIndex = materialIndex;
 
-    double r = radius;
     triple direction{ polarAngle, azimuthalAngle, 0.0 };
 
     cylinder(center, radius, height, centerIndex, materialIndex, &direction, core, imageWidth, imageHeight, sceneMinBound, sceneMaxBound, remesh, orthographic, drawMode);
@@ -1756,7 +1765,7 @@ public:
     triple t;
 
     Rmf(triple p = triple{}, triple r = triple{}, triple t = triple{}) 
-        : p{ p }, r{ r }, t{ t } {
+        : r{ r }, p{ p }, t{ t } {
         s = cross(t, r);
     }
 };
@@ -1824,7 +1833,7 @@ std::vector<Rmf> rmf(triple z0,triple c0,triple c1,triple z1,std::vector<double>
     T=unit(T);
     triple Tp=perp(T);
     R[0]=Rmf{z0,Tp,T};
-    for(int i=1; i < t.size(); ++i) {
+    for(size_t i=1; i < t.size(); ++i) {
         Rmf Ri=R[i-1];
         double s=t[i];
         double onemt=1-s;
@@ -1875,6 +1884,7 @@ void tube(
     bool orthographic,
     DrawMode drawMode
 ) {
+    (void)remesh;
 
     std::vector<Rmf> r=rmf(v[0],v[1],v[2],v[3],std::vector<double>{0.0,1.0/3.0,2.0/3.0,1.0});
 
@@ -2011,6 +2021,7 @@ V3dBezierCurve::V3dBezierCurve(std::array<TRIPLE, 4> controlPoints, UINT centerI
     }
 
 void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)drawMode;
     camp::materialIndex = materialIndex;
 
     triple Controls[] = {
@@ -2033,12 +2044,7 @@ void V3dBezierCurve::QueueMesh(int imageWidth, int imageHeight, triple sceneMinB
 
     // Match Asymptote drawBezierPatch::render(): check material alpha in NORMAL mode only.
     // WIREFRAME/OUTLINE force opaque (commit 316f906894).
-    bool transparent = false;
-    if (drawMode == DRAWMODE_NORMAL && camp::materials && materialIndex < (int)camp::materials->size()) {
-        transparent = (*camp::materials)[materialIndex].diffuse.a < 1.0f;
-    }
     bool straight=false;
-    bool color=false;
 
     const camp::pair size3(s*(B.getx()-b.getx()),s*(B.gety()-b.gety()));
 
@@ -2111,6 +2117,7 @@ V3dLineSegment::V3dLineSegment(std::array<TRIPLE, 2> endpoints, UINT centerIndex
     }
 
 void V3dLineSegment::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)remesh; (void)drawMode;
     camp::materialIndex = materialIndex;
 
     // For a straight line segment, BezierCurve::render(straight=true) uses only
@@ -2168,6 +2175,8 @@ V3dPixel::V3dPixel(
     }
 
 void V3dPixel::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) {
+    (void)imageWidth; (void)imageHeight; (void)sceneMinBound; (void)sceneMaxBound;
+    (void)remesh; (void)orthographic; (void)drawMode;
     camp::materialIndex = materialIndex;
 
     // Match Asymptote drawPixel::render(): offscreen check using bbox2(Min,Max).

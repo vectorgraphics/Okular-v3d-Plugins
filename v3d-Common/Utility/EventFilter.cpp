@@ -11,6 +11,7 @@ EventFilter::EventFilter(QObject* parent, V3dModelManager* modelManager)
     : QObject(parent), modelManager(modelManager) { }
 
 bool EventFilter::eventFilter(QObject *object, QEvent *event) {
+    (void)object;
     if (modelManager == nullptr) {
         return false;
     }

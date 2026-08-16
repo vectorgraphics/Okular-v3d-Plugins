@@ -10,6 +10,7 @@ ApplicationEventFilter::ApplicationEventFilter(QObject* parent, V3dModelManager*
 : QObject(parent), modelManager(modelManager) { }
 
 bool ApplicationEventFilter::eventFilter(QObject *object, QEvent *event) {
+    (void)object;
     if (modelManager == nullptr) {
         return false;
     }

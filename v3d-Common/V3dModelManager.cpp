@@ -60,7 +60,7 @@ public:
     // NO Q_OBJECT macro -- we only need eventFilter, no signals/slots.
     explicit IBLEventFilter(QObject* parent) : QObject(parent) {}
 
-    bool eventFilter(QObject* object, QEvent* event) override {
+    bool eventFilter(QObject* /*object*/, QEvent* event) override {
         if (event->type() == QEvent::Type(QEvent::User + 1)) {
             IBLPromptEvent* promptEvent = static_cast<IBLPromptEvent*>(event);
             promptEvent->m_Callback();
@@ -538,7 +538,6 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     bool altKey = event->modifiers() & Qt::AltModifier;
 
     if (controlKey && !shiftKey && !altKey) {
-        float dpr = GetDevicePixelRatio();
         EnsureCachedRequestSize((size_t)m_ActiveModelPage);
 
         glm::vec2 canvasSize = {
@@ -759,6 +758,9 @@ bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
 }
 
 void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
+#ifndef MOUSE_BOUNDARIES
+    (void)img; (void)pageNumber;
+#endif
 #ifdef MOUSE_BOUNDARIES
 
     if (img == nullptr) {

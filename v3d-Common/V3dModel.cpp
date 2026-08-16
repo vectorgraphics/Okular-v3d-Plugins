@@ -207,6 +207,7 @@ void V3dModel::dragModePan(const glm::vec2& normalizedMousePosition, const glm::
 }
 
 void V3dModel::dragModeRotate(const glm::vec2& normalizedMousePosition, const glm::vec2& lastNormalizedMousePosition, const glm::vec2& pageViewSize) {
+    (void)pageViewSize;
     float arcballFactor = 1.0f;
 
     if (normalizedMousePosition == lastNormalizedMousePosition) { return; }

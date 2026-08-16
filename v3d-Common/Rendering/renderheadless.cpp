@@ -344,14 +344,14 @@ HeadlessRenderer::~HeadlessRenderer() {
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageCallback(
-	VkDebugReportFlagsEXT flags,
-	VkDebugReportObjectTypeEXT objectType,
-	uint64_t object,
-	size_t location,
-	int32_t messageCode,
+	VkDebugReportFlagsEXT /*flags*/,
+	VkDebugReportObjectTypeEXT /*objectType*/,
+	uint64_t /*object*/,
+	size_t /*location*/,
+	int32_t /*messageCode*/,
 	const char* pLayerPrefix,
 	const char* pMessage,
-	void* pUserData)
+	void* /*pUserData*/)
 {
 	std::cout << "[VALIDATION]: " << std::string(pLayerPrefix) << " - " << std::string(pMessage) << "\n" << std::endl;
 
@@ -650,7 +650,7 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 void HeadlessRenderer::createUniformBuffer() {
 	VkDeviceSize uniformBufferSize = sizeof(UniformBufferObject);
 
-	auto result = createBuffer(
+	createBuffer(
 		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		&uniformBuffer,
@@ -964,7 +964,6 @@ bool HeadlessRenderer::createTransparencyBuffers(int width, int height) {
 	VkDeviceSize countBufferSize = (Pixels + 1) * sizeof(uint32_t);
 	VkDeviceSize offsetBufferSize = (Pixels + 2) * sizeof(uint32_t);
 	VkDeviceSize opaqueColorSize = pixels * sizeof(glm::vec4);
-	VkDeviceSize opaqueDepthSize = sizeof(uint32_t) + (VkDeviceSize)pixels * sizeof(float);
 
 	// Helper: on OOM, clean up any partially-created transparency buffers and return false.
 	auto cleanupOnFail = [this]() {
@@ -1272,7 +1271,6 @@ void HeadlessRenderer::createGraphicsRenderPass(int targetWidth, int targetHeigh
 	resolveAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	resolveAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
-	VkAttachmentReference colorRef       = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 	VkAttachmentReference depthRef       = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
 	VkAttachmentReference resolveRef     = { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 
@@ -2000,7 +1998,7 @@ void HeadlessRenderer::createColorPipeline(DrawMode drawMode, int targetWidth, i
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &colorPipeline);
 }
-void HeadlessRenderer::recordCountCommandBuffer(size_t indexCount, size_t lightCount) {
+void HeadlessRenderer::recordCountCommandBuffer(size_t /*indexCount*/, size_t lightCount) {
 	// Reset persistent command buffer (matches vkrender.cc: object.frameObjects[currentFrame].countCommandBuffer->reset()).
 	VK_CHECK_RESULT(vkResetCommandBuffer(frameObjects[currentFrame].countCommandBuffer, 0));
 
@@ -2230,7 +2228,7 @@ void HeadlessRenderer::uploadBuffer(VkCommandBuffer cmd, VertexBuffer& data, boo
 	// Matches vkrender.cc drawBuffer() exactly: copy = (remesh || renderCount < maxFramesInFlight || badBuffer) && !copied.
 	// Uploads ONLY this data type's own buffers. Does NOT modify `copied`.
 	bool badBuffer = (vBuf == VK_NULL_HANDLE);
-	bool copy = (!copied) && (remesh || data.renderCount < maxFramesInFlight || badBuffer);
+	bool copy = (!copied) && (remesh || static_cast<uint32_t>(data.renderCount) < maxFramesInFlight || badBuffer);
 	if (!copy) return;
 
 	if (vdata != nullptr && vbytes > 0) {

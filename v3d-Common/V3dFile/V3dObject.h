@@ -17,7 +17,7 @@ public:
     V3dObject(UINT objectType);
     virtual ~V3dObject() = default;
 
-    virtual void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) { }
+    virtual void QueueMesh(int, int, triple, triple, bool, bool, DrawMode) { }
 
     UINT objectType;
 
