@@ -500,7 +500,7 @@ void HeadlessRenderer::createPhysicalDevice() {
 	VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data()));
 
 	// Check OKULAR_V3D_DEVICE environment variable.
-	//   -1: enumerate available devices and exit (help message).
+	//   -1: enumerate available devices, then fall back to device 0 (still render).
 	//   n:  select device n from the enumerated list.
 	// unset: use device 0 (default, first GPU found).
 	const char* devEnv = std::getenv("OKULAR_V3D_DEVICE");
@@ -509,7 +509,7 @@ void HeadlessRenderer::createPhysicalDevice() {
 	if (devEnv != nullptr) {
 		selectedDevice = std::atoi(devEnv);
 		if (selectedDevice == -1) {
-			// Enumerate and print all available devices.
+			// Help mode: list all devices, then fall back to device 0 and render.
 			std::cout << "v3d: available Vulkan devices:" << std::endl;
 			for (uint32_t i = 0; i < deviceCount; i++) {
 				VkPhysicalDeviceProperties props;
@@ -521,11 +521,8 @@ void HeadlessRenderer::createPhysicalDevice() {
 				          << ", fillModeNonSolid=" << feats.fillModeNonSolid << ")" << std::endl;
 			}
 			std::cout << "Set OKULAR_V3D_DEVICE=n to select device n." << std::endl;
-			initialized = false;
-			initFailed = true;
-			return;
-		}
-		if (selectedDevice < 0 || selectedDevice >= (int)deviceCount) {
+			selectedDevice = 0; // listing is verbosity only; still render with the default device
+		} else if (selectedDevice < 0 || selectedDevice >= (int)deviceCount) {
 			std::cerr << "v3d: OKULAR_V3D_DEVICE=" << selectedDevice
 			          << " is out of range [0.." << deviceCount - 1 << "], disabling rendering." << std::endl;
 			initialized = false;
