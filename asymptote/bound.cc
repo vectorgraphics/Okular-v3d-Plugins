@@ -1,5 +1,5 @@
 /* bound.cc
- * Bézier bounding-box computation extracted from path3.cc.
+ * Bezier bounding-box computation.
  */
 
 #include <cfloat>
@@ -10,8 +10,11 @@
 
 namespace camp {
 
-const double Fuzz = sqrt(1000.0 * DBL_EPSILON);
+const double Fuzz2 = 1000.0 * DBL_EPSILON;
+const double Fuzz = sqrt(Fuzz2);
 const unsigned maxdepth = DBL_MANT_DIG;
+
+} // namespace camp
 
 namespace run {
     double norm(double *a, size_t n) {
@@ -24,18 +27,7 @@ namespace run {
     }
 }
 
-template<class T>
-struct Split {
-  T m0,m1,m2,m3,m4,m5;
-  Split(T z0, T c0, T c1, T z1) {
-    m0=0.5*(z0+c0);
-    m1=0.5*(c0+c1);
-    m2=0.5*(c1+z1);
-    m3=0.5*(m0+m1);
-    m4=0.5*(m1+m2);
-    m5=0.5*(m3+m4);
-  }
-};
+namespace camp {
 
 double cornerbound(double *P, double (*m)(double, double)) {
   double b=m(P[0],P[3]);
@@ -93,45 +85,6 @@ double bound(double *P, double (*m)(double, double), double b,
   return bound(s3,m,b,fuzz,depth);
 }
 
-template<class T>
-struct Splittri {
-  T l003,p102,p012,p201,p111,p021,r300,p210,p120,u030;
-  T u021,u120;
-  T p033,p231,p330;
-  T p123;
-  T l012,p312,r210,l102,p303,r201;
-  T u012,u210,l021,p4xx,r120,px4x,pxx4,l201,r102;
-  T l210,r012,l300;
-  T r021,u201,r030;
-  T u102,l120,l030;
-  T l111,r111,u111,c111;
-
-  Splittri(const T *p) {
-    l003=p[0]; p102=p[1]; p012=p[2]; p201=p[3]; p111=p[4];
-    p021=p[5]; r300=p[6]; p210=p[7]; p120=p[8]; u030=p[9];
-
-    u021=0.5*(u030+p021); u120=0.5*(u030+p120);
-    p033=0.5*(p021+p012); p231=0.5*(p120+p111); p330=0.5*(p120+p210);
-    p123=0.5*(p012+p111);
-
-    l012=0.5*(p012+l003); p312=0.5*(p111+p201); r210=0.5*(p210+r300);
-    l102=0.5*(l003+p102); p303=0.5*(p102+p201); r201=0.5*(p201+r300);
-
-    u012=0.5*(u021+p033); u210=0.5*(u120+p330);
-    l021=0.5*(p033+l012); p4xx=0.5*p231+0.25*(p111+p102);
-    r120=0.5*(p330+r210); px4x=0.5*p123+0.25*(p111+p210);
-    pxx4=0.25*(p021+p111)+0.5*p312;
-    l201=0.5*(l102+p303); r102=0.5*(p303+r201);
-
-    l210=0.5*(px4x+l201); r012=0.5*(px4x+r102); l300=0.5*(l201+r102);
-    r021=0.5*(pxx4+r120); u201=0.5*(u210+pxx4); r030=0.5*(u210+r120);
-    u102=0.5*(u012+p4xx); l120=0.5*(l021+p4xx); l030=0.5*(u012+l021);
-
-    l111=0.5*(p123+l102); r111=0.5*(p312+r210);
-    u111=0.5*(u021+p231); c111=0.25*(p033+p330+p303+p111);
-  }
-};
-
 double cornerboundtri(double *P, double (*m)(double, double)) {
   double b=m(P[0],P[6]);
   return m(b,P[9]);
@@ -174,7 +127,7 @@ double boundtri(double *P, double (*m)(double, double), double b,
   return boundtri(c,m,b,fuzz,depth);
 }
 
-double ratiobound_curve(triple z0, triple c0, triple c1, triple z1,
+double ratiobound(triple z0, triple c0, triple c1, triple z1,
                   double (*m)(double, double),
                   double (*f)(const triple&)) {
   double MX=m(m(m(-z0.getx(),-c0.getx()),-c1.getx()),-z1.getx());
@@ -188,7 +141,7 @@ double bound(triple z0, triple c0, triple c1, triple z1,
              double (*m)(double, double),
              double (*f)(const triple&), double b, double fuzz, int depth) {
   b=m(b,m(f(z0),f(z1)));
-  if(m(-1.0,1.0)*(b-ratiobound_curve(z0,c0,c1,z1,m,f)) >= -fuzz || depth == 0)
+  if(m(-1.0,1.0)*(b-ratiobound(z0,c0,c1,z1,m,f)) >= -fuzz || depth == 0)
     return b;
 
   --depth;
@@ -206,4 +159,3 @@ double bound(triple z0, triple c0, triple c1, triple z1,
 }
 
 } // namespace camp
-

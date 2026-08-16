@@ -6,7 +6,7 @@
 [subrepo]
 	remote = git@github.com:vectorgraphics/asymptote.git
 	branch = master
-	commit = 1bff5ae422e686c3c88de7842f3ba7c264c005f7
-	parent = 203cb6b2f3c32f6f4a8a56e9b89a9296c691ea23
+	commit = 84c3af8620c2a0a976f10b3214cd334fc2eda931
+	parent = e3d6274ecf6651fad6b3635f62e421c67a852f73
 	method = merge
 	cmdver = 0.4.9

@@ -529,7 +529,7 @@ void AsyGLRender::Export(int)
         cout << count << " tile" << (count != 1 ? "s" : "") << " drawn" << endl;
 
       picture pic;
-      drawRawImage *Image=NULL;
+      drawRawImage *Image=NULL;  
       double w=oWidth;
       double h=oHeight;
       double Aspect=((double) fullWidth)/fullHeight;
@@ -540,7 +540,7 @@ void AsyGLRender::Export(int)
       Image=new drawRawImage(data,fullWidth,fullHeight,
                              transform(0.0,0.0,w,0.0,0.0,h),
                              antialias);
-      pic.append(Image);
+      pic.append(Image); 
 
       pic.shipout(NULL,Prefix,Format,false,ViewExport);
       if(Image)
