@@ -522,21 +522,23 @@ void HeadlessRenderer::createPhysicalDevice() {
 			}
 			std::cout << "Set OKULAR_V3D_DEVICE=n to select device n." << std::endl;
 			initialized = false;
+			initFailed = true;
 			return;
 		}
 		if (selectedDevice < 0 || selectedDevice >= (int)deviceCount) {
 			std::cerr << "v3d: OKULAR_V3D_DEVICE=" << selectedDevice
 			          << " is out of range [0.." << deviceCount - 1 << "], disabling rendering." << std::endl;
 			initialized = false;
+			initFailed = true;
 			return;
 		}
-		std::cout << "v3d: OKULAR_V3D_DEVICE=" << selectedDevice << ", selecting device " << selectedDevice << std::endl;
 	}
 
 	physicalDevice = physicalDevices[selectedDevice];
 
 	VkPhysicalDeviceProperties deviceProps;
 	vkGetPhysicalDeviceProperties(physicalDevice, &deviceProps);
+	LOG("v3d: selecting device %s\n", deviceProps.deviceName);
 	maxComputeWorkGroupCountX = deviceProps.limits.maxComputeWorkGroupCount[0];
 	maxFramebufferWidth = deviceProps.limits.maxFramebufferWidth;
 	maxFramebufferHeight = deviceProps.limits.maxFramebufferHeight;
@@ -1027,7 +1029,12 @@ bool HeadlessRenderer::createTransparencyBuffers(int width, int height) {
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
 		&feedbackBuffer, &feedbackBufferMemory, feedbackBufferSize);
 	if (res != VK_SUCCESS) { cleanupOnFail(); return false; }
-	vkMapMemory(device, feedbackBufferMemory, 0, feedbackBufferSize, 0, (void**)&feedbackMappedPtr);
+	// Map the WHOLE allocation (not just the 8 logical bytes). The memory object is rounded
+	// up by the driver and nonCoherentAtomSize=64 means a sub-atom invalidate range is invalid;
+	// mapping to the end makes readFeedback()'s VK_WHOLE_SIZE invalidate resolve to "end of
+	// memory object" (valid per VUID-VkMappedMemoryRange-size-01389). Matches vkrender.cc, where
+	// VMA's feedbackMappedPtr->invalidate() also covers the whole allocation.
+	vkMapMemory(device, feedbackBufferMemory, 0, VK_WHOLE_SIZE, 0, (void**)&feedbackMappedPtr);
 
 	// Zero transparency buffers once at creation time (matches vkrender.cc createDependentBuffers).
 	zeroTransparencyBuffers();
@@ -1046,15 +1053,13 @@ void HeadlessRenderer::zeroTransparencyBuffers() {
 	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
 	VK_CHECK_RESULT(vkBeginCommandBuffer(clearCmd, &cmdBufInfo));
 
-	VkMemoryRequirements reqs;
-	vkGetBufferMemoryRequirements(device, globalSumBuffer, &reqs);
-	vkFillBuffer(clearCmd, globalSumBuffer, reqs.size);
-
-	vkGetBufferMemoryRequirements(device, opaqueDepthBuffer, &reqs);
-	vkFillBuffer(clearCmd, opaqueDepthBuffer, reqs.size);
-
-	vkGetBufferMemoryRequirements(device, countBuffer, &reqs);
-	vkFillBuffer(clearCmd, countBuffer, reqs.size);
+	// Fill with VK_WHOLE_SIZE (matches vkrender.cc zeroBuffer). The VkBuffer's logical
+	// size is its vkCreateBuffer size, which can be SMALLER than the memory-requirement
+	// size the driver rounds up to; filling reqs.size would exceed the buffer on some
+	// drivers (e.g. NVIDIA) -> VUID-vkCmdFillBuffer-size-00027.
+	vkFillBuffer(clearCmd, globalSumBuffer, VK_WHOLE_SIZE);
+	vkFillBuffer(clearCmd, opaqueDepthBuffer, VK_WHOLE_SIZE);
+	vkFillBuffer(clearCmd, countBuffer, VK_WHOLE_SIZE);
 
 	VK_CHECK_RESULT(vkEndCommandBuffer(clearCmd));
 
