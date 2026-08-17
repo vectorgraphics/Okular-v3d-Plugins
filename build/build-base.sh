@@ -11,7 +11,7 @@ buildFunc() {
             echo "  --clean-only    Deletes all existing build files"
             echo "  --release       Builds the release version of the plugins"
             echo "  --debug         Builds the debug version of the plugins"
-            echo "  --install       Skip build; run the install script from the stage directory"
+            echo "  --install       Build then run the install script from the stage directory"
 
             exit
         fi
@@ -21,7 +21,7 @@ buildFunc() {
     cleanOnly=0
     release=0
     debug=0
-    installOnly=0
+    install=0
 
     for arg in $@
     do
@@ -42,7 +42,7 @@ buildFunc() {
         fi
 
         if [[ $arg = "--install" ]]; then
-            installOnly=1
+            install=1
         fi
     done
 
@@ -53,12 +53,6 @@ buildFunc() {
     fi
 
     if [[ $cleanOnly -eq 1 ]]; then
-        exit 0
-    fi
-
-    if [[ $installOnly -eq 1 ]]; then
-        cd "stage/" || { echo "Error: stage directory not found. Run ./build.sh first."; exit 1; }
-        bash "./install.sh"
         exit 0
     fi
 
@@ -117,5 +111,10 @@ buildFunc() {
 
     if [[ -f "../../base-release/okularApplication_v3d.desktop" ]]; then
         cp "../../base-release/okularApplication_v3d.desktop" "stage/"
+    fi
+
+    if [[ $install -eq 1 ]]; then
+        cd "stage/" || { echo "Error: stage directory not found."; exit 1; }
+        bash "./install.sh"
     fi
 }
