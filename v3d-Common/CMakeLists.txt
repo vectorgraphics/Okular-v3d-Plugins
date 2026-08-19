@@ -34,6 +34,20 @@ target_include_directories(v3dCommon PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../asymptote/LspCpp/include
 )
 
+set(SPIRV_TOOLS_LIBRARIES "SPIRV-Tools")
+
+find_package(SPIRV-Tools QUIET)
+if(SPIRV-Tools_FOUND)
+    set(SPIRV_TOOLS_LIBRARIES SPIRV-Tools)
+endif()
+
+set(SPIRV_TOOLS_OPT_LIBRARIES "SPIRV-Tools-opt")
+
+find_package(SPIRV-Tools-opt QUIET)
+if(SPIRV-Tools-opt_FOUND)
+    set(SPIRV_TOOLS_OPT_LIBRARIES SPIRV-Tools-opt)
+endif()
+
 target_link_libraries(v3dCommon PUBLIC
     Qt6::Core
     Qt6::Gui
@@ -43,8 +57,8 @@ target_link_libraries(v3dCommon PUBLIC
     vulkan
     tirpc
     glslang
-    SPIRV-Tools
-    SPIRV-Tools-opt
+    ${SPIRV_TOOLS_LIBRARIES}
+    ${SPIRV_TOOLS_OPT_LIBRARIES}
 )
 
 target_compile_definitions(v3dCommon PUBLIC
