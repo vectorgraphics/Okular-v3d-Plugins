@@ -10,6 +10,15 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 
+// ========== begin v3d ==========
+#include <gzip/compress.hpp>
+#include <gzip/config.hpp>
+#include <gzip/decompress.hpp>
+#include <gzip/utils.hpp>
+#include <gzip/version.hpp>
+#include <gui/priorities.h>
+// ========== end v3d ==========
+
 #include <memory>
 
 #include "generator_pdf.h"
@@ -723,6 +732,11 @@ PDFGenerator::~PDFGenerator()
 // BEGIN Generator inherited functions
 Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QList<Okular::Page *> &pagesVector, const QString &password)
 {
+    // ========== begin v3d ==========
+    if (document() != nullptr) {
+        modelManager.SetDocument(document());
+    }
+    // ========== end v3d ==========
 #ifndef NDEBUG
     if (pdfdoc) {
         qCDebug(OkularPdfDebug) << "PDFGenerator: multiple calls to loadDocument. Check it.";
@@ -1365,6 +1379,44 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
         resolveMediaLinkReferences(page);
     }
 
+    // ========== begin v3d ==========
+    // Skip v3d Vulkan rendering for thumbnail requests — use the pre-rendered
+    // PDF bitmap preview instead. Thumbnails should be static, non-interactive.
+    if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
+        bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
+
+        size_t pageNumber = (size_t)request->page()->number();
+
+        int i = 0;
+        for (auto& model : modelManager.Models(pageNumber)) {
+            if (!isThumbnail) {
+                int xMin = (int)(request->width() * model.minBound.x);
+                int xMax = (int)(request->width() * model.maxBound.x);
+                int yMin = (int)(request->height() * model.minBound.y);
+                int yMax = (int)(request->height() * model.maxBound.y);
+                int imageWidth = xMax - xMin;
+                int imageHeight = yMax - yMin;
+
+                modelManager.CacheRequest(request);
+
+                QImage image = modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
+
+                QPainter painter{ &img };
+
+                if (request->isTile()) {
+                    painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
+                } else {
+                    painter.drawImage(xMin, yMin, image);
+                }
+            }
+
+            ++i;
+        }
+    }
+
+    modelManager.DrawMouseBoundaries(&img, request->pageNumber());
+    // ========== end v3d ==========
+
     // 3. UNLOCK [re-enables shared access]
     userMutex()->unlock();
 
@@ -1935,6 +1987,67 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
     std::vector<std::unique_ptr<Poppler::Annotation>> popplerAnnotations = popplerPage->annotations(subtypes);
 
     for (auto &a : popplerAnnotations) {
+        // ========== begin v3d ==========
+        if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
+            QRectF bound = a->boundary();
+            bound = bound.normalized();
+
+            Poppler::RichMediaAnnotation* richMedia = dynamic_cast<Poppler::RichMediaAnnotation*>(a.get());
+            if (richMedia == nullptr) {
+                continue;
+            }
+
+            Poppler::RichMediaAnnotation::Content* content = richMedia->content();
+            if (content == nullptr) {
+                continue;
+            }
+
+            QList<Poppler::RichMediaAnnotation::Asset*> assets = content->assets();
+
+            for (Poppler::RichMediaAnnotation::Asset* asset : assets) {
+                if (asset == nullptr) {
+                    continue;
+                }
+
+                Poppler::EmbeddedFile* embeddedFile = asset->embeddedFile();
+                if (embeddedFile == nullptr) {
+                    continue;
+                }
+
+                QByteArray fileData = embeddedFile->data();
+
+                // Guard: check for gzip magic bytes before decompressing.
+                // gzip-hpp throws on bad data but exceptions are disabled in this build
+                // (-fno-exceptions), so a throw would abort the process.
+                bool isGzip = (fileData.size() >= 2 &&
+                               static_cast<unsigned char>(fileData[0]) == 0x1f &&
+                               static_cast<unsigned char>(fileData[1]) == 0x8b);
+
+                if (!isGzip) {
+                    std::cerr << "v3d: embedded file is not gzip-compressed, skipping." << std::endl;
+                    continue;
+                }
+
+                std::string decompressedData = gzip::decompress(fileData.data(), fileData.size());
+
+                if (decompressedData.empty()) {
+                    std::cerr << "v3d: embedded file decompressed to empty data, skipping." << std::endl;
+                    continue;
+                }
+
+                xdr::memixstream xdrFile{ (uint8_t*)decompressedData.data(), decompressedData.size() };
+
+                QRectF bound = a->boundary();
+                bound = bound.normalized();
+
+                glm::vec2 minBound{ bound.left(), bound.top() };
+                glm::vec2 maxBound{ bound.right(), bound.bottom() };
+
+                modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
+
+            }
+        }
+        // ========== end v3d ==========
         bool doDelete = true;
         Okular::Annotation *newann = createAnnotationFromPopplerAnnotation(a.get(), *popplerPage, &doDelete);
         if (newann) {
