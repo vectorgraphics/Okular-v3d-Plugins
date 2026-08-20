@@ -22,7 +22,10 @@ In order to build the plugins for a specific version of Okular navigate to `rele
 
 For convenience here is the full list of packages needed to build the plugins on Fedora:
 
-`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel`
+`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel okular`
+
+For Ubuntu 26.04, to build Okular 25.12:
+`sudo apt install cmake g++ extra-cmake-modules qt6-tools-dev qt6-svg-dev libkf6archive-dev libkf6bookmarks-dev libkf6completion-dev libkf6config-dev libkf6configwidgets-dev libkf6i18n-dev libkf6kio-dev libkf6threadweaver-dev libkf6parts-dev libkf6crash-dev libkf6iconthemes-dev libkf6pty-dev libpoppler-qt6-dev libglm-dev libtirpc-dev vulkan-validationlayers qt6-base-private-dev libkf6textwidgets-dev glslang-dev spirv-tools okular`
 
 ## Creating Releases
 First, install the github cli (`gh`) on your system and authorise with `gh auth login`.
