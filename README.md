@@ -11,14 +11,14 @@ Adds support for opening pdf files with v3d files embedded inside, currently rot
 
 ## Installing
 1. Install Okular through your favourite package manager
-2. Find out what version of Okular you have installed either by running `okular --version` or launch okular, click on `help` in the top bar and then `About Okular` in the drop down. The version will have the format: `YY.MM.0X` where YY is the year, MM is the month, and 0X is the sub version.
-3. Navigate to the releases page on github, and download the `release.zip` file for the plugin whos version matches the version of Okular you have installed on your system. If you cant find a plugin version that matches your version of Okular try downgrading the version of Okular you have installed and go back to step 2. If you still cannot find a matching version, consider following the build instructions below and building your own version of the plugin.
+2. Find out what version of Okular you have installed either by running `okular --version` or launching Okular, clicking on `help` in the top bar and then `About Okular` in the drop-down. The version will have the format: `YY.MM.0X` where YY is the year, MM is the month, and 0X is the sub-version.
+3. Navigate to the releases page on GitHub, and download the `release.zip` file for the plugin whose version matches the version of Okular you have installed on your system. If you can't find a plugin version that matches your version of Okular, try downgrading the version of Okular you have installed and go back to step 2. If you still cannot find a matching version, consider following the build instructions below and building your own version of the plugin.
 4. Unzip `release.zip`
 5. `cd release`
 6. Finally, run `./install.sh` with root permissions
 
 ## Building
-In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`, you will most likely only be able to build the plugin for the versions of okular that ship with your package manager due to dependency versioning.
+In order to build the plugins for a specific version of Okular, navigate to `release/<desired version>/` and execute the script `./build.sh`. You will most likely only be able to build the plugin for the versions of Okular that ship with your package manager due to dependency versioning.
 
 For convenience here is the full list of packages needed to build the plugins on Fedora 44:
 `sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel okular`
@@ -27,19 +27,19 @@ And for Ubuntu 26.04:
 `sudo apt install cmake g++ extra-cmake-modules qt6-tools-dev qt6-svg-dev libkf6archive-dev libkf6bookmarks-dev libkf6completion-dev libkf6config-dev libkf6configwidgets-dev libkf6i18n-dev libkf6kio-dev libkf6threadweaver-dev libkf6parts-dev libkf6crash-dev libkf6iconthemes-dev libkf6pty-dev libpoppler-qt6-dev libglm-dev libtirpc-dev vulkan-validationlayers qt6-base-private-dev libkf6textwidgets-dev glslang-dev spirv-tools okular`
 
 ## Building plugins for a new version of Okular
-For this example we will be building plugins for Okular version 25.04
+For this example, we will be building plugins for Okular version 25.04
 
-Firstly, create a new folder for the version of Okular you want to build under  `build/`, and clone the okular source code into that folder. ie `build/25.04/okular`.
+Firstly, create a new folder for the version of Okular you want to build under `build/`, and clone the Okular source code into that folder, i.e., `build/25.04/okular`.
 
-Be sure to check out the correct branch of the Okular source code for the desired version. ie. the branch named: `release/25.04`.
+Be sure to check out the correct branch of the Okular source code for the desired version, i.e., the branch named: `release/25.04`.
 
-Then copy the build script from another version of the plugin into the folder you created with the Okular version as its name. ie. into the folder: `build/25.04/`.
+Then copy the build script from another version of the plugin into the folder you created with the Okular version as its name, i.e., into the folder: `build/25.04/`.
 
 Assuming you only want to build either the v3d or pdf plugin or both, and none of the default plugins that Okular ships with, you can force a bunch of dependencies to become optional instead of required. Do this by replacing the line mentioning the `FORCE_NOT_REQUIRED_DEPENDENCIES` variable with the following line:
 
 `set(FORCE_NOT_REQUIRED_DEPENDENCIES "KF6Wallet;KF6DocTools;KF6Purpose;Qt6TextToSpeech;Phonon4Qt6;Freetype;TIFF;LibSpectre;KExiv2Qt6;DjVuLibre;EPub;Discount;JPEG")`
 
-in the CMakeLists.txt file in the root of the Okular source code. ie `build/25.04/okular/CMakeLists.txt`. The line you need to replace will be near the top of the file.
+in the CMakeLists.txt file in the root of the Okular source code, i.e., `build/25.04/okular/CMakeLists.txt`. The line you need to replace will be near the top of the file.
 
 Then in the CMakeLists.txt file located in the generators directory (`build/25.04/okular/generators/CMakeLists.txt`), add the following lines before all the `add_subdirectory()` calls:
 
@@ -51,13 +51,13 @@ add_subdirectory(../../../../v3d-Common v3dCommon)
 This will build the v3dCommon shared library before either plugin so that both can link against it.
 
 ### v3d
-The v3d plugin is quite simple, and dosent rely on many features of Okular, therefore it most likely dosent require any changes to work with a new version of okular, however it does need to be re-built specificly for the new version of Okular.
+The v3d plugin is quite simple, and doesn't rely on many features of Okular; therefore, it most likely doesn't require any changes to work with a new version of Okular, however it does need to be rebuilt specifically for the new version of Okular.
 
-Firstly, copy the source code from an older version of the plugin into the generator folder of your freshly cloned Okular source code. ie. copy the folder `build/24.12/okular/generators/v3d/` into `build/25.04/okular/generators/`.
+Firstly, copy the source code from an older version of the plugin into the generator folder of your freshly cloned Okular source code, i.e., copy the folder `build/24.12/okular/generators/v3d/` into `build/25.04/okular/generators/`.
 
 Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(v3d)` amongst the other `add_subdirectory` function calls.
 
-Then follow the above build instructions to build
+Then follow the build instructions above to build.
 
 ### pdf
 Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be inserted in specific locations.
@@ -66,7 +66,7 @@ Start by copying the existing poppler plugin source code folder (located in `bui
 
 Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(pdf)` amongst the other `add_subdirectory` function calls.
 
-Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise cmake will complain about building two libraries with the same name.
+Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise CMake will complain about building two libraries with the same name.
 
 Then a few files need to be modified:
 
@@ -138,7 +138,7 @@ if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty(
 modelManager.DrawMouseBoundaries(&img, request->pageNumber());
 ```
 
-* In the function `void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page)` insert the following at the begining of the for loop that iterates over all of the `popplerAnnotations`:
+* In the function `void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page)` insert the following at the beginning of the for loop that iterates over all of the `popplerAnnotations`:
 
 ```
 if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
@@ -228,5 +228,5 @@ set_target_properties(okularGenerator_poppler PROPERTIES
 ```
 
 ## Creating Releases
-Run `create-releases.sh` to automatically build and create a release zip file for the version of okular installed on your device.
+Run `create-releases.sh` to automatically build and create a release zip file for the version of Okular installed on your device.
 
