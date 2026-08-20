@@ -18,28 +18,20 @@ Adds support for opening pdf files with v3d files embedded inside, currently rot
 6. Finally, run `./install.sh` with root permissions
 
 ## Building
-In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`.
+In order to build the plugins for a specific version of Okular navigate to `release/<desired version>/` and execute the script `./build.sh`, you will most likely only be able to build the plugin for the versions of okular that ship with your package manager due to dependency versioning.
 
-For convenience here is the full list of packages needed to build the plugins on Fedora:
-
+For convenience here is the full list of packages needed to build the plugins on Fedora 44:
 `sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel okular`
 
-For Ubuntu 26.04, to build Okular 25.12:
+And for Ubuntu 26.04:
 `sudo apt install cmake g++ extra-cmake-modules qt6-tools-dev qt6-svg-dev libkf6archive-dev libkf6bookmarks-dev libkf6completion-dev libkf6config-dev libkf6configwidgets-dev libkf6i18n-dev libkf6kio-dev libkf6threadweaver-dev libkf6parts-dev libkf6crash-dev libkf6iconthemes-dev libkf6pty-dev libpoppler-qt6-dev libglm-dev libtirpc-dev vulkan-validationlayers qt6-base-private-dev libkf6textwidgets-dev glslang-dev spirv-tools okular`
-
-## Creating Releases
-First, install the github cli (`gh`) on your system and authorise with `gh auth login`.
-
-Then build all the plugins in release mode.
-
-And finally run `create-releases.sh` to automatically create releases and use `push-releases.sh` to upload them to github.
 
 ## Building plugins for a new version of Okular
 For this example we will be building plugins for Okular version 25.04
 
 Firstly, create a new folder for the version of Okular you want to build under  `build/`, and clone the okular source code into that folder. ie `build/25.04/okular`.
 
-Be sure to check out the correct branch of the Okular source code for the desired version. ie the branch named: `release/25.04`.
+Be sure to check out the correct branch of the Okular source code for the desired version. ie. the branch named: `release/25.04`.
 
 Then copy the build script from another version of the plugin into the folder you created with the Okular version as its name. ie. into the folder: `build/25.04/`.
 
@@ -49,11 +41,14 @@ Assuming you only want to build either the v3d or pdf plugin or both, and none o
 
 in the CMakeLists.txt file in the root of the Okular source code. ie `build/25.04/okular/CMakeLists.txt`. The line you need to replace will be near the top of the file.
 
-You will also need to install many packages in order to build the plugins, you can just repeatadly run the build script and install whatever packages cmake cannot find, but if you use dnf as a package manager you can simply execute:
+Then in the CMakeLists.txt file located in the generators directory (`build/25.04/okular/generators/CMakeLists.txt`), add the following lines before all the `add_subdirectory()` calls:
 
-`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel`
+```
+set(V3D_OKULAR_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../core")
+add_subdirectory(../../../../v3d-Common v3dCommon)
+```
 
-which is a minimal list of packages required.
+This will build the v3dCommon shared library before either plugin so that both can link against it.
 
 ### v3d
 The v3d plugin is quite simple, and dosent rely on many features of Okular, therefore it most likely dosent require any changes to work with a new version of okular, however it does need to be re-built specificly for the new version of Okular.
@@ -62,7 +57,7 @@ Firstly, copy the source code from an older version of the plugin into the gener
 
 Then in the CMakeLists.txt file located in `build/version/okular/generators/` add the line: `add_subdirectory(v3d)` amongst the other `add_subdirectory` function calls.
 
-Finally, navigate back to the build script you cloned earlier (located in `build/version/`) and run it to build the plugin.
+Then follow the above build instructions to build
 
 ### pdf
 Instead of being an entire standalone plugin, the pdf plugin is a modification to the pre-existing poppler plugin, meaning that specific blocks of code need to be inserted in specific locations.
@@ -73,45 +68,44 @@ Then in the CMakeLists.txt file located in `build/version/okular/generators/` ad
 
 Also be sure to comment out the existing `add_subdirectory(poppler)` call, otherwise cmake will complain about building two libraries with the same name.
 
-Then a few files need to be modified, Here they will all be surrounded by comments indicating that they are custom code in order to make them easier to find.
+Then a few files need to be modified:
 
-Look at existing versions of the plugin and Ctrl-F for `begin v3d` to help with placement.
 #### generator_pdf.h
 Located in `build/version/okular/generators/pdf/`
 
 * Insert the following amongst the other includes:
 ```
-// ========== begin v3d ==========
 #include "V3dModelManager.h"
-// ========== end v3d ==========
 ```
 
 * Insert the following near the top of the class definition above the constructor:
 
 ```
-// ========== begin v3d ==========
 public:
     V3dModelManager modelManager{ document() };
-// ========== end v3d ==========
 ```
 #### generator_pdf.cpp
 Located in `build/version/okular/generators/pdf/`
 
 * Insert the following amongst the other includes:
 ```
-// ========== begin v3d ==========
 #include <gzip/compress.hpp>
 #include <gzip/config.hpp>
 #include <gzip/decompress.hpp>
 #include <gzip/utils.hpp>
 #include <gzip/version.hpp>
-// ========== end v3d ==========
+```
+
+* In the function `Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QList<Okular::Page *> &pagesVector, const QString &password)` insert the following at the top of the function:
+```
+if (document() != nullptr) {
+    modelManager.SetDocument(document());
+}
 ```
 
 * In the function: `QImage PDFGenerator::image(Okular::PixmapRequest *request)` insert the following near the end of the function just before the mutex is unlocked:
 
 ```
-// ========== begin v3d ==========
 if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
     size_t pageNumber = (size_t)request->page()->number();
 
@@ -142,23 +136,23 @@ if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty(
 }
 
 modelManager.DrawMouseBoundaries(&img, request->pageNumber());
-// ========== end v3d ==========
 ```
 
 * In the function `void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page)` insert the following at the begining of the for loop that iterates over all of the `popplerAnnotations`:
 
 ```
-// ========== begin v3d ==========
 if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
     QRectF bound = a->boundary();
     bound = bound.normalized();
 
     Poppler::RichMediaAnnotation* richMedia = dynamic_cast<Poppler::RichMediaAnnotation*>(a.get());
+
     if (richMedia == nullptr) {
         continue;
     }
 
     Poppler::RichMediaAnnotation::Content* content = richMedia->content();
+
     if (content == nullptr) {
         continue;
     }
@@ -169,37 +163,46 @@ if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
         if (asset == nullptr) {
             continue;
         }
-        
+
         Poppler::EmbeddedFile* embeddedFile = asset->embeddedFile();
+
         if (embeddedFile == nullptr) {
             continue;
         }
 
         QByteArray fileData = embeddedFile->data();
 
+        // Guard: check for gzip magic bytes before decompressing.
+        // gzip-hpp throws on bad data but exceptions are disabled in this build
+        // (-fno-exceptions), so a throw would abort the process.
+        bool isGzip = (fileData.size() >= 2 &&
+            static_cast<unsigned char>(fileData[0]) == 0x1f &&
+            static_cast<unsigned char>(fileData[1]) == 0x8b);
+
+        if (!isGzip) {
+            std::cerr << "v3d: embedded file is not gzip-compressed, skipping." << std::endl;
+            continue;
+        }
+
         std::string decompressedData = gzip::decompress(fileData.data(), fileData.size());
+
+        if (decompressedData.empty()) {
+            std::cerr << "v3d: embedded file decompressed to empty data, skipping." << std::endl;
+            continue;
+        }
 
         xdr::memixstream xdrFile{ (uint8_t*)decompressedData.data(), decompressedData.size() };
 
         QRectF bound = a->boundary();
+
         bound = bound.normalized();
 
         glm::vec2 minBound{ bound.left(), bound.top() };
         glm::vec2 maxBound{ bound.right(), bound.bottom() };
 
-        modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());         
-    }    
+        modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
+    }
 }
-// ========== end v3d ==========
-```
-
-* In the function `Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QString &filePath, QList<Okular::Page *> &pagesVector, const QString &password)` insert the following at the top of the function:
-```
-// ========== begin v3d ==========
-if (document() != nullptr) {
-    modelManager.SetDocument(document());
-}
-// ========== end v3d ==========
 ```
 
 #### CMakeLists.txt
@@ -207,71 +210,23 @@ Located in `build/version/okular/generators/pdf/`
 
 * Insert the following inside of the `include_directories` function below what is already there:
 ```
-# ========== begin v3d ==========
-"../../../../../3rdParty/v3d-Common/"
-"../../core/"
-"/usr/include/tirpc"
-
-"../../../../../3rdParty/gzip-hpp/include"
-"../../../../../3rdParty/asymptote"
-"../../../../../3rdParty/asymptote/prc/include"
-"../../../../../3rdParty/asymptote/backports/optional/include"
-"../../../../../3rdParty/asymptote/LspCpp/include"
-# ========== end v3d ==========
+"../../../../../gzip-hpp/include"
 ```
-
-* Insert the following inside of the `set(okularGenerator_poppler_PART_SRCS` function below what is already there:
-```
-# ========== begin v3d ==========
-    ../../../../../3rdParty/v3d-Common/Rendering/renderheadless.cpp
-    ../../../../../3rdParty/v3d-Common/3rdParty/VulkanTools/VulkanTools.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dFile.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObjects.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dObject.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dUtil.cpp
-    ../../../../../3rdParty/v3d-Common/V3dFile/V3dHeaderInfo.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/ProtectedFunctionCaller.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/EventFilter.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/ApplicationEventFilter.cpp
-    ../../../../../3rdParty/v3d-Common/Utility/Arcball.cpp
-    ../../../../../3rdParty/v3d-Common/V3dModel.cpp
-    ../../../../../3rdParty/v3d-Common/V3dModelManager.cpp
-    ../../../../../3rdParty/asymptote/xstream.cc
-    ../../../../../3rdParty/asymptote/bezierpatch.cc 
-# ========== end v3d ==========
-```
-
 
 * Insert the following inside of the `target_link_libraries` function below what is already there:
 ```
-# ========== begin v3d ==========
-vulkan tirpc z
-# ========== end v3d ==========
+v3dCommon z
 ```
 
-* Insert the following just above the install files secition
+* Insert the following just above the call to `target_link_libraries`
 ```
-# ========== begin v3d ==========
-add_compile_definitions(HAVE_LIBTIRPC HAVE_LIBGLM)
-# ========== end v3d ==========
+set_target_properties(okularGenerator_poppler PROPERTIES
+    SKIP_BUILD_RPATH TRUE
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "\$ORIGIN"
+)
 ```
 
-Finally, navigate back to the build script you cloned earlier (located in `build/version/`) and run it to build the plugin.
+## Creating Releases
+Run `create-releases.sh` to automatically build and create a release zip file for the version of okular installed on your device.
 
-## TODO
-* Add passing files to test scripts
-* Look into making the pageview location function more consistent, possibly with some kind of check, and or dynamicly writing to file info about the correct one once found
-* Optimise rendering code to be more performant
-* Make an install script that detects what version of Okular the user has installed and installs the correct version.
-* True vector based renderer
-* Make the index and vertex buffers once, than cache them, currently they are recreated every time we render
-* Documentation
-* Presentation Mode dosent work at all
-* Customizable Controls
-* Documents with variable sized pages.
-* Preview of release name in create release script
-
-## BUGS
-* Opening multiple documents causes a crash
-* Flickering on model movement on some systems
-* Using on a device with multiple monitors with different resolutions breaks interaction due to different device pixel ratio per monitor
