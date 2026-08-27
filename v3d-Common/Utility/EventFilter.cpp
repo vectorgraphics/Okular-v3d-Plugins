@@ -11,12 +11,28 @@ EventFilter::EventFilter(QObject* parent, V3dModelManager* modelManager)
     : QObject(parent), modelManager(modelManager) { }
 
 bool EventFilter::eventFilter(QObject *object, QEvent *event) {
-    (void)object;
     if (modelManager == nullptr) {
         return false;
     }
 
-    if (event->type() == QEvent::MouseMove) {
+    // Tell the manager which widget delivered this event so it can hit-test in
+    // the right coordinate system (PageView viewport vs PresentationWidget).
+    //
+    // ONLY user-input events update the per-window gate source. This filter
+    // also receives non-input events (Paint, HoverMove, ...) for its widget;
+    // if those updated the source, a PageView repaint (e.g., the stale-serve
+    // repaint that happens on every presentation drag frame) could flip the
+    // gate to the PageView path. With input events alone that cannot happen:
+    // under system load, delayed/coalesced event delivery used to let such a
+    // flipped source be observed by refreshPixmap() mid-drag, re-rendering
+    // the normal window while the user was driving the presentation window.
+    const QEvent::Type eventType = event->type();
+    if (eventType == QEvent::MouseMove || eventType == QEvent::MouseButtonPress ||
+        eventType == QEvent::MouseButtonRelease || eventType == QEvent::Wheel) {
+        modelManager->noteEventSource(object);
+    }
+
+    if (eventType == QEvent::MouseMove) {
         QMouseEvent* mouseMove = dynamic_cast<QMouseEvent*>(event);
 
         if (mouseMove != nullptr) {

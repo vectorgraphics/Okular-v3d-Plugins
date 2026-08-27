@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QStandardPaths>
 #include <QWindow>
+#include <QScreen>
 #include <cstdlib>
 #include <fstream>
 #include <set>
@@ -133,6 +134,9 @@ V3dModelManager::~V3dModelManager() {
     if (m_EventFilter) {
         m_EventFilter->modelManager = nullptr;
     }
+    if (m_PresentationEventFilter) {
+        m_PresentationEventFilter->modelManager = nullptr;
+    }
     if (m_ApplicationEventFilter) {
         m_ApplicationEventFilter->modelManager = nullptr;
     }
@@ -147,6 +151,9 @@ V3dModelManager::~V3dModelManager() {
     }
     if (m_PageView && m_EventFilter) {
         m_PageView->viewport()->removeEventFilter(m_EventFilter);
+    }
+    if (m_PresentationWidget && m_PresentationEventFilter) {
+        m_PresentationWidget->removeEventFilter(m_PresentationEventFilter);
     }
 
     // m_FilterParent destroys both filters as its children.
@@ -175,6 +182,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     // If shaders were not found at construction, rendering is disabled.
     if (!m_HeadlessRenderer) {
+        LOG("[v3d] RenderModel: EXIT - no HeadlessRenderer (shaders missing)\n");
         QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
         image.fill(Qt::black);
         return image;
@@ -183,6 +191,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // Guard against zero/negative dimensions (tiny models, small requests) which
     // produce NaN projection matrices or invalid Vulkan extents.
     if (imageWidth <= 0 || imageHeight <= 0) {
+        LOG("[v3d] RenderModel: EXIT - zero/negative dimensions\n");
         QImage image{ std::max(imageWidth, 1), std::max(imageHeight, 1), QImage::Format_ARGB32 };
         image.fill(Qt::black);
         return image;
@@ -216,7 +225,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     if (!m_Models[pageNumber][modelIndex].m_HasChanged &&
         m_ModelImages[pageNumber][modelIndex].width() == imageWidth &&
         m_ModelImages[pageNumber][modelIndex].height() == imageHeight) {
-
         return m_ModelImages[pageNumber][modelIndex];
     }
 
@@ -229,6 +237,9 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     // Guard against zero canvas size which causes division-by-zero in setProjection.
     if (canvasSize.x <= 0.0f || canvasSize.y <= 0.0f) {
+        LOG("[v3d] RenderModel: EXIT - zero canvas size (cachedRequestSize=%dx%d)\n",
+            m_CachedRequestSizes.size() > pageNumber ? m_CachedRequestSizes[pageNumber].size.x : 0,
+            m_CachedRequestSizes.size() > pageNumber ? m_CachedRequestSizes[pageNumber].size.y : 0);
         QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
         image.fill(Qt::black);
         return image;
@@ -318,6 +329,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     bool hasRenderableData = !materialData.indices.empty() || !colorData.indices.empty() || !lineData.indices.empty() || !transparentData.indices.empty() || !pointData.indices.empty();
 
     if (!hasRenderableData) {
+        LOG("[v3d] RenderModel: EXIT - no renderable data after QueueMesh (culled?)\n");
         QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
         image.fill(Qt::black);
         return image;
@@ -368,6 +380,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     );
 
     if (!imageData) {
+        LOG("[v3d] RenderModel: EXIT - HeadlessRenderer::render returned nullptr\n");
         QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
         image.fill(Qt::black);
         return image;
@@ -460,6 +473,23 @@ bool V3dModelManager::Empty() {
     return m_Models.empty();
 }
 
+bool V3dModelManager::ShouldSuppressPageViewRender() const {
+    // Event-driven state (see m_SuppressPageViewRender): true only between
+    // presentation-only refreshes and the matching mouse release (or
+    // PresentationWidget destroy). No clock, no window.
+    return m_SuppressPageViewRender.load(std::memory_order_acquire);
+}
+
+QImage V3dModelManager::LastRenderedModelImage(size_t pageNumber, size_t modelIndex) const {
+    QMutexLocker locker(&m_ModelsMutex);
+
+    if (pageNumber >= m_ModelImages.size() || modelIndex >= m_ModelImages[pageNumber].size()) {
+        return QImage();
+    }
+    // Implicitly shared copy (no pixel data duplication).
+    return m_ModelImages[pageNumber][modelIndex];
+}
+
 glm::vec2 V3dModelManager::GetCanvasSize(size_t pageNumber) {
     if (pageNumber >= m_Models.size() || m_Models[pageNumber].empty()) {
         qWarning() << "V3dModelManager::GetCanvasSize: pageNumber" << pageNumber << "invalid or empty";
@@ -484,6 +514,9 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
     // Always keep an updated record of the mouse position even if the mouse is not down
     m_MousePosition.x = (int)event->position().x();
     m_MousePosition.y = (int)event->position().y();
+
+    LOG("[v3d] mouseMoveEvent: pos=(%d,%d) dragging=%d pageViewVisible=%d\n",
+        m_MousePosition.x, m_MousePosition.y, (int)m_Dragging, m_PageView ? (int)m_PageView->isVisible() : 0);
 
     if (!m_Dragging) { m_LastMousePosition = m_MousePosition; return false; }
 
@@ -531,7 +564,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
         (lastNormalizedMousePositionOnPage.y - model.minBound.y) / (model.maxBound.y - model.minBound.y)
     };
 
-    glm::vec2 pageViewSize = { m_PageView->width(), m_PageView->height() };
+    glm::vec2 pageViewSize = GetActiveViewportSize();
 
     bool controlKey = event->modifiers() & Qt::ControlModifier;
     bool shiftKey = event->modifiers() & Qt::ShiftModifier;
@@ -569,6 +602,7 @@ bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {
 }
 
 bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
+    LOG("[v3d] mouseButtonPressEvent: button=%d pos=(%d,%d)\n", (int)event->button(), (int)event->position().x(), (int)event->position().y());
     if (m_Models.size() == 0 || !m_PageView) {
         // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
@@ -583,6 +617,10 @@ bool V3dModelManager::mouseButtonPressEvent(QMouseEvent* event) {
     }
 
     int pageMouseIsOver = GetPageMouseIsOver();
+
+    LOG("[v3d] mouseButtonPressEvent: hit page=%d (mousePos=%d,%d, lastSource=%s)\n",
+        pageMouseIsOver, m_MousePosition.x, m_MousePosition.y,
+        m_LastEventSource ? m_LastEventSource->metaObject()->className() : "(null)");
 
     if (pageMouseIsOver == -1 || pageMouseIsOver >= (int)m_Models.size()) return false;
 
@@ -625,14 +663,26 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
         return false;
     }
 
+    const int activePage = m_ActiveModelPage;
+
     m_Dragging = false;
     m_ActiveModel = nullptr;
     m_ActiveModelPage = -1;
+
+    // End of a gesture: stop suppressing (if a presentation drag was in
+    // progress) and refresh BOTH windows once, so the window that was frozen
+    // during the drag catches up. Driven by this release event -- no trailing
+    // timeout. Forcing both is symmetric for drags started in either window.
+    if (activePage >= 0) {
+        m_SuppressPageViewRender.store(false, std::memory_order_release);
+        refreshPixmap((size_t)activePage, true, true);
+    }
 
     return false;
 }
 
 bool V3dModelManager::wheelEvent(QWheelEvent* event) {
+    LOG("[v3d] wheelEvent: delta=(%d,%d) models=%zu\n", event->angleDelta().x(), event->angleDelta().y(), m_Models.size());
     if (m_Models.size() == 0 || !m_PageView) {
         // If the document has no models, this is just a plain PDF document, no need for any special interaction
         return false;
@@ -718,6 +768,8 @@ bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
         return false;
     }
 
+    LOG("[v3d] keyPressEvent: key=0x%x\n", event->key());
+
     if (event->key() == Qt::Key_H) {
         int pageMouseIsOver = GetPageMouseIsOver();
         if (pageMouseIsOver == -1 || pageMouseIsOver >= (int)m_Models.size()) return false;
@@ -729,7 +781,14 @@ bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
 
             if (horizontallyOnModel && verticallyOnModel) {
                 model.home();
-                requestPixmapRefresh(pageMouseIsOver);
+                // Exception to the gesture-end catch-up rule: a mode/home
+                // keystroke refreshes only the CURRENT window (per the
+                // per-window gate). Refreshing both would force a full
+                // renderer resource recreation at the other window's size on
+                // every key press, and rapid repeated recreations have been
+                // observed to lose the Vulkan device. The other window
+                // catches up on its next interaction (or on Esc).
+                refreshPixmap((size_t)pageMouseIsOver);
                 break;
             }
         }
@@ -747,7 +806,8 @@ bool V3dModelManager::keyPressEvent(QKeyEvent* event) {
 
             if (horizontallyOnModel && verticallyOnModel) {
                 model.cycleMode();
-                requestPixmapRefresh(pageMouseIsOver);
+                // See the Key_H case above: current window only.
+                refreshPixmap((size_t)pageMouseIsOver);
                 break;
             }
         }
@@ -801,12 +861,29 @@ void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
 void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
     Okular::Page* page = request->page();
 
-    if (request->priority() != PAGEVIEW_PRIO && request->priority() != PAGEVIEW_PRELOAD_PRIO) {
+    // Presentation-mode requests (PRESENTATION_PRIO / PRESENTATION_PRELOAD_PRIO)
+    // come from Okular's PresentationWidget (a separate window from the PageView)
+    // and are the actual on-screen view while a presentation is active. Treat them
+    // like pageview requests: update the cached request size (which drives the
+    // projection canvas) and cache the page. Without this, the plugin keeps
+    // projecting for the stale normal-mode size while rendering into the
+    // presentation window.
+    if (request->priority() != PAGEVIEW_PRIO && request->priority() != PAGEVIEW_PRELOAD_PRIO &&
+        request->priority() != PRESENTATION_PRIO && request->priority() != PRESENTATION_PRELOAD_PRIO) {
         if (m_CachedRequestSizes.size() < (size_t)(page->number() + 1) || (m_CachedRequestSizes[page->number()].size.x == 0 && m_CachedRequestSizes[page->number()].size.y == 0)) {
             CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
         }
-
         return;
+    }
+
+    if (request->priority() == PRESENTATION_PRIO || request->priority() == PRESENTATION_PRELOAD_PRIO) {
+        // Remember the presentation window's request size (device pixels) so
+        // presentation-mode hit testing and pixmap re-requests can use it,
+        // independent of interleaved PageView requests.
+        if (m_PresentationRequestSizes.size() < (size_t)(page->number() + 1)) {
+            m_PresentationRequestSizes.resize(page->number() + 1);
+        }
+        m_PresentationRequestSizes[page->number()] = glm::ivec2{ request->width(), request->height() };
     }
 
     CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
@@ -986,10 +1063,125 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
     return pageBorders;
 }
 
-int V3dModelManager::GetPageMouseIsOver() {
-    std::vector<PageBorders> pageBorders = GetPageBordersForVisiblePages();
+std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPresentationPageBorders() {
+    std::vector<PageBorders> pageBorders;
 
-    glm::vec2 viewPortSize{ m_PageView->width(), m_PageView->height() };
+    if (!m_PresentationWidget || !m_Document) {
+        return pageBorders;
+    }
+
+    // The PresentationWidget follows the shared document viewport
+    // (changePage -> setViewportPage), so it is the presentation's frame.
+    int pageNumber = m_Document->viewport().pageNumber;
+    if (pageNumber < 0) {
+        return pageBorders;
+    }
+
+    EnsureCachedRequestSize((size_t)pageNumber);
+
+    // The presentation window's request size (device pixels). Require an actual
+    // presentation request for this page: before the first page is displayed
+    // (e.g. the "Click to begin" summary frame) no page is on screen, so no hit
+    // testing should happen -- letting the click through starts the show.
+    if (m_PresentationRequestSizes.size() <= (size_t)pageNumber) {
+        return pageBorders;
+    }
+    int devW = m_PresentationRequestSizes[pageNumber].x;
+    int devH = m_PresentationRequestSizes[pageNumber].y;
+    if (devW <= 0 || devH <= 0) {
+        return pageBorders;
+    }
+
+    float dpr = m_PresentationWidget->devicePixelRatioF();
+    glm::vec2 pageSize{ devW / dpr, devH / dpr };
+    glm::vec2 widgetSize{ (float)m_PresentationWidget->width(), (float)m_PresentationWidget->height() };
+
+    // PresentationFrame::recalcGeometry(): the page is fitted into the window
+    // keeping its aspect ratio and centered in both directions.
+    PageBorders border;
+    border.pageNumber = pageNumber;
+    border.le = border.ri = (widgetSize.x - pageSize.x) / 2.0f;
+    border.hi = border.lo = (widgetSize.y - pageSize.y) / 2.0f;
+    pageBorders.push_back(border);
+
+    return pageBorders;
+}
+
+std::vector<V3dModelManager::PageBorders> V3dModelManager::GetActivePageBorders() {
+    if (m_LastEventSource && m_LastEventSource->inherits("PresentationWidget")) {
+        return GetPresentationPageBorders();
+    }
+    return GetPageBordersForVisiblePages();
+}
+
+glm::vec2 V3dModelManager::GetActiveViewportSize() {
+    if (m_LastEventSource && m_LastEventSource->inherits("PresentationWidget")) {
+        if (QWidget* widget = qobject_cast<QWidget*>(m_LastEventSource)) {
+            return glm::vec2{ (float)widget->width(), (float)widget->height() };
+        }
+    }
+    if (m_PageView) {
+        return glm::vec2{ (float)m_PageView->width(), (float)m_PageView->height() };
+    }
+    return glm::vec2{ 0.0f, 0.0f };
+}
+
+void V3dModelManager::noteEventSource(QObject* object) {
+    // Main thread only (both event filters run there).
+    m_LastEventSource = object;
+}
+
+void V3dModelManager::handlePresentationWidgetEvent(QObject* object, QEvent::Type type) {
+    if (!object || !object->inherits("PresentationWidget")) {
+        return;
+    }
+
+    if (type == QEvent::Show) {
+        QWidget* widget = qobject_cast<QWidget*>(object);
+        if (!widget) {
+            return;
+        }
+        if (m_PresentationWidget != widget) {
+            m_PresentationWidget = widget;
+            if (!m_PresentationEventFilter) {
+                m_PresentationEventFilter = new EventFilter(&m_FilterParent, this);
+            }
+            if (m_PresentationEventFilterOn != widget) {
+                m_PresentationEventFilterOn = widget;
+                widget->installEventFilter(m_PresentationEventFilter);
+            }
+            LOG("[v3d] PresentationWidget shown (%p): mouse event filter installed\n", (void*)widget);
+        }
+    } else if (type == QEvent::Destroy) {
+        LOG("[v3d] PresentationWidget destroyed (%p)\n", (void*)object);
+        // m_PresentationWidget (QPointer) nulls itself; Qt unregisters the
+        // event filter from the destroyed object automatically.
+        m_PresentationWidget = nullptr;
+
+        // A drag in the presentation window can never be released now, so
+        // clear the suppression flag (the catch-up refresh below re-renders
+        // the PageView anyway).
+        m_SuppressPageViewRender.store(false, std::memory_order_release);
+
+        // The presentation window is gone. Its refreshes intentionally left
+        // the PageView's cached pixmap untouched (frozen), so refresh the
+        // normal window now to show the final model state. Skipped during
+        // application shutdown, when the document (and the cached Page*
+        // pointers) may already be gone.
+        if (!QCoreApplication::closingDown() && !m_Destroying && m_Document &&
+            m_PageView && m_PageView->isVisible()) {
+            const int page = m_Document->viewport().pageNumber;
+            if (page >= 0) {
+                refreshPixmap((size_t)page);
+            }
+        }
+    }
+}
+
+int V3dModelManager::GetPageMouseIsOver() {
+    std::vector<PageBorders> pageBorders = GetActivePageBorders();
+
+    glm::vec2 viewPortSize = GetActiveViewportSize();
 
     for (auto& border : pageBorders) {
         if (m_MousePosition.x > border.le &&
@@ -1005,11 +1197,29 @@ int V3dModelManager::GetPageMouseIsOver() {
 }
 
 glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& pos, int pageNumber) {
-    std::vector<PageBorders> pageBorders = GetPageBordersForVisiblePages();
+    std::vector<PageBorders> pageBorders = GetActivePageBorders();
 
-    float dpr = GetDevicePixelRatio();
-    EnsureCachedRequestSize((size_t)pageNumber);
-    glm::vec2 pageSize{ m_CachedRequestSizes[pageNumber].size.x / dpr, m_CachedRequestSizes[pageNumber].size.y / dpr };
+    // The page size used for normalization MUST match the size used to compute
+    // the borders above (same source, same dpr). m_CachedRequestSizes holds the
+    // most recent request of ANY observer: in side-by-side mode the PageView can
+    // re-request the page at its own size, which would silently desync the
+    // presentation hit test (borders from the presentation size, normalization
+    // from the PageView size) and make presses over the model pass through to
+    // the PresentationWidget (-> page navigation).
+    float dpr;
+    glm::ivec2 devSize{ 0, 0 };
+    if (m_LastEventSource && m_LastEventSource->inherits("PresentationWidget") &&
+        m_PresentationRequestSizes.size() > (size_t)pageNumber &&
+        (m_PresentationRequestSizes[pageNumber].x > 0 || m_PresentationRequestSizes[pageNumber].y > 0)) {
+        devSize = m_PresentationRequestSizes[pageNumber];
+        dpr = m_PresentationWidget ? m_PresentationWidget->devicePixelRatioF() : GetDevicePixelRatio();
+    }
+    if (devSize.x <= 0 || devSize.y <= 0) {
+        dpr = GetDevicePixelRatio();
+        EnsureCachedRequestSize((size_t)pageNumber);
+        devSize = m_CachedRequestSizes[pageNumber].size;
+    }
+    glm::vec2 pageSize{ devSize.x / dpr, devSize.y / dpr };
 
     auto it = std::find_if(pageBorders.begin(), pageBorders.end(), [&pageNumber](PageBorders border){
         return border.pageNumber == pageNumber;
@@ -1072,19 +1282,122 @@ void V3dModelManager::requestPixmapRefresh(size_t pageNumber) {
     }
 }
 
-void V3dModelManager::refreshPixmap(size_t pageNumber) {
+void V3dModelManager::refreshPixmap(size_t pageNumber, bool forcePageView, bool forcePresentation) {
     if (pageNumber >= m_Pages.size() || !m_Pages[pageNumber]) {
         return;
     }
-    m_Pages[pageNumber]->deletePixmaps();
 
-    QKeyEvent keyEvent(
-        QEvent::KeyRelease, // type
-        Qt::Key_Control,    // key
-        Qt::NoModifier      // modifiers
-    );
+    // Which window the user is currently interacting with (main thread only).
+    const bool presentationActive = (m_PresentationWidget != nullptr);
+    const bool interactingWithPresentation =
+        presentationActive && m_LastEventSource != nullptr &&
+        m_LastEventSource->inherits("PresentationWidget");
 
-    ProtectedFunctionCaller::callKeyReleaseEvent(m_PageView, &keyEvent);
+    // On a true dual-screen setup (normal window and presentation window on
+    // different physical displays -- e.g. projector + laptop) the window that
+    // is NOT being interacted with is the one that must stay live for the
+    // audience (or as the presenter's preview), so BOTH windows are refreshed
+    // on every drag frame. On the same screen -- side-by-side, or mirrored
+    // displays (which X/Qt expose as a single screen) -- the inactive window
+    // is at best a duplicate: skip it; it shows its last pixels and catches
+    // up with one render on its next natural repaint. If the screens cannot
+    // be determined, keep the safe status-quo behaviour (refresh both).
+    bool dualScreen = true;
+    if (presentationActive && m_PageView) {
+        QWidget* pageViewWindow = m_PageView->window();
+        if (pageViewWindow != nullptr) {
+            QScreen* pageViewScreen = QApplication::screenAt(pageViewWindow->frameGeometry().center());
+            QScreen* presScreen = QApplication::screenAt(m_PresentationWidget->frameGeometry().center());
+            dualScreen = (pageViewScreen == nullptr || presScreen == nullptr || pageViewScreen != presScreen);
+        }
+    }
+
+    // Whether the normal window is refreshed by this call. forcePageView /
+    // forcePresentation override the per-window gate for the one catch-up
+    // render after a gesture ends (mouse release or model keystroke), so the
+    // window that was frozen during the gesture shows the new state.
+    const bool refreshPageView =
+        m_PageView && m_PageView->isVisible() && (forcePageView || !interactingWithPresentation || dualScreen);
+
+    // deletePixmaps() removes the pixmaps of ALL observers (PageView,
+    // PresentationWidget, thumbnails...).
+    //
+    // It is ONLY done when the PageView is refreshed (or no presentation is
+    // active). For a presentation-only refresh it must be SKIPPED:
+    //  - the PresentationWidget's resizeEvent handler (triggered below)
+    //    deletes its own observer's pixmap and re-requests it, so it does not
+    //    need the wipe;
+    //  - wiping the PageView's cached pixmap would be harmless by itself
+    //    (Page::deletePixmap does not notify), BUT the presentation's new
+    //    priority-0 request cancels any executing PageView request and the
+    //    Document then notifies the PageView (notifyContentsCleared ->
+    //    queued slotRequestVisiblePixmaps), which re-requests the page. Each
+    //    drag frame cancels the previous catch-up render, starting a loop of
+    //    delayed PageView renders that contends with the presentation's own
+    //    renders for m_ModelsMutex and the GPU -- the "normal window lags
+    //    the presentation window" effect and the interactive slowdown.
+    //    With the PageView's pixmap left in place, it simply keeps showing
+    //    its last pixels (frozen) until the user interacts with it.
+    if (refreshPageView || !presentationActive) {
+        m_Pages[pageNumber]->deletePixmaps();
+    }
+
+    // Normal view: the synthetic Ctrl key release makes the PageView redraw,
+    // which re-requests the deleted pixmap. Skip it while the PageView is not
+    // visible (e.g., covered by the fullscreen presentation window) or while
+    // the user is interacting with the presentation window on the same screen
+    // (the PageView is then just a duplicate and re-rendering it only slows
+    // the interactive presentation down).
+    if (refreshPageView) {
+        QKeyEvent keyEvent(
+            QEvent::KeyRelease, // type
+            Qt::Key_Control,    // key
+            Qt::NoModifier      // modifiers
+        );
+
+        ProtectedFunctionCaller::callKeyReleaseEvent(m_PageView, &keyEvent);
+    }
+
+    // Presentation mode: the PresentationWidget only re-requests its pixmap on
+    // page change / resize (nothing re-triggers it after deletePixmaps()), so
+    // deliver a synthetic resize event to it. Its resizeEvent() then calls
+    // invalidatePixmaps() (clear m_lastRenderedPixmap, delete its own
+    // observer's pixmap + requestPixmaps()) and generatePage() (repaint the
+    // frame from the freshly rendered pixmap). The v3d generator renders
+    // synchronously on this thread, so the refreshed pixmap is in place
+    // before the next paint (no flicker).
+    //
+    // NOTE: resizeEvent() bails out early when size() == re->oldSize(), so a
+    // same-size resize is a no-op and the window keeps painting its cached
+    // m_lastRenderedPixmap forever. Report a harmless fake oldSize (1px
+    // smaller) so the handler proceeds; the frame geometry is recomputed from
+    // the widget's REAL size, so nothing visibly changes.
+    //
+    // Only re-trigger the presentation window when the user is interacting
+    // with it, or when the windows are on different screens (the audience
+    // must keep seeing live updates even while the presenter drives the
+    // normal window).
+    if (presentationActive && m_Document && m_Document->viewport().pageNumber == (int)pageNumber &&
+        (forcePresentation || interactingWithPresentation || dualScreen)) {
+        // Only a pure interactive frame starts suppression; catch-up calls
+        // (release/keystroke) refresh both windows on purpose.
+        if (!forcePageView && !forcePresentation && interactingWithPresentation && !dualScreen) {
+            // Presentation-only refresh: mark PageView rendering as
+            // suppressed. The generators then serve PageView-priority
+            // requests stale (see ShouldSuppressPageViewRender), which makes
+            // the PageView's cancel/re-request catch-up loop (driven by the
+            // Document, not by us) costless: no poppler/Vulkan re-render, no
+            // mutex or GPU contention with the presentation's interactive
+            // rendering. The flag is sticky for the duration of the drag and
+            // cleared only by a real signal: mouse release (which also
+            // triggers one catch-up PageView refresh) or PresentationWidget
+            // destroy.
+            m_SuppressPageViewRender.store(true, std::memory_order_release);
+        }
+        QWidget* presWidget = m_PresentationWidget.data();
+        QResizeEvent resizeEvent(presWidget->size(), presWidget->size() - QSize(1, 0));
+        QApplication::sendEvent(presWidget, &resizeEvent);
+    }
 }
 
 std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool doSchedule) {

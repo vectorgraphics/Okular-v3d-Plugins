@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 
@@ -47,6 +49,20 @@ public:
 
     glm::vec2 GetCanvasSize(size_t pageNumber);
 
+    // While the user is actively driving the presentation window (same
+    // screen), generators should serve PageView-priority pixmap requests
+    // from cached images instead of re-rendering: Okular's priority-0
+    // presentation request cancels the PageView's executing request on
+    // every drag frame (Document::requestPixmaps ->
+    // cancelRenderingBecauseOf -> notifyContentsCleared -> queued
+    // slotRequestVisiblePixmaps), which would otherwise start a catch-up
+    // render loop that fights the presentation's own renders for the GPU
+    // and the model mutex.
+    bool ShouldSuppressPageViewRender() const;
+
+    // Last fully rendered model image (for stale-serving), or a null image.
+    QImage LastRenderedModelImage(size_t pageNumber, size_t modelIndex) const;
+
     void SetDocument(const Okular::Document* document);
 
     bool mouseMoveEvent(QMouseEvent* event);
@@ -66,7 +82,7 @@ public:
 private:
     bool m_ReQueueModels{ true }; // TODO should be per model
 
-    QMutex m_ModelsMutex;
+    mutable QMutex m_ModelsMutex; // mutable: also locked from const getters (LastRenderedModelImage)
 
     void EnsureCachedRequestSize(size_t pageNumber);
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
@@ -104,11 +120,29 @@ private:
     // Returns the page borders for all currently visible pages
     std::vector<PageBorders> GetPageBordersForVisiblePages();
 
+    // Page borders in the PresentationWidget's coordinate system (presentation mode).
+    // The visible page is centered in the widget at the last presentation request size.
+    std::vector<PageBorders> GetPresentationPageBorders();
+
+    // Page borders in the coordinate system of the widget the last mouse event came
+    // from (PageView viewport in normal mode, PresentationWidget in presentation mode).
+    std::vector<PageBorders> GetActivePageBorders();
+
+    // Size of the widget the last mouse event came from (fallback: PageView).
+    glm::vec2 GetActiveViewportSize();
+
     // Returns the index of the page the mouse is over, or -1 if the mouse is not over a page
     int GetPageMouseIsOver();
 
     // Returns the given position relative to the given page in normalized coordinates
     glm::vec2 GetNormalizedPositionRelativeToPage(const glm::vec2& pos, int pageNumber);
+
+    // Records which widget the most recent mouse event came from (set by EventFilter).
+    void noteEventSource(QObject* object);
+
+    // Reacts to Show/Destroy of Okular's PresentationWidget (from the app-level filter):
+    // installs/removes the mouse event filter on the presentation window.
+    void handlePresentationWidgetEvent(QObject* object, QEvent::Type type);
 
     const Okular::Document* m_Document;
 
@@ -118,7 +152,7 @@ private:
     std::chrono::time_point<std::chrono::system_clock> m_LastPixmapRefreshTime;
 
     void requestPixmapRefresh(size_t pageNumber);
-    void refreshPixmap(size_t pageNumber);
+    void refreshPixmap(size_t pageNumber, bool forcePageView = false, bool forcePresentation = false);
 
     // Resolve an IBL environment map name to a full filesystem path.
     // Lookup order: $OKULAR_V3D_IMAGE_DIR/imageName > XDG data dir > (return empty, schedule download).
@@ -156,6 +190,24 @@ private:
     ApplicationEventFilter* m_ApplicationEventFilter{ nullptr };
     IBLEventFilter* m_IBLEventFilter{ nullptr };
 
+    // Presentation mode: Okular shows pages in a separate top-level
+    // PresentationWidget (not the PageView). When it appears, the plugin
+    // installs a mouse EventFilter on it and hit-tests/refreshes in its
+    // coordinate system. QPointer nulls itself if the widget is destroyed.
+    QPointer<QWidget> m_PresentationWidget;
+    EventFilter* m_PresentationEventFilter{ nullptr };
+    // Widget the presentation mouse filter is currently installed on
+    // (idempotency guard; QPointer clears on destruction).
+    QPointer<QWidget> m_PresentationEventFilterOn;
+
+    // Widget that delivered the most recent mouse event (main thread only).
+    QObject* m_LastEventSource{ nullptr };
+
+    // Last pixmap request sizes (device pixels) coming from the presentation
+    // window, per page. Used for presentation-mode hit testing and to
+    // re-request the presentation pixmap after deletePixmaps().
+    std::vector<glm::ivec2> m_PresentationRequestSizes;
+
     std::chrono::time_point<std::chrono::system_clock> m_StartTime{ };
 
     struct RequestCache {
@@ -181,5 +233,13 @@ private:
 
     V3dModel* m_ActiveModel{ nullptr };
     int m_ActiveModelPage{ -1};
+
+    // True while the user is actively dragging a model in the presentation
+    // window on the same screen: PageView-priority requests are then served
+    // stale by the generators (ShouldSuppressPageViewRender()). Written on
+    // the main thread during presentation-only refreshes; cleared only by
+    // real signals -- mouse release and PresentationWidget destroy. No
+    // timeout, so it cannot lapse mid-drag.
+    std::atomic<bool> m_SuppressPageViewRender{ false };
 };
 

@@ -3,7 +3,7 @@
     SPDX-FileCopyrightText: 2004 Enrico Ros <eros.kde@email.it>
 
     Work sponsored by the LiMux project of the city of Munich:
-    SPDX-FileCopyrightText: 2017 Klarälvdalens Datakonsult AB a KDAB Group company <info@kdab.com>
+    SPDX-FileCopyrightText: 2017 Klaralvdalens Datakonsult AB a KDAB Group company <info@kdab.com>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
@@ -180,6 +180,18 @@ private:
     bool documentHasPassword = false;
     QHash<int, Okular::Action *> m_additionalDocumentActions;
     void setAdditionalDocumentAction(Okular::Document::DocumentAdditionalActionType type, Okular::Action *action);
+
+// ========== begin v3d ==========
+    // Last fully rendered page image (any page/size), used to serve stale
+    // PageView-priority requests during an active presentation-only refresh
+    // (see image()).
+    struct LastPageImage {
+        int page = -1;
+        QSize size;
+        QImage image;
+    };
+    LastPageImage m_LastPageImage;
+// ========== end v3d ==========
 };
 
 #endif

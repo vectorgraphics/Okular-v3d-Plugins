@@ -30,6 +30,17 @@ install libv3dCommon.so ${UBUNTU} 2> /dev/null || \
 install libv3dCommon.so ${ARCH} 2> /dev/null || \
 echo "Could not find installation path for: libv3dCommon.so"
 
+# okularpart (v3d-enabled PresentationWidget/PagePainter) goes into the
+# framework parts directory, not the okular_generators directory.
+FEDORA_PARTS="/usr/lib64/qt6/plugins/kf6/parts/"
+UBUNTU_PARTS="/usr/lib/x86_64-linux-gnu/qt6/plugins/kf6/parts/"
+ARCH_PARTS="/usr/lib64/qt6/plugins/kf6/parts"
+
+install okularpart.so ${FEDORA_PARTS} 2> /dev/null || \
+install okularpart.so ${UBUNTU_PARTS} 2> /dev/null || \
+install okularpart.so ${ARCH_PARTS} 2> /dev/null || \
+echo "Could not find installation path for: okularpart.so"
+
 install *.glsl ${FEDORA} 2> /dev/null || \
 install *.glsl ${UBUNTU} 2> /dev/null || \
 install *.glsl ${ARCH} 2> /dev/null || \

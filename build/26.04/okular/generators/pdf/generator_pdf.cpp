@@ -5,7 +5,7 @@
     SPDX-FileCopyrightText: 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 
     Work sponsored by the LiMux project of the city of Munich:
-    SPDX-FileCopyrightText: 2017 Klarälvdalens Datakonsult AB a KDAB Group company <info@kdab.com>
+    SPDX-FileCopyrightText: 2017 Klaralvdalens Datakonsult AB a KDAB Group company <info@kdab.com>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
@@ -1301,6 +1301,32 @@ static bool shouldAbortRenderCallback(const QVariant &vPayload)
 
 QImage PDFGenerator::image(Okular::PixmapRequest *request)
 {
+    // ========== begin v3d ==========
+    // While the user is actively driving the presentation window (same
+    // screen), serve PageView-priority (non-tile) requests from the last
+    // rendered page image instead of re-rendering: Okular's priority-0
+    // presentation request cancels the PageView's executing request on every
+    // drag frame (Document::requestPixmaps -> cancelRenderingBecauseOf ->
+    // notifyContentsCleared -> queued slotRequestVisiblePixmaps), which
+    // otherwise starts a catch-up render loop whose poppler + v3d renders
+    // fight the presentation's own renders for the GPU and the model mutex
+    // (the "normal window lags the presentation window" effect).
+    if (!request->isTile() &&
+        (request->priority() == PAGEVIEW_PRIO || request->priority() == PAGEVIEW_PRELOAD_PRIO) &&
+        modelManager.ShouldSuppressPageViewRender()) {
+        userMutex()->lock();
+        if (m_LastPageImage.page == request->page()->number() && !m_LastPageImage.image.isNull()) {
+            QImage cached = m_LastPageImage.image; // implicitly shared copy
+            userMutex()->unlock();
+            if (cached.size() != QSize(request->width(), request->height())) {
+                cached = cached.scaled(request->width(), request->height(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            }
+            return cached;
+        }
+        userMutex()->unlock();
+    }
+    // ========== end v3d ==========
+
     // debug requests to this (xpdf) generator
     // qCDebug(OkularPdfDebug) << "id: " << request->id << " is requesting " << (request->async ? "ASYNC" : "sync") <<  " pixmap for page " << request->page->number() << " [" << request->width << " x " << request->height << "].";
 
@@ -1369,7 +1395,7 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     }
 
     // ========== begin v3d ==========
-    // Skip v3d Vulkan rendering for thumbnail requests — use the pre-rendered
+    // Skip v3d Vulkan rendering for thumbnail requests -- use the pre-rendered
     // PDF bitmap preview instead. Thumbnails should be static, non-interactive.
     if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
         bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
@@ -1404,6 +1430,13 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     }
 
     modelManager.DrawMouseBoundaries(&img, request->pageNumber());
+
+    // Remember the last rendered page image (final composite, after the v3d
+    // sub-images were drawn on top) for stale-serving; see the top of
+    // image(). Implicitly shared -- no pixel duplication.
+    if (!request->isTile() && !img.isNull()) {
+        m_LastPageImage = { request->page()->number(), QSize(request->width(), request->height()), img };
+    }
     // ========== end v3d ==========
 
     // 3. UNLOCK [re-enables shared access]

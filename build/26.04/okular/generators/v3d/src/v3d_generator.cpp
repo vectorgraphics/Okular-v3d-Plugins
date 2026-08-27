@@ -30,7 +30,24 @@ void V3dGenerator::generatePixmap(Okular::PixmapRequest* request) {
         image = QImage((int)request->width(), (int)request->height(), QImage::Format_ARGB32);
         image.fill(Qt::black);
     } else {
-        image = m_ModelManager.RenderModel(0, 0, (int)request->width(), (int)request->height());
+        // While the user is actively driving the presentation window (same
+        // screen), serve PageView requests from the last rendered image
+        // instead of re-rendering -- see V3dModelManager::
+        // ShouldSuppressPageViewRender() for the why.
+        if ((request->priority() == PAGEVIEW_PRIO || request->priority() == PAGEVIEW_PRELOAD_PRIO) &&
+            m_ModelManager.ShouldSuppressPageViewRender()) {
+            image = m_ModelManager.LastRenderedModelImage(0, 0);
+            if (!image.isNull() &&
+                (image.width() != (int)request->width() || image.height() != (int)request->height())) {
+                // All observers render the same page, so the aspect matches
+                // and a plain rescale keeps the framing identical.
+                image = image.scaled((int)request->width(), (int)request->height(),
+                                     Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            }
+        }
+        if (image.isNull()) {
+            image = m_ModelManager.RenderModel(0, 0, (int)request->width(), (int)request->height());
+        }
     }
 
     QPixmap* pixmap = new QPixmap(QPixmap::fromImage(image));

@@ -3477,6 +3477,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createPointPipeline(targetSize.x, targetSize.y);
 
 		createUniformBuffer();
+		// The UBO buffer was just recreated (fresh, uninitialized memory). Reset the
+		// change-detection cache so the matrix upload below is forced: comparing the
+		// new frame's matrices against the pre-recreation cachedUbo could yield
+		// "unchanged" (e.g., a view resize keeps the same camera) and skip filling
+		// the new buffer, leaving the shader with a zero projection matrix -> all
+		// vertices clipped -> blank (background-only) image.
+		cachedUbo = UniformBufferObject{ };
 		// TODO potentially move
 		std::vector<GPUMaterial> mats(materials.size());
 		int i = 0;

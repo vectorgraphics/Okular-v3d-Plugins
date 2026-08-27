@@ -62,16 +62,18 @@ buildFunc() {
 
     if [[ $debug -eq 1 ]]; then
         cmake -S okular/ -B build/debug/ -DCMAKE_BUILD_TYPE=Debug --install-prefix $PWD/usr/debug/ -DCMAKE_CXX_FLAGS="-U NDEBUG"
-        cmake --build build/debug/ --target v3dCommon
-        cmake --build build/debug/ --target okularGenerator_v3d
-        cmake --build build/debug/ --target okularGenerator_poppler
+        cmake --build build/debug/ --target v3dCommon -j$(nproc)
+        cmake --build build/debug/ --target okularGenerator_v3d -j$(nproc)
+        cmake --build build/debug/ --target okularGenerator_poppler -j$(nproc)
+        cmake --build build/debug/ --target okularpart -j$(nproc)
     fi
 
     if [[ $release -eq 1 ]]; then
         cmake -S okular/ -B build/release/ -DCMAKE_BUILD_TYPE=Release --install-prefix $PWD/usr/release -DCMAKE_CXX_FLAGS="-U NDEBUG"
-        cmake --build build/release/ --target v3dCommon
-        cmake --build build/release/ --target okularGenerator_v3d
-        cmake --build build/release/ --target okularGenerator_poppler
+        cmake --build build/release/ --target v3dCommon -j$(nproc)
+        cmake --build build/release/ --target okularGenerator_v3d -j$(nproc)
+        cmake --build build/release/ --target okularGenerator_poppler -j$(nproc)
+        cmake --build build/release/ --target okularpart -j$(nproc)
     fi
 
     # ---- Staging phase ----
@@ -95,6 +97,12 @@ buildFunc() {
 
     if [[ -f "${BIN_DIR}/libv3dCommon.so" ]]; then
         cp "${BIN_DIR}/libv3dCommon.so" "stage/"
+    fi
+
+    # okularpart (v3d-enabled PresentationWidget/PagePainter hooks) is not a
+    # generator plugin; install.sh places it in the kf6 parts directory.
+    if [[ -f "${BIN_DIR}/kf6/parts/okularpart.so" ]]; then
+        cp "${BIN_DIR}/kf6/parts/okularpart.so" "stage/"
     fi
 
     if [[ -d "../../asymptote/base/shaders" ]]; then

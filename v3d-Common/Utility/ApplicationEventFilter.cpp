@@ -10,7 +10,6 @@ ApplicationEventFilter::ApplicationEventFilter(QObject* parent, V3dModelManager*
 : QObject(parent), modelManager(modelManager) { }
 
 bool ApplicationEventFilter::eventFilter(QObject *object, QEvent *event) {
-    (void)object;
     if (modelManager == nullptr) {
         return false;
     }
@@ -21,6 +20,13 @@ bool ApplicationEventFilter::eventFilter(QObject *object, QEvent *event) {
         if (keyPress != nullptr) {
             return modelManager->keyPressEvent(keyPress);
         }
+    }
+
+    // Track Okular's PresentationWidget (presentation mode shows pages in a
+    // separate top-level window, not the PageView): install the plugin's mouse
+    // filter on it when it appears.
+    if (event->type() == QEvent::Show || event->type() == QEvent::Destroy) {
+        modelManager->handlePresentationWidgetEvent(object, event->type());
     }
 
     return false;
