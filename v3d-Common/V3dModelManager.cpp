@@ -663,20 +663,18 @@ bool V3dModelManager::mouseButtonReleaseEvent(QMouseEvent* event) {
         return false;
     }
 
-    const int activePage = m_ActiveModelPage;
-
     m_Dragging = false;
     m_ActiveModel = nullptr;
     m_ActiveModelPage = -1;
 
-    // End of a gesture: stop suppressing (if a presentation drag was in
-    // progress) and refresh BOTH windows once, so the window that was frozen
-    // during the drag catches up. Driven by this release event -- no trailing
-    // timeout. Forcing both is symmetric for drags started in either window.
-    if (activePage >= 0) {
-        m_SuppressPageViewRender.store(false, std::memory_order_release);
-        refreshPixmap((size_t)activePage, true, true);
-    }
+    // End of a gesture: stop suppressing PageView renders (if a presentation
+    // drag was in progress). No catch-up refresh here: the frozen window keeps
+    // its last frame until the user next interacts with it, at which point its
+    // first frame re-renders it at its own size. Forcing a cross-size render on
+    // every gesture end triggered full renderer resource recreations that
+    // proved fragile (Vulkan device loss observed on some hardware, especially
+    // with transparent scenes).
+    m_SuppressPageViewRender.store(false, std::memory_order_release);
 
     return false;
 }
@@ -1282,7 +1280,7 @@ void V3dModelManager::requestPixmapRefresh(size_t pageNumber) {
     }
 }
 
-void V3dModelManager::refreshPixmap(size_t pageNumber, bool forcePageView, bool forcePresentation) {
+void V3dModelManager::refreshPixmap(size_t pageNumber) {
     if (pageNumber >= m_Pages.size() || !m_Pages[pageNumber]) {
         return;
     }
@@ -1312,12 +1310,9 @@ void V3dModelManager::refreshPixmap(size_t pageNumber, bool forcePageView, bool 
         }
     }
 
-    // Whether the normal window is refreshed by this call. forcePageView /
-    // forcePresentation override the per-window gate for the one catch-up
-    // render after a gesture ends (mouse release or model keystroke), so the
-    // window that was frozen during the gesture shows the new state.
+    // Whether the normal window is refreshed by this call.
     const bool refreshPageView =
-        m_PageView && m_PageView->isVisible() && (forcePageView || !interactingWithPresentation || dualScreen);
+        m_PageView && m_PageView->isVisible() && (!interactingWithPresentation || dualScreen);
 
     // deletePixmaps() removes the pixmaps of ALL observers (PageView,
     // PresentationWidget, thumbnails...).
@@ -1378,10 +1373,8 @@ void V3dModelManager::refreshPixmap(size_t pageNumber, bool forcePageView, bool 
     // must keep seeing live updates even while the presenter drives the
     // normal window).
     if (presentationActive && m_Document && m_Document->viewport().pageNumber == (int)pageNumber &&
-        (forcePresentation || interactingWithPresentation || dualScreen)) {
-        // Only a pure interactive frame starts suppression; catch-up calls
-        // (release/keystroke) refresh both windows on purpose.
-        if (!forcePageView && !forcePresentation && interactingWithPresentation && !dualScreen) {
+        (interactingWithPresentation || dualScreen)) {
+        if (interactingWithPresentation && !dualScreen) {
             // Presentation-only refresh: mark PageView rendering as
             // suppressed. The generators then serve PageView-priority
             // requests stale (see ShouldSuppressPageViewRender), which makes

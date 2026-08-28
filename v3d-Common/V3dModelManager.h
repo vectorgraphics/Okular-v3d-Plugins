@@ -152,7 +152,7 @@ private:
     std::chrono::time_point<std::chrono::system_clock> m_LastPixmapRefreshTime;
 
     void requestPixmapRefresh(size_t pageNumber);
-    void refreshPixmap(size_t pageNumber, bool forcePageView = false, bool forcePresentation = false);
+    void refreshPixmap(size_t pageNumber);
 
     // Resolve an IBL environment map name to a full filesystem path.
     // Lookup order: $OKULAR_V3D_IMAGE_DIR/imageName > XDG data dir > (return empty, schedule download).
