@@ -126,9 +126,9 @@ makeInputAssemblyState(VkPrimitiveTopology topology) {
 }
 
 // Templated graphics pipeline creation.  Matches vkrender.cc createGraphicsPipeline<V>().
-// Assembles all Vulkan state from helpers + VertexInputTraits<V>, compiles shaders,
-// and creates a single VkPipeline.  Shader modules are destroyed immediately after
-// pipeline creation (Vulkan allows this; the pipeline owns the SPIR-V).
+// Assembles all Vulkan state from helpers + VertexInputTraits<V> and creates a
+// single VkPipeline from the session-cached shader modules (see shaderModules:
+// compiled once per session; the pipeline owns the SPIR-V).
 template<typename V>
 void HeadlessRenderer::createGraphicsPipeline(const PipelineConfig& config,
                                               int targetWidth,
@@ -137,21 +137,17 @@ void HeadlessRenderer::createGraphicsPipeline(const PipelineConfig& config,
 {
 	VkDevice device = this->device;
 
-	// --- Shader modules ---
-	VkShaderModule vertModule, fragModule;
-	vertModule = this->createShaderModule(EShLangVertex, this->shaderPath + config.vertexShaderName + ".glsl", config.shaderOptions);
-	fragModule = this->createShaderModule(EShLangFragment, this->shaderPath + config.fragmentShaderName + ".glsl", config.shaderOptions);
-
+	// --- Shader stages (cached modules, see createShaderModules) ---
 	VkPipelineShaderStageCreateInfo vertStage{};
 	vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertStage.module = vertModule;
+	vertStage.module = config.vertexModule;
 	vertStage.pName = "main";
 
 	VkPipelineShaderStageCreateInfo fragStage{};
 	fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragStage.module = fragModule;
+	fragStage.module = config.fragmentModule;
 	fragStage.pName = "main";
 
 	VkPipelineShaderStageCreateInfo stages[2] = { vertStage, fragStage };
@@ -159,7 +155,7 @@ void HeadlessRenderer::createGraphicsPipeline(const PipelineConfig& config,
 	// --- Vertex input state (from VertexInputTraits<V>) ---
 	VkPipelineVertexInputStateCreateInfo vertexInputState = vks::initializers::pipelineVertexInputStateCreateInfo();
 	VkVertexInputBindingDescription bindingDesc = VertexInputTraits<V>::binding();
-	std::vector<VkVertexInputAttributeDescription> attrDescs = VertexInputTraits<V>::attributes(config.fragmentShaderName == "count");
+	std::vector<VkVertexInputAttributeDescription> attrDescs = VertexInputTraits<V>::attributes(config.count);
 
 	vertexInputState.vertexBindingDescriptionCount = 1;
 	vertexInputState.pVertexBindingDescriptions = &bindingDesc;
@@ -216,10 +212,6 @@ void HeadlessRenderer::createGraphicsPipeline(const PipelineConfig& config,
 	pipelineCreateInfo.pStages = stages;
 
 	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, out));
-
-	// Destroy shader modules immediately after pipeline creation (Vulkan allows this).
-	vkDestroyShaderModule(device, vertModule, nullptr);
-	vkDestroyShaderModule(device, fragModule, nullptr);
 }
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
@@ -334,6 +326,14 @@ HeadlessRenderer::~HeadlessRenderer() {
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
 		initialized = false;
+	}
+
+	// Shader modules are session-scoped (they survive cleanup()'s full
+	// recreations), so destroy them here, after the pipelines that reference
+	// them are gone.
+	if (!shaderModules.empty()) {
+		for (auto m : shaderModules) vkDestroyShaderModule(device, m, nullptr);
+		shaderModules.clear();
 	}
 
 	// Do not explicitly destroy commandPool, device, or instance.
@@ -725,12 +725,12 @@ void HeadlessRenderer::createDescriptorPool() {
     storageBufferPool.descriptorCount = maxFramesInFlight * 8;
     poolSizes.push_back(storageBufferPool);
 
-    if (ibl) {
-        VkDescriptorPoolSize combinedImageSamplerPool{};
-        combinedImageSamplerPool.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        combinedImageSamplerPool.descriptorCount = maxFramesInFlight * 3; // irradiance, brdf, reflection
-        poolSizes.push_back(combinedImageSamplerPool);
-    }
+    // Three CombinedImageSampler entries per set for the IBL samplers
+    // (bindings 11-13), which are always declared (see createDescriptorSetLayout).
+    VkDescriptorPoolSize combinedImageSamplerPool{};
+    combinedImageSamplerPool.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    combinedImageSamplerPool.descriptorCount = maxFramesInFlight * 3; // irradiance, brdf, reflection
+    poolSizes.push_back(combinedImageSamplerPool);
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -808,51 +808,57 @@ void HeadlessRenderer::createDescirptorSets() {
 			0,
 			nullptr
 		);
+	}
 
-		// Write IBL sampler descriptors if enabled
-		if (ibl) {
-			VkDescriptorImageInfo irradianceInfo{};
-			irradianceInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			irradianceInfo.imageView = irradianceView;
-			irradianceInfo.sampler = irradianceSampler;
+	// IBL samplers (bindings 11-13) are always written: the images are either
+	// the loaded environment maps or the placeholders created in
+	// createIBLPlaceholders().
+	writeIBLDescriptors();
+}
 
-			VkDescriptorImageInfo brdfInfo{};
-			brdfInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			brdfInfo.imageView = brdfView;
-			brdfInfo.sampler = brdfSampler;
+void HeadlessRenderer::writeIBLDescriptors() {
+	for (size_t i = 0; i < maxFramesInFlight; i++) {
+		VkDescriptorImageInfo irradianceInfo{};
+		irradianceInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		irradianceInfo.imageView = irradianceView;
+		irradianceInfo.sampler = irradianceSampler;
 
-			VkDescriptorImageInfo reflectionInfo{};
-			reflectionInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			reflectionInfo.imageView = reflectionView;
-			reflectionInfo.sampler = reflectionSampler;
+		VkDescriptorImageInfo brdfInfo{};
+		brdfInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		brdfInfo.imageView = brdfView;
+		brdfInfo.sampler = brdfSampler;
 
-			VkWriteDescriptorSet irradianceWrite{};
-			irradianceWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			irradianceWrite.dstSet = descriptorSets[i];
-			irradianceWrite.dstBinding = 11;
-			irradianceWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			irradianceWrite.descriptorCount = 1;
-			irradianceWrite.pImageInfo = &irradianceInfo;
+		VkDescriptorImageInfo reflectionInfo{};
+		reflectionInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		reflectionInfo.imageView = reflectionView;
+		reflectionInfo.sampler = reflectionSampler;
 
-			VkWriteDescriptorSet brdfWrite{};
-			brdfWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			brdfWrite.dstSet = descriptorSets[i];
-			brdfWrite.dstBinding = 12;
-			brdfWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			brdfWrite.descriptorCount = 1;
-			brdfWrite.pImageInfo = &brdfInfo;
+		VkWriteDescriptorSet irradianceWrite{};
+		irradianceWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		irradianceWrite.dstSet = descriptorSets[i];
+		irradianceWrite.dstBinding = 11;
+		irradianceWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		irradianceWrite.descriptorCount = 1;
+		irradianceWrite.pImageInfo = &irradianceInfo;
 
-			VkWriteDescriptorSet reflectionWrite{};
-			reflectionWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			reflectionWrite.dstSet = descriptorSets[i];
-			reflectionWrite.dstBinding = 13;
-			reflectionWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			reflectionWrite.descriptorCount = 1;
-			reflectionWrite.pImageInfo = &reflectionInfo;
+		VkWriteDescriptorSet brdfWrite{};
+		brdfWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		brdfWrite.dstSet = descriptorSets[i];
+		brdfWrite.dstBinding = 12;
+		brdfWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		brdfWrite.descriptorCount = 1;
+		brdfWrite.pImageInfo = &brdfInfo;
 
-			VkWriteDescriptorSet iblWrites[3] = { irradianceWrite, brdfWrite, reflectionWrite };
-			vkUpdateDescriptorSets(device, 3, iblWrites, 0, nullptr);
-		}
+		VkWriteDescriptorSet reflectionWrite{};
+		reflectionWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		reflectionWrite.dstSet = descriptorSets[i];
+		reflectionWrite.dstBinding = 13;
+		reflectionWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		reflectionWrite.descriptorCount = 1;
+		reflectionWrite.pImageInfo = &reflectionInfo;
+
+		VkWriteDescriptorSet iblWrites[3] = { irradianceWrite, brdfWrite, reflectionWrite };
+		vkUpdateDescriptorSets(device, 3, iblWrites, 0, nullptr);
 	}
 }
 
@@ -1402,7 +1408,9 @@ void HeadlessRenderer::createGraphicsPipelineLayout() {
 	// Single shared pipeline layout for ALL graphics pipelines (opaque + transparent + count + blend).
 	// Matches vkrender.cc: createGraphicsPipelineLayout() creates ONE graphicsPipelineLayout
 	// used by all pipeline types. Push constants = uvec4(constants) + vec4(background) = 32 bytes.
-	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::uvec4) + sizeof(glm::vec4), 0);
+	// The vertex stage reads the flags word (orthographic flag, see vertex.glsl), so the
+	// range must cover both stages.
+	VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, sizeof(PushConstants), 0);
 
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo =
 		vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout);
@@ -1550,14 +1558,7 @@ VkShaderModule HeadlessRenderer::createComputeShaderModule(EShLanguage lang, std
 }
 
 void HeadlessRenderer::createComputePipelines() {
-	std::vector<std::string> sumOptions{
-		"LOCALSIZE " + std::to_string(localSize),
-		"BLOCKSIZE " + std::to_string(blockSize)
-	};
-
-	VkShaderModule sum1Module = createComputeShaderModule(EShLangCompute, shaderPath + "sum1.glsl", sumOptions);
-	VkShaderModule sum2Module = createComputeShaderModule(EShLangCompute, shaderPath + "sum2.glsl", sumOptions);
-	VkShaderModule sum3Module = createComputeShaderModule(EShLangCompute, shaderPath + "sum3.glsl", sumOptions);
+	createShaderModules(); // no-op after the first call
 
 	VkPipelineShaderStageCreateInfo stageInfo = {};
 	stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1568,33 +1569,27 @@ void HeadlessRenderer::createComputePipelines() {
 	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
 	pipelineInfo.layout = computePipelineLayout;
 
-	stageInfo.module = sum1Module;
+	stageInfo.module = shaderModules[Sum1];
 	pipelineInfo.stage = stageInfo;
 	VK_CHECK_RESULT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computeSum1Pipeline));
 
-	stageInfo.module = sum2Module;
+	stageInfo.module = shaderModules[Sum2];
 	pipelineInfo.stage = stageInfo;
 	VK_CHECK_RESULT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computeSum2Pipeline));
 
-	stageInfo.module = sum3Module;
+	stageInfo.module = shaderModules[Sum3];
 	pipelineInfo.stage = stageInfo;
 	VK_CHECK_RESULT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computeSum3Pipeline));
-
-	vkDestroyShaderModule(device, sum1Module, nullptr);
-	vkDestroyShaderModule(device, sum2Module, nullptr);
-
-	vkDestroyShaderModule(device, sum3Module, nullptr);
 }
 
 void HeadlessRenderer::createMaterialCountPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> countOptions{};
-	if (m_Orthographic) { countOptions.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(countOptions),
-		countRenderPass, 0, true, "vertex", "count"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[CountVert], shaderModules[CountFrag],
+		countRenderPass, 0, true, true
 	};
 	createGraphicsPipeline<MaterialVertex>(cfg, targetWidth, targetHeight, &materialCountPipeline);
 }
@@ -1602,12 +1597,11 @@ void HeadlessRenderer::createMaterialCountPipeline(int targetWidth, int targetHe
 void HeadlessRenderer::createColorCountPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> countOptions{};
-	if (m_Orthographic) { countOptions.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(countOptions),
-		countRenderPass, 0, true, "vertex", "count"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[CountVert], shaderModules[CountFrag],
+		countRenderPass, 0, true, true
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &colorCountPipeline);
 }
@@ -1615,12 +1609,11 @@ void HeadlessRenderer::createColorCountPipeline(int targetWidth, int targetHeigh
 void HeadlessRenderer::createTriangleCountPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> countOptions{};
-	if (m_Orthographic) { countOptions.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(countOptions),
-		countRenderPass, 0, true, "vertex", "count"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[CountVert], shaderModules[CountFrag],
+		countRenderPass, 0, true, true
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &triangleCountPipeline);
 }
@@ -1628,12 +1621,11 @@ void HeadlessRenderer::createTriangleCountPipeline(int targetWidth, int targetHe
 void HeadlessRenderer::createTransparentCountPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> countOptions{};
-	if (m_Orthographic) { countOptions.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(countOptions),
-		countRenderPass, 1, true, "vertex", "count"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[CountVert], shaderModules[CountFrag],
+		countRenderPass, 1, true, true
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &transparentCountPipeline);
 }
@@ -1641,15 +1633,11 @@ void HeadlessRenderer::createTransparentCountPipeline(int targetWidth, int targe
 void HeadlessRenderer::createMaterialTransparentPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> options{ "NORMAL", "MATERIAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(options),
-		graphicsRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[MaterialTransVert], shaderModules[MaterialTransFrag],
+		graphicsRenderPass, 0, true
 	};
 	createGraphicsPipeline<MaterialVertex>(cfg, targetWidth, targetHeight, &materialTransparentPipeline);
 }
@@ -1657,15 +1645,11 @@ void HeadlessRenderer::createMaterialTransparentPipeline(int targetWidth, int ta
 void HeadlessRenderer::createColorTransparentPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> options{ "NORMAL", "MATERIAL", "COLOR" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(options),
-		graphicsRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[ColorTransVert], shaderModules[ColorTransFrag],
+		graphicsRenderPass, 0, true
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &colorTransparentPipeline);
 }
@@ -1673,32 +1657,21 @@ void HeadlessRenderer::createColorTransparentPipeline(int targetWidth, int targe
 void HeadlessRenderer::createTriangleTransparentPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> options{ "NORMAL", "MATERIAL", "COLOR", "GENERAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(options),
-		graphicsRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[TriangleTransVert], shaderModules[TriangleTransFrag],
+		graphicsRenderPass, 0, true
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &triangleTransparentPipeline);
 }
 
+// Lines share the material shaders (matches vkrender.cc linePipelines).
 void HeadlessRenderer::createLineTransparentPipeline(int targetWidth, int targetHeight) {
-	std::vector<std::string> options{ "NORMAL", "MATERIAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	options.push_back("LOCALSIZE " + std::to_string(localSize));
-	options.push_back("BLOCKSIZE " + std::to_string(blockSize));
-	options.push_back("ARRAYSIZE " + std::to_string(maxSize));
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
-
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_LINE_LIST, VK_POLYGON_MODE_LINE, std::move(options),
-		graphicsRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_LINE_LIST, VK_POLYGON_MODE_LINE,
+		shaderModules[MaterialTransVert], shaderModules[MaterialTransFrag],
+		graphicsRenderPass, 0, true
 	};
 	createGraphicsPipeline<MaterialVertex>(cfg, targetWidth, targetHeight, &lineTransparentPipeline);
 }
@@ -1706,15 +1679,11 @@ void HeadlessRenderer::createLineTransparentPipeline(int targetWidth, int target
 void HeadlessRenderer::createTransparentPipeline(int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (currentDrawMode == DRAWMODE_WIREFRAME || currentDrawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> options{ "NORMAL", "TRANSPARENT", "MATERIAL", "COLOR", "GENERAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(options),
-		graphicsRenderPass, 1, false, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[TransparentVert], shaderModules[TransparentFrag],
+		graphicsRenderPass, 1, false
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &transparentPipeline);
 }
@@ -1782,20 +1751,13 @@ void HeadlessRenderer::createBlendPipeline(int targetWidth, int targetHeight) {
 	shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[1].pName = "main";
 
-	std::vector<std::string> options;
-	if (srgb) {
-		options.push_back("OUTPUT_AS_SRGB");
-	}
-	options.push_back("ARRAYSIZE 32");
-	if (m_Orthographic) {
-		options.push_back("ORTHOGRAPHIC");
-	}
-
-	shaderStages[0].module = createShaderModule(EShLangVertex, shaderPath + "screen.glsl", options);
-	shaderStages[1].module = createShaderModule(EShLangFragment, shaderPath + "blend.glsl", options);
-
-	blendShaderModules = { shaderStages[0].module, shaderStages[1].module };
+	shaderStages[0].module = shaderModules[ScreenVert];
+	shaderStages[1].module = shaderModules[BlendFrag];
 	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &blendPipeline));
+
+	// Big-ARRAYSIZE variant for deep transparent stacks (see blendBig).
+	shaderStages[1].module = shaderModules[BlendFragBig];
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &blendPipelineBig));
 }
 
 void HeadlessRenderer::createDescriptorSetLayout() {
@@ -1873,6 +1835,9 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 	reflectionSamplerBinding.descriptorCount = 1;
 	reflectionSamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+	// IBL sampler bindings are always present: the fragment shader declares
+	// them unconditionally and gates their use on a push-constant flag. When
+	// IBL is off the descriptor sets hold small placeholder images.
 	std::vector<VkDescriptorSetLayoutBinding> bindings = {
 		uboLayoutBinding,
 		materialBinding,
@@ -1882,14 +1847,11 @@ void HeadlessRenderer::createDescriptorSetLayout() {
 		fragmentBinding,
 		depthFragBinding,
 		opaqueColorBinding,
-		opaqueDepthBinding
+		opaqueDepthBinding,
+		irradianceSamplerBinding,
+		brdfSamplerBinding,
+		reflectionSamplerBinding
 	};
-
-	if (ibl) {
-		bindings.push_back(irradianceSamplerBinding);
-		bindings.push_back(brdfSamplerBinding);
-		bindings.push_back(reflectionSamplerBinding);
-	}
 
 	VkDescriptorSetLayoutCreateInfo descriptorLayout =
     vks::initializers::descriptorSetLayoutCreateInfo(bindings);
@@ -1971,17 +1933,128 @@ VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::strin
 
 	return shaderModule;
 }
+
+// Matches vkrender.cc modifyShaderOptions() (this port has no GPUcompress).
+void HeadlessRenderer::modifyShaderOptions(std::vector<std::string>& options, PipelineType type) {
+	if (type != PIPELINE_COUNT)
+		options.emplace_back("MATERIAL");
+
+	if (type == PIPELINE_OPAQUE) {
+		options.emplace_back("OPAQUE");
+		return;
+	}
+
+	// from now on, only things relevant to compute
+	if (interlock) {
+		options.emplace_back("HAVE_INTERLOCK");
+	}
+
+	options.emplace_back("LOCALSIZE " + std::to_string(localSize));
+	options.emplace_back("BLOCKSIZE " + std::to_string(blockSize));
+}
+
+void HeadlessRenderer::createShaderModules()
+{
+	// Shaders depend on width/height and on the toggleable settings (srgb,
+	// ibl, orthographic) only through push constants, plus a few
+	// session-fixed #defines (interlock, localSize, blockSize), so compile
+	// each module exactly once per session; pipeline (re)creation reuses them.
+	if (!shaderModules.empty())
+		return;
+
+	shaderModules.resize(static_cast<std::size_t>(ModuleCount));
+
+	auto const optionsFor = [this](std::vector<std::string> const& base, PipelineType type) {
+		std::vector<std::string> options = base;
+		modifyShaderOptions(options, type);
+		return options;
+	};
+	auto const vert = [this](std::string const& file, std::vector<std::string> const& options) {
+		return createShaderModule(EShLangVertex, shaderPath + file, options);
+	};
+	auto const frag = [this](std::string const& file, std::vector<std::string> const& options) {
+		return createShaderModule(EShLangFragment, shaderPath + file, options);
+	};
+
+	std::vector<std::string> const noOptions;
+	// Material triangles and lines share shaders and defines.
+	shaderModules[MaterialVert] = vert("vertex.glsl", optionsFor(materialShaderOptions, PIPELINE_OPAQUE));
+	shaderModules[MaterialFrag] = frag("fragment.glsl", optionsFor(materialShaderOptions, PIPELINE_OPAQUE));
+	shaderModules[MaterialTransVert] = vert("vertex.glsl", optionsFor(materialShaderOptions, PIPELINE_TRANSPARENT));
+	shaderModules[MaterialTransFrag] = frag("fragment.glsl", optionsFor(materialShaderOptions, PIPELINE_TRANSPARENT));
+	// Color triangles
+	shaderModules[ColorVert] = vert("vertex.glsl", optionsFor(colorShaderOptions, PIPELINE_OPAQUE));
+	shaderModules[ColorFrag] = frag("fragment.glsl", optionsFor(colorShaderOptions, PIPELINE_OPAQUE));
+	shaderModules[ColorTransVert] = vert("vertex.glsl", optionsFor(colorShaderOptions, PIPELINE_TRANSPARENT));
+	shaderModules[ColorTransFrag] = frag("fragment.glsl", optionsFor(colorShaderOptions, PIPELINE_TRANSPARENT));
+	// Triangle groups (GENERAL path; the port's only triangle graphics pipeline)
+	shaderModules[TriangleTransVert] = vert("vertex.glsl", optionsFor(triangleShaderOptions, PIPELINE_TRANSPARENT));
+	shaderModules[TriangleTransFrag] = frag("fragment.glsl", optionsFor(triangleShaderOptions, PIPELINE_TRANSPARENT));
+	// Points
+	shaderModules[PointVert] = vert("vertex.glsl", optionsFor(pointShaderOptions, PIPELINE_OPAQUE));
+	shaderModules[PointFrag] = frag("fragment.glsl", optionsFor(pointShaderOptions, PIPELINE_OPAQUE));
+	shaderModules[PointTransVert] = vert("vertex.glsl", optionsFor(pointShaderOptions, PIPELINE_TRANSPARENT));
+	shaderModules[PointTransFrag] = frag("fragment.glsl", optionsFor(pointShaderOptions, PIPELINE_TRANSPARENT));
+	// Count pass: empty options, +WIDTH for the point count.
+	std::vector<std::string> countOptions;
+	shaderModules[CountVert] = vert("vertex.glsl", countOptions);
+	shaderModules[CountFrag] = frag("count.glsl", countOptions);
+	std::vector<std::string> pointCountOptions = countOptions;
+	pointCountOptions.emplace_back("WIDTH");
+	shaderModules[PointCountVert] = vert("vertex.glsl", pointCountOptions);
+	// Blend: shared screen vertex shader + two pre-compiled ARRAYSIZE variants.
+	shaderModules[ScreenVert] = vert("screen.glsl", optionsFor(noOptions, PIPELINE_COMPRESS));
+	{
+		auto small = optionsFor(noOptions, PIPELINE_DONTCARE);
+		small.emplace_back("ARRAYSIZE " + std::to_string(blendSmallSize));
+		shaderModules[BlendFrag] = frag("blend.glsl", small);
+		auto big = optionsFor(noOptions, PIPELINE_DONTCARE);
+		big.emplace_back("ARRAYSIZE " + std::to_string(blendBigSize));
+		shaderModules[BlendFragBig] = frag("blend.glsl", big);
+	}
+	// Transparent set (transparentData).
+	shaderModules[TransparentVert] = vert("vertex.glsl", optionsFor(transparentShaderOptions, PIPELINE_TRANSPARENT));
+	shaderModules[TransparentFrag] = frag("fragment.glsl", optionsFor(transparentShaderOptions, PIPELINE_TRANSPARENT));
+	// Compute.
+	std::vector<std::string> const computeOptions = optionsFor(noOptions, PIPELINE_DONTCARE);
+	shaderModules[Sum1] = createComputeShaderModule(EShLangCompute, shaderPath + "sum1.glsl", computeOptions);
+	shaderModules[Sum2] = createComputeShaderModule(EShLangCompute, shaderPath + "sum2.glsl", computeOptions);
+	shaderModules[Sum3] = createComputeShaderModule(EShLangCompute, shaderPath + "sum3.glsl", computeOptions);
+}
+
+PushConstants HeadlessRenderer::buildPushConstants(uint32_t nlights)
+{
+	PushConstants pushConstants{};
+	pushConstants.constants[0] = (currentDrawMode != DRAWMODE_NORMAL) ? 0u : nlights;
+	pushConstants.constants[1] = static_cast<uint32_t>(currentTargetSize.x);
+	pushConstants.constants[2] = static_cast<uint32_t>(currentTargetSize.y);
+	pushConstants.constants[3] = (m_Orthographic ? 1u : 0u)
+	                             | (srgb ? 2u : 0u)        // bit 1: sRGB (perceptual) output
+	                             | (ibl ? 4u : 0u);        // bit 2: IBL shading (fxaa bit 3: always 0)
+	pushConstants.background = m_BackgroundColor;
+	return pushConstants;
+}
+
+void HeadlessRenderer::switchBlendPipeline(std::uint32_t maxDepth)
+{
+	// Deadband (matches AsyRender::switchBlendPipeline): switch up above
+	// blendSwitchUp, back down at or below blendSwitchDown.
+	if (blendBig) {
+		if (maxDepth <= blendSwitchDown)
+			blendBig = false;
+	} else if (maxDepth > blendSwitchUp) {
+		blendBig = true;
+	}
+}
+
 void HeadlessRenderer::createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (drawMode == DRAWMODE_WIREFRAME || drawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(options),
-		opaqueRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[MaterialVert], shaderModules[MaterialFrag],
+		opaqueRenderPass, 0, true
 	};
 	createGraphicsPipeline<MaterialVertex>(cfg, targetWidth, targetHeight, &materialPipeline);
 }
@@ -1989,14 +2062,11 @@ void HeadlessRenderer::createMaterialPipeline(DrawMode drawMode, int targetWidth
 void HeadlessRenderer::createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight) {
 	VkPolygonMode polygonMode = (drawMode == DRAWMODE_WIREFRAME || drawMode == DRAWMODE_OUTLINE)
 		? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL", "COLOR" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
 
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode, std::move(options),
-		opaqueRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, polygonMode,
+		shaderModules[ColorVert], shaderModules[ColorFrag],
+		opaqueRenderPass, 0, true
 	};
 	createGraphicsPipeline<ColorVertex>(cfg, targetWidth, targetHeight, &colorPipeline);
 }
@@ -2030,12 +2100,12 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t /*indexCount*/, size_t li
 	// opaque geometry is counted in the graphics pass, not here).
 	VkDeviceSize offsets[1] = { 0 };
 
-	glm::uvec4 constants{ 0 };
-	constants.x = lightCount;
-	constants.y = currentTargetSize.x;
+	// Full 32-byte push constants (uvec4 constants + vec4 background), pushed to
+	// both stages exactly like the main render pass.
+	auto const constants = buildPushConstants(static_cast<uint32_t>(lightCount));
 
 	if (!interlock) {
-		vkCmdPushConstants(frameObjects[currentFrame].countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+		vkCmdPushConstants(frameObjects[currentFrame].countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &constants);
 
 		// pointData (PointVertex format) -- matches vkrender.cc drawBuffer(pointBuffers), counted first.
 		if (!pointData.indices.empty()) {
@@ -2122,7 +2192,7 @@ void HeadlessRenderer::recordCountCommandBuffer(size_t /*indexCount*/, size_t li
 		vkCmdBindPipeline(frameObjects[currentFrame].countCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentCountPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].countCommandBuffer, 0, 1, &transparentVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].countCommandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(frameObjects[currentFrame].countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::uvec4), &constants);
+		vkCmdPushConstants(frameObjects[currentFrame].countCommandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &constants);
 		vkCmdDrawIndexed(frameObjects[currentFrame].countCommandBuffer, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
 	}
 
@@ -2366,20 +2436,15 @@ bool HeadlessRenderer::readFeedback() {
 	VK_CHECK_RESULT(vkInvalidateMappedMemoryRanges(device, 1, &invalidateRange));
 
 	fragments = feedbackMappedPtr[1];
-	uint32_t maxDepth = feedbackMappedPtr[0];
 
-	// Matches vkrender.cc resizeFragmentBuffer(): after a full recreation, resetDepth
-	// forces the depth/size back to 1 before re-growing, so stale A-buffer bounds from a
-	// previous (larger) scene don't persist across resource recreation.
-	if (resetDepth) {
-		maxSize = maxDepth = 1;
-		resetDepth = false;
-	}
-
-	if (maxDepth > maxSize) {
-		maxSize = 1;
-		while (maxSize < maxDepth) maxSize *= 2;
-	}
+	// feedbackMappedPtr[0] is the previous frame's max per-pixel transparent
+	// fragment count: sum3.glsl reduces it from the count buffer (one atomicMax
+	// per workgroup) and resets the counter atomically each frame.  It counts
+	// fragments the blend pass may later discard behind the opaque depth, so it
+	// slightly overestimates blended depth - conservative for the switch.
+	// The selection is only a pipeline choice for the upcoming blendFrame;
+	// beyond blendBigSize the shader's in-buffer fallback sort applies.
+	switchBlendPipeline(feedbackMappedPtr[0]);
 
 	if (fragments > maxFragments) {
 		VkDeviceSize newFragmentBufferSize = (VkDeviceSize)(fragments * 11 / 10) * sizeof(glm::vec4);
@@ -2869,6 +2934,85 @@ void HeadlessRenderer::initIBL(const std::string& iblPath) {
 	}
 	createIBLImage3D(layers, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
 		reflectionImg, reflectionImgMemory, reflectionView, reflectionSampler);
+
+	iblImagePath = iblPath;
+}
+
+void HeadlessRenderer::createIBLPlaceholders() {
+	// The IBL samplers (bindings 11-13) are always declared in the fragment
+	// shader, so the descriptor sets must hold valid images even when IBL is
+	// off. The shader only samples them when the IBL push-constant bit is
+	// set, so the (undefined) placeholder contents are never read.
+	struct Spec {
+		VkImage& img;
+		VkDeviceMemory& mem;
+		VkImageView& view;
+		VkSampler& sampler;
+		bool t3d;
+	};
+	const Spec specs[] = {
+		{irradianceImg, irradianceImgMemory, irradianceView, irradianceSampler, false},
+		{brdfImg, brdfImgMemory, brdfView, brdfSampler, false},
+		{reflectionImg, reflectionImgMemory, reflectionView, reflectionSampler, true},
+	};
+	for (auto const& s : specs) {
+		VkImageCreateInfo imgCI = {};
+		imgCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imgCI.imageType = s.t3d ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+		imgCI.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+		imgCI.extent.width = 1;
+		imgCI.extent.height = 1;
+		imgCI.extent.depth = 1;
+		imgCI.mipLevels = 1;
+		imgCI.arrayLayers = 1;
+		imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
+		imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+		imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+		VK_CHECK_RESULT(vkCreateImage(device, &imgCI, nullptr, &s.img));
+
+		VkMemoryRequirements memReqs;
+		vkGetImageMemoryRequirements(device, s.img, &memReqs);
+		VkMemoryAllocateInfo alloc = {};
+		alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		alloc.allocationSize = memReqs.size;
+		alloc.memoryTypeIndex = getMemoryTypeIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		VK_CHECK_RESULT(vkAllocateMemory(device, &alloc, nullptr, &s.mem));
+		VK_CHECK_RESULT(vkBindImageMemory(device, s.img, s.mem, 0));
+
+		transitionImageLayout(s.img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		VkImageViewCreateInfo viewCI = {};
+		viewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewCI.image = s.img;
+		viewCI.viewType = s.t3d ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D;
+		viewCI.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+		viewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewCI.subresourceRange.baseMipLevel = 0;
+		viewCI.subresourceRange.levelCount = 1;
+		viewCI.subresourceRange.baseArrayLayer = 0;
+		viewCI.subresourceRange.layerCount = 1;
+		VK_CHECK_RESULT(vkCreateImageView(device, &viewCI, nullptr, &s.view));
+
+		createSampler(device, s.sampler);
+	}
+	iblImagePath = "";
+}
+
+void HeadlessRenderer::updateIBL(const std::string& iblPath) {
+	// IBL is a push-constant flag, so enabling/disabling it needs no shader
+	// recompilation. Loading a new environment image (e.g. a new V3D scene
+	// that names one) only requires fresh images and a descriptor rewrite.
+	if (!ibl || iblPath.empty() || device == VK_NULL_HANDLE)
+		return;
+
+	if (iblPath == iblImagePath)
+		return;
+
+	vkDeviceWaitIdle(device);
+
+	destroyIBLResources();
+	initIBL(iblPath);
+	writeIBLDescriptors();
 }
 
 void HeadlessRenderer::destroyIBLResources() {
@@ -3011,8 +3155,7 @@ void HeadlessRenderer::cleanup() {
 	if (transparentPipeline) vkDestroyPipeline(device, transparentPipeline, nullptr);
 
 	if (blendPipeline) vkDestroyPipeline(device, blendPipeline, nullptr);
-	for (auto m : blendShaderModules) vkDestroyShaderModule(device, m, nullptr);
-	blendShaderModules.clear();
+	if (blendPipelineBig) vkDestroyPipeline(device, blendPipelineBig, nullptr);
 
 	if (computeSum1Pipeline) vkDestroyPipeline(device, computeSum1Pipeline, nullptr);
 	if (computeSum2Pipeline) vkDestroyPipeline(device, computeSum2Pipeline, nullptr);
@@ -3051,6 +3194,7 @@ void HeadlessRenderer::cleanup() {
 	pointTransparentPipeline = VK_NULL_HANDLE;
 	transparentPipeline = VK_NULL_HANDLE;
 	blendPipeline = VK_NULL_HANDLE;
+	blendPipelineBig = VK_NULL_HANDLE;
 	materialPipeline = VK_NULL_HANDLE;
 	colorPipeline = VK_NULL_HANDLE;
 	linePipeline = VK_NULL_HANDLE;
@@ -3084,10 +3228,6 @@ void HeadlessRenderer::cleanup() {
 	timelineSemaphore = createTimelineSemaphore(0);
 	currentTimelineValue = 0;
 	computeTimelineValue = 0;
-
-	// Matches vkrender.cc recreateSwapChain(): reset depth/size bounds so the next
-	// readFeedback() starts from maxSize=maxDepth=1 and re-grows as needed.
-	resetDepth = true;
 
 	// After vkDeviceWaitIdle above, all per-frame fences are guaranteed signaled.
 	// Destroy and recreate ALL per-frame sync objects uniformly (matches vkrender.cc
@@ -3185,15 +3325,12 @@ void HeadlessRenderer::cleanup() {
 	destroyIBLResources();
 }
 
+// Lines share the material shaders (matches vkrender.cc linePipelines).
 void HeadlessRenderer::createLinePipeline(int targetWidth, int targetHeight) {
-	std::vector<std::string> options{ "NORMAL", "OPAQUE", "MATERIAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
-
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_LINE_LIST, VK_POLYGON_MODE_LINE, std::move(options),
-		opaqueRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_LINE_LIST, VK_POLYGON_MODE_LINE,
+		shaderModules[MaterialVert], shaderModules[MaterialFrag],
+		opaqueRenderPass, 0, true
 	};
 	createGraphicsPipeline<MaterialVertex>(cfg, targetWidth, targetHeight, &linePipeline);
 }
@@ -3202,41 +3339,31 @@ void HeadlessRenderer::createLinePipeline(int targetWidth, int targetHeight) {
 // pointShaderOptions = {"NOLIGHTS","WIDTH"} (+ MATERIAL/OPAQUE via modifyShaderOptions).
 // Points are never alpha-transparent; the two main-path variants differ only by render pass.
 void HeadlessRenderer::createPointPipeline(int targetWidth, int targetHeight) {
-	std::vector<std::string> options{ "NOLIGHTS", "WIDTH", "MATERIAL", "OPAQUE" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
-
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT, std::move(options),
-		opaqueRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT,
+		shaderModules[PointVert], shaderModules[PointFrag],
+		opaqueRenderPass, 0, true
 	};
 	createGraphicsPipeline<PointVertex>(cfg, targetWidth, targetHeight, &pointPipeline);
 }
 
 void HeadlessRenderer::createPointTransparentPipeline(int targetWidth, int targetHeight) {
-	std::vector<std::string> options{ "NOLIGHTS", "WIDTH", "MATERIAL" };
-	if (ibl) { options.push_back("USE_IBL"); }
-	if (srgb) { options.push_back("OUTPUT_AS_SRGB"); }
-	if (interlock) { options.push_back("HAVE_INTERLOCK"); }
-	if (m_Orthographic) { options.push_back("ORTHOGRAPHIC"); }
-
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT, std::move(options),
-		graphicsRenderPass, 0, true, "vertex", "fragment"
+		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT,
+		shaderModules[PointTransVert], shaderModules[PointTransFrag],
+		graphicsRenderPass, 0, true
 	};
 	createGraphicsPipeline<PointVertex>(cfg, targetWidth, targetHeight, &pointTransparentPipeline);
 }
 
 void HeadlessRenderer::createPointCountPipeline(int targetWidth, int targetHeight) {
-	// Matches vkrender.cc: the COUNT variant uses countShaderOptions (empty) + WIDTH for
-	// POINT_LIST. Point size is applied so counting reflects the real point footprint.
-	std::vector<std::string> countOptions{ "WIDTH" };
-	if (m_Orthographic) { countOptions.push_back("ORTHOGRAPHIC"); }
-
+	// Matches vkrender.cc: the COUNT variant uses count options (empty) + WIDTH
+	// for POINT_LIST. Point size is applied so counting reflects the real point
+	// footprint.
 	PipelineConfig cfg{
-		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT, std::move(countOptions),
-		countRenderPass, 0, true, "vertex", "count"
+		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, VK_POLYGON_MODE_POINT,
+		shaderModules[PointCountVert], shaderModules[CountFrag],
+		countRenderPass, 0, true, true
 	};
 	createGraphicsPipeline<PointVertex>(cfg, targetWidth, targetHeight, &pointCountPipeline);
 }
@@ -3279,12 +3406,14 @@ void HeadlessRenderer::recreateGraphicsPipelines(DrawMode drawMode, int targetWi
 	if (transparentPipeline) vkDestroyPipeline(device, transparentPipeline, nullptr);
 
 	if (blendPipeline) vkDestroyPipeline(device, blendPipeline, nullptr);
-	for (auto m : blendShaderModules) vkDestroyShaderModule(device, m, nullptr);
-	blendShaderModules.clear();
+	if (blendPipelineBig) vkDestroyPipeline(device, blendPipelineBig, nullptr);
 
 	// Recreate all pipelines with correct polygon mode using the shared layout.
 	// Matches vkrender.cc: createGraphicsPipelines() creates ALL pipeline objects
 	// using the existing graphicsPipelineLayout; no new layouts or caches created.
+	// The shader modules were already compiled at the first recreation
+	// (createShaderModules is a no-op after the first call).
+	createShaderModules();
 	createMaterialPipeline(drawMode, targetWidth, targetHeight);
 	createColorPipeline(drawMode, targetWidth, targetHeight);
 	createLinePipeline(targetWidth, targetHeight);
@@ -3379,12 +3508,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		return nullptr;
 	}
 
-	// Track IBL state changes - recreate pipelines if IBL toggles
-	bool iblChanged = (useIBL != ibl);
-	if (iblChanged) {
-		destroyIBLResources();
-		ibl = useIBL;
-	}
+	// IBL is a push-constant flag (no shader recompilation). The loaded
+	// environment images are reloaded only when a scene names a new image
+	// (see updateIBL()); toggling the flag itself takes effect via the
+	// push constant alone.
+	ibl = useIBL;
 
 	groupSize = localSize * blockSize;
 
@@ -3402,10 +3530,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// Both paths share the same Vulkan resources — no recreation needed when Opaque changes.
 	Opaque = transparentData.indices.empty();  // setOpaque()
 
-	// Full recreation needed: size changed, IBL toggled, or first init.
-	// Scene transparency changes between models do NOT require recreation —
-	// both opaque and transparent render passes/framebuffers are always created.
-	bool needsFullRecreate = (currentTargetSize != targetSize) || iblChanged;
+	// Full recreation needed: size changed or first init.  IBL toggles and
+	// scene transparency changes between models do NOT require recreation —
+	// both opaque and transparent render passes/framebuffers are always
+	// created, and IBL is a push-constant flag (see updateIBL()).
+	bool needsFullRecreate = (currentTargetSize != targetSize);
 	if (!initialized) {
 		needsFullRecreate = true;
 	}
@@ -3414,7 +3543,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	// Matches vkrender.cc: cycleMode -> recreatePipeline=true -> createGraphicsPipelines()
 	// which destroys/recreates ALL VkPipeline objects only; attachments, descriptor
 	// sets, buffers, render passes all survive.
-	if (drawModeChanged && currentTargetSize == targetSize && !iblChanged) {
+	if (drawModeChanged && currentTargetSize == targetSize) {
 		recreateGraphicsPipelines(drawMode, targetSize.x, targetSize.y);
 		currentDrawMode = drawMode;
 	} else if (needsFullRecreate) {
@@ -3460,9 +3589,14 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 		createDescriptorSetLayout();
 
-		// Initialize IBL resources before creating pipelines (shaders need USE_IBL define)
+		// Initialize IBL resources before creating descriptor sets. The
+		// fragment shader always declares the IBL samplers (bindings 11-13);
+		// when IBL is off the descriptor sets hold 1x1 placeholder images
+		// (matches vkrender.cc initVulkan: initIBL() / createIBLPlaceholders()).
 		if (ibl && !iblPath.empty()) {
 			initIBL(iblPath);
+		} else {
+			createIBLPlaceholders();
 		}
 
 		// Create render passes BEFORE any pipeline that references them.
@@ -3471,6 +3605,13 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createGraphicsRenderPass(targetSize.x, targetSize.y);
 
 		createGraphicsPipelineLayout();
+
+		// Set currentDrawMode BEFORE creating any pipelines: the create*
+		// functions read it for polygon mode selection.
+		currentDrawMode = drawMode;
+
+		createShaderModules(); // no-op after the first call
+
 		createMaterialPipeline(drawMode, targetSize.x, targetSize.y);
 		createColorPipeline(drawMode, targetSize.x, targetSize.y);
 		createLinePipeline(targetSize.x, targetSize.y);
@@ -3539,10 +3680,6 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		createTransparentCountPipeline(targetSize.x, targetSize.y);
 		createPointCountPipeline(targetSize.x, targetSize.y);
 
-		// Set currentDrawMode BEFORE creating draw-mode-dependent pipelines.
-		// Transparent pipelines read currentDrawMode for polygon mode selection.
-		currentDrawMode = drawMode;
-
 		createMaterialTransparentPipeline(targetSize.x, targetSize.y);
 		createColorTransparentPipeline(targetSize.x, targetSize.y);
 		createTriangleTransparentPipeline(targetSize.x, targetSize.y);
@@ -3564,6 +3701,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 			safeWaitTimelineSemaphore(fo.timelineValue, "per-frame timeline");
 		}
 	}
+
+	// Load environment images if this scene enabled IBL or names a new image.
+	// No-op on the first render (the full-recreate block above already loaded
+	// the images or placeholders) and when the image is unchanged.
+	updateIBL(iblPath);
 
 	UniformBufferObject ubo{ };
 	// Match vkrender.cc byte-for-byte: use pre-computed dmat3 normMat member.
@@ -3708,14 +3850,10 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	vkCmdBeginRenderPass(frameObjects[currentFrame].commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	// Push constants for all draw calls: uvec4 constants + vec4 background (32 bytes).
-	VkDeviceSize pushSize = sizeof(glm::uvec4) + sizeof(glm::vec4);
-	uint8_t* pushData = new uint8_t[pushSize];
-	glm::uvec4 transConstants{ 0 };
-	transConstants.x = (currentDrawMode != DRAWMODE_NORMAL) ? 0u : static_cast<uint32_t>(lights.size());
-	transConstants.y = targetSize.x;
-	memcpy(pushData, &transConstants, sizeof(glm::uvec4));
-	glm::vec4 background = m_BackgroundColor;
-	memcpy(pushData + sizeof(glm::uvec4), &background, sizeof(glm::vec4));
+	// Every draw pushes the full PushConstants to both the fragment and the
+	// vertex stages (the vertex stage reads the flags word, see vertex.glsl).
+	auto const push = buildPushConstants(static_cast<uint32_t>(lights.size()));
+	VkDeviceSize pushSize = sizeof(PushConstants);
 	vkCmdBindDescriptorSets(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
 	// === SUBPASS 0: ALL geometry ===
@@ -3737,7 +3875,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ptPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &pointVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, pointIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 		vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(pointData.indices.size()), 1, 0, 0, 0);
 	}
 	pointData.renderCount++;
@@ -3753,7 +3891,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, matPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &materialVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, materialIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 		vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(materialData.indices.size()), 1, 0, 0, 0);
 	}
 	materialData.renderCount++;
@@ -3769,7 +3907,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &colorVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, colorIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 		vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(colorData.indices.size()), 1, 0, 0, 0);
 	}
 	colorData.renderCount++;
@@ -3785,7 +3923,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lnPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &lineVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, lineIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 		vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(lineData.indices.size()), 1, 0, 0, 0);
 	}
 	lineData.renderCount++;
@@ -3802,7 +3940,7 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, triangleTransparentPipeline);
 		vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &triangleVertexBuffer, offsets);
 		vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, triangleIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 		vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(triangleData.indices.size()), 1, 0, 0, 0);
 	}
 	triangleData.renderCount++;
@@ -3821,20 +3959,20 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 			vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline);
 			vkCmdBindVertexBuffers(frameObjects[currentFrame].commandBuffer, 0, 1, &transparentVertexBuffer, offsets);
 			vkCmdBindIndexBuffer(frameObjects[currentFrame].commandBuffer, transparentIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
+			vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 			vkCmdDrawIndexed(frameObjects[currentFrame].commandBuffer, static_cast<uint32_t>(transparentData.indices.size()), 1, 0, 0, 0);
 		}
 		transparentData.renderCount++;
 
 		vkCmdNextSubpass(frameObjects[currentFrame].commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-		vkCmdBindPipeline(frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, blendPipeline);
-		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushSize, pushData);
-		delete[] pushData;
+		vkCmdBindPipeline(
+			frameObjects[currentFrame].commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			blendBig ? blendPipelineBig : blendPipeline
+		);
+		vkCmdPushConstants(frameObjects[currentFrame].commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, pushSize, &push);
 
 		vkCmdDraw(frameObjects[currentFrame].commandBuffer, 3, 1, 0, 0);
-	} else {
-		delete[] pushData;
 	}
 
 	vkCmdEndRenderPass(frameObjects[currentFrame].commandBuffer);

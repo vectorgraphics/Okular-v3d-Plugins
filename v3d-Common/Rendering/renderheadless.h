@@ -51,15 +51,20 @@ template<> struct VertexInputTraits<PointVertex> {
 
 // Pipeline configuration for createGraphicsPipeline<V>().  Matches vkrender.cc
 // PipelineConfig -- one config per pipeline, no boilerplate duplication.
+// Shader modules are created once per session (see shaderModules); pipeline
+// (re)creation simply reuses them.
 struct PipelineConfig {
 	VkPrimitiveTopology topology;
 	VkPolygonMode polygonMode;
-	std::vector<std::string> shaderOptions;
+	// Shader modules (created once per session, see shaderModules).
+	VkShaderModule vertexModule;
+	VkShaderModule fragmentModule;
 	VkRenderPass renderPass;
 	int subpass;
 	bool enableDepthWrite;
-	std::string vertexShaderName;  // e.g., "vertex" or "screen"
-	std::string fragmentShaderName; // e.g., "fragment", "count", "blend"
+	// Position-only vertex input state (matches vkrender.cc
+	// createGraphicsPipeline: VertexInputTraits<V>::attributes(type == PIPELINE_COUNT)).
+	bool count = false;
 };
 
 #define BUFFER_ELEMENTS 32
@@ -79,6 +84,29 @@ struct UniformBufferObject {
 	glm::mat4 viewMat{ };
 	// GLSL mat3 in std140 = 3 columns of vec4 (48 bytes)
 	glm::vec4 normMat[3];
+};
+
+// Matches vkrender.h PushConstants exactly (32 bytes).
+struct PushConstants
+{
+	glm::uvec4 constants;
+	glm::vec4 background;
+	// GRAPHICS:
+	//   constants[0] = nlights (0 when not in DRAWMODE_NORMAL)
+	//   constants[1] = width
+	//   constants[2] = height
+	//   constants[3] = flags; bit 0: orthographic projection
+	//                         bit 1: render output in sRGB (perceptual) space
+	//                         bit 2: IBL shading (bindings 11-13 are
+	//                                placeholders when the bit is clear)
+	//                         bit 3: FXAA (always 0: this port has no
+	//                                post-process pass)
+};
+
+// Matches vkrender.h ComputePushConstants.
+struct ComputePushConstants {
+	uint32_t blockSize;
+	uint32_t final;
 };
 
 struct GPUMaterial
@@ -333,11 +361,21 @@ public:
 	VkPipeline lineTransparentPipeline{ VK_NULL_HANDLE };      // MaterialVertex, LINE_LIST, graphicsRenderPass subpass 0 (for lineData)
 	VkPipeline transparentPipeline{ VK_NULL_HANDLE };          // ColorVertex, graphicsRenderPass subpass 1 (transparentData)
 
+	// Two pre-compiled blend pipelines (ARRAYSIZE blendSmallSize / blendBigSize),
+	// switched at runtime by switchBlendPipeline() from the per-frame max
+	// transparent-fragment count (matches AsyRender, see renderBase.h).
 	VkPipeline blendPipeline{ VK_NULL_HANDLE };
-	std::vector<VkShaderModule> blendShaderModules;
+	VkPipeline blendPipelineBig{ VK_NULL_HANDLE };
+	static constexpr std::uint32_t blendSmallSize = 16;
+	static constexpr std::uint32_t blendBigSize = 128;
+	static constexpr std::uint32_t blendSwitchUp = blendSmallSize;
+	// above blendSwitchUp, back down at or below blendSwitchDown
+	static constexpr std::uint32_t blendSwitchDown = 12;
+	bool blendBig = false;
 
 	// IBL (Image-Based Lighting) resources
 	bool ibl{ false };
+	std::string iblImagePath; // environment image dir currently bound ("" = placeholders)
 	VkImage irradianceImg{ VK_NULL_HANDLE };
 	VkDeviceMemory irradianceImgMemory{ VK_NULL_HANDLE };
 	VkImageView irradianceView{ VK_NULL_HANDLE };
@@ -361,8 +399,6 @@ public:
 	uint32_t elements{ 0 };
 	uint32_t fragments{ 0 };
 	uint32_t maxFragments{ 0 };
-	uint32_t maxSize{ 1 };
-	bool resetDepth{ false };  // Matches vkrender.cc: set on recreation, forces maxSize=maxDepth=1 once in readFeedback
 
 	// Timeline semaphore synchronization (matches vkrender.cc renderTimelineSemaphore).
 	// Enables GPU-side chaining between count/compute and graphics submissions.
@@ -396,6 +432,78 @@ private:
 	void createDescirptorSets();
 	bool createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
 	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
+
+	// Pipeline variant for shader-option selection (matches vkrender.cc PipelineType).
+	enum PipelineType
+	{
+		PIPELINE_OPAQUE,
+		PIPELINE_TRANSPARENT,
+		PIPELINE_COUNT,
+		PIPELINE_MAX,
+		PIPELINE_COMPRESS,
+		PIPELINE_DONTCARE
+	};
+	// Indices into shaderModules (populated by createShaderModules).
+	// Mirrors the vkrender.cc enum minus Fxaa/CompressFrag (no FXAA, no GPUcompress).
+	enum ShaderModuleIndex : std::size_t
+	{
+		MaterialVert, MaterialFrag,         // also used by lines
+		MaterialTransVert, MaterialTransFrag,
+		ColorVert, ColorFrag,
+		ColorTransVert, ColorTransFrag,
+		TriangleTransVert, TriangleTransFrag,
+		PointVert, PointFrag,
+		PointTransVert, PointTransFrag,
+		PointCountVert,
+		CountVert, CountFrag,               // count pass, non-point sets
+		ScreenVert,                         // blend screen-space vertex shader
+		BlendFrag,
+		BlendFragBig,                       // deep transparent stacks (see blendBig)
+		TransparentVert, TransparentFrag,
+		Sum1, Sum2, Sum3,
+		ModuleCount
+	};
+
+	// Compiled shader modules, created once per session.  Shaders depend on
+	// width/height and on the toggleable settings (srgb, ibl, orthographic)
+	// only through push constants, plus session-fixed #defines (interlock,
+	// localSize, blockSize), so they never need to be recompiled; pipeline
+	// (re)creation (size crossing, draw mode change) simply reuses these
+	// modules.
+	std::vector<VkShaderModule> shaderModules;
+
+	// Shader option bases (match vkrender.cc member initializers).
+	std::vector<std::string> materialShaderOptions {
+		"NORMAL"
+	};
+	std::vector<std::string> colorShaderOptions {
+		"COLOR",
+		"NORMAL"
+	};
+	std::vector<std::string> triangleShaderOptions {
+		"COLOR",
+		"NORMAL",
+		"GENERAL"
+	};
+	std::vector<std::string> pointShaderOptions {
+		"NOLIGHTS",
+		"WIDTH"
+	};
+	std::vector<std::string> transparentShaderOptions {
+		"COLOR",
+		"NORMAL",
+		"GENERAL",
+		"TRANSPARENT"
+	};
+
+	void modifyShaderOptions(std::vector<std::string>& options, PipelineType type);
+	// Populate shaderModules.  A no-op after the first call: the shaders are
+	// compiled once per session (see shaderModules).
+	void createShaderModules();
+	// Build the 32-byte graphics push constants (see PushConstants).
+	PushConstants buildPushConstants(uint32_t nlights);
+	// Deadband small/big blend-pipeline switch (matches AsyRender::switchBlendPipeline).
+	void switchBlendPipeline(std::uint32_t maxDepth);
 	void createDescriptorSetLayout();
 	void createMaterialPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
 	void createColorPipeline(DrawMode drawMode, int targetWidth, int targetHeight);
@@ -473,6 +581,9 @@ private:
 	                          VkImage& image, VkDeviceMemory& memory,
 	                          VkImageView& imageView, VkSampler& sampler);
 	void initIBL(const std::string& iblPath);
+	void createIBLPlaceholders();
+	void writeIBLDescriptors();
+	void updateIBL(const std::string& iblPath);
 	void destroyIBLResources();
 	void copyIBLDataToImage(const float* data, VkDeviceSize dataSize,
 	                        VkImage image, uint32_t w, uint32_t h, uint32_t layerOffset);
