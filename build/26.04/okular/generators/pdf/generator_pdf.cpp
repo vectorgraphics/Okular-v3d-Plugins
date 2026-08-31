@@ -1302,6 +1302,19 @@ static bool shouldAbortRenderCallback(const QVariant &vPayload)
 QImage PDFGenerator::image(Okular::PixmapRequest *request)
 {
     // ========== begin v3d ==========
+    // Presentation-mode preloads of adjacent pages (PRESENTATION_PRELOAD_PRIO)
+    // never render: the PresentationWidget re-issues them on every drag frame
+    // (its hasPixmap() gate compares CSS pixels against the stored device-
+    // pixel pixmaps, which never matches at devicePixelRatio != 1), so any
+    // fresh render here is cancelled by the next frame's priority-0 request
+    // before it can complete and repeats on the following frame -- the churn
+    // behind the "first few rotations stutter" in v3d documents. Return an
+    // empty image instead: the page renders in full the first time it is
+    // actually displayed. Gated on v3d content so plain PDFs keep the usual
+    // preload behavior.
+    if (!request->isTile() && request->priority() == PRESENTATION_PRELOAD_PRIO && !modelManager.Empty()) {
+        return QImage();
+    }
     // While the user is actively driving the presentation window (same
     // screen), serve PageView-priority (non-tile) requests from the last
     // rendered page image instead of re-rendering: Okular's priority-0
@@ -1311,8 +1324,10 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     // otherwise starts a catch-up render loop whose poppler + v3d renders
     // fight the presentation's own renders for the GPU and the model mutex
     // (the "normal window lags the presentation window" effect).
+    const bool isPreloadRequest =
+        (request->priority() == PAGEVIEW_PRELOAD_PRIO || request->priority() == PRESENTATION_PRELOAD_PRIO);
     if (!request->isTile() &&
-        (request->priority() == PAGEVIEW_PRIO || request->priority() == PAGEVIEW_PRELOAD_PRIO) &&
+        (request->priority() == PAGEVIEW_PRIO || isPreloadRequest) &&
         modelManager.ShouldSuppressPageViewRender()) {
         userMutex()->lock();
         if (m_LastPageImage.page == request->page()->number() && !m_LastPageImage.image.isNull()) {
@@ -1322,6 +1337,22 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
                 cached = cached.scaled(request->width(), request->height(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
             }
             return cached;
+        }
+        // Preload of a different page: serve its cached static background
+        // (poppler output without the v3d model) if we have it. The
+        // PresentationWidget re-issues these preloads on every drag frame
+        // (its hasPixmap() check compares CSS pixels against device-pixel
+        // pixmaps and never matches when the device pixel ratio is not 1);
+        // serving the cache makes the churn costless. First time around we
+        // fall through and render once, which also warms the cache.
+        if (isPreloadRequest) {
+            BackgroundKey bgKey{ request->page()->number(), request->width(), request->height(), (int)request->page()->rotation() };
+            auto it = m_BackgroundCache.constFind(bgKey);
+            if (it != m_BackgroundCache.constEnd() && !it.value().isNull()) {
+                QImage cached = it.value(); // implicitly shared copy
+                userMutex()->unlock();
+                return cached;
+            }
         }
         userMutex()->unlock();
     }
@@ -1358,8 +1389,22 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     std::unique_ptr<Poppler::Page> p = pdfdoc->page(page->number());
 
     // 2. Take data from outputdev and attach it to the Page
+    // v3d: background cache, see m_BackgroundCache
+    const bool bgCacheable = !request->isTile();
+    BackgroundKey bgKey{ page->number(), request->width(), request->height(), (int)page->rotation() };
+    bool bgHit = false;
     QImage img;
-    if (p) {
+    if (bgCacheable) {
+        auto it = m_BackgroundCache.constFind(bgKey);
+        if (it != m_BackgroundCache.constEnd() && !it.value().isNull()) {
+            img = it.value();
+            bgHit = true;
+        }
+    }
+    if (!p) {
+        img = QImage(request->width(), request->height(), QImage::Format_Mono);
+        img.fill(Qt::white);
+    } else if (!bgHit) {
         if (request->isTile()) {
             const QRect rect = request->normalizedRect().geometry(request->width(), request->height());
             if (request->partialUpdatesWanted()) {
@@ -1379,9 +1424,14 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
                 img = p->renderToImage(fakeDpiX, fakeDpiY, -1, -1, -1, -1, Poppler::Page::Rotate0, nullptr, nullptr, shouldAbortRenderCallback, QVariant::fromValue(&payload));
             }
         }
-    } else {
-        img = QImage(request->width(), request->height(), QImage::Format_Mono);
-        img.fill(Qt::white);
+    }
+    // v3d: store the fresh background for the next same (page, size, rotation)
+    // request; bounded to 8 entries (clear-all on overflow)
+    if (bgCacheable && p && !img.isNull() && !bgHit && !request->shouldAbortRender()) {
+        if (m_BackgroundCache.size() >= 8) {
+            m_BackgroundCache.clear();
+        }
+        m_BackgroundCache.insert(bgKey, img);
     }
 
     if (p && genObjectRects) {
@@ -1399,6 +1449,14 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     // PDF bitmap preview instead. Thumbnails should be static, non-interactive.
     if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
         bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
+        // Background preloads of adjacent pages must not drive the shared
+        // renderer: each v3d page fits to a slightly different size, so a
+        // fresh preload render would flip the renderer's size and force the
+        // next visible render (e.g. the first drag frame after entering a
+        // presentation) into a full resource recreation. Serve the page's
+        // last rendered image (scaled) instead; the page gets a true render
+        // the first time it is actually viewed.
+        bool isPreload = (request->priority() == PAGEVIEW_PRELOAD_PRIO || request->priority() == PRESENTATION_PRELOAD_PRIO);
 
         size_t pageNumber = (size_t)request->page()->number();
 
@@ -1414,14 +1472,18 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
 
                 modelManager.CacheRequest(request);
 
-                QImage image = modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
+                QImage image = isPreload
+                    ? modelManager.CachedModelImage(pageNumber, i, imageWidth, imageHeight)
+                    : modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
 
-                QPainter painter{ &img };
+                if (!image.isNull()) {
+                    QPainter painter{ &img };
 
-                if (request->isTile()) {
-                    painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
-                } else {
-                    painter.drawImage(xMin, yMin, image);
+                    if (request->isTile()) {
+                        painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
+                    } else {
+                        painter.drawImage(xMin, yMin, image);
+                    }
                 }
             }
 

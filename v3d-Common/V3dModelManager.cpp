@@ -490,6 +490,23 @@ QImage V3dModelManager::LastRenderedModelImage(size_t pageNumber, size_t modelIn
     return m_ModelImages[pageNumber][modelIndex];
 }
 
+QImage V3dModelManager::CachedModelImage(size_t pageNumber, size_t modelIndex, int width, int height) const {
+    QMutexLocker locker(&m_ModelsMutex);
+
+    if (pageNumber >= m_ModelImages.size() || modelIndex >= m_ModelImages[pageNumber].size()) {
+        return QImage();
+    }
+
+    QImage cached = m_ModelImages[pageNumber][modelIndex];
+    if (cached.isNull()) {
+        return QImage();
+    }
+    if (width > 0 && height > 0 && (cached.width() != width || cached.height() != height)) {
+        cached = cached.scaled(width, height, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    }
+    return cached;
+}
+
 glm::vec2 V3dModelManager::GetCanvasSize(size_t pageNumber) {
     if (pageNumber >= m_Models.size() || m_Models[pageNumber].empty()) {
         qWarning() << "V3dModelManager::GetCanvasSize: pageNumber" << pageNumber << "invalid or empty";

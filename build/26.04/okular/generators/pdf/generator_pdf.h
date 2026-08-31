@@ -30,6 +30,7 @@
 #include <unordered_map>
 
 // ========== begin v3d ==========
+#include <QHash>
 #include "V3dModelManager.h"
 // ========== end v3d ==========
 
@@ -59,6 +60,17 @@ class PDFGenerator : public Okular::Generator, public Okular::ConfigInterface, p
 // ========== begin v3d ==========
 public:
     V3dModelManager modelManager{ document() };
+
+    // Key for the static PDF page background cache (m_BackgroundCache)
+    struct BackgroundKey {
+        int page = -1;
+        int width = 0;
+        int height = 0;
+        int rotation = 0;
+        bool operator==(const BackgroundKey &o) const {
+            return page == o.page && width == o.width && height == o.height && rotation == o.rotation;
+        }
+    };
 // ========== end v3d ==========
 
 public:
@@ -191,8 +203,28 @@ private:
         QImage image;
     };
     LastPageImage m_LastPageImage;
+
+    // Static PDF page background (poppler output before the v3d paste)
+    // per (page, size, rotation). Dragging a v3d model causes the entire
+    // page pixmap to be re-requested on every frame, but only the v3d
+    // sub-image changes: image() reuses the cached background instead of
+    // re-running poppler (~40 ms per frame at presentation size) and
+    // composites the latest model image on top of it.
+
+    QHash<BackgroundKey, QImage> m_BackgroundCache;
 // ========== end v3d ==========
 };
+
+// ========== begin v3d ==========
+inline uint qHash(const PDFGenerator::BackgroundKey &key, uint seed = 0)
+{
+    uint h = qHash(key.page, seed);
+    h = qHash(key.width, h);
+    h = qHash(key.height, h);
+    h = qHash(key.rotation, h);
+    return h;
+}
+// ========== end v3d ==========
 
 #endif
 

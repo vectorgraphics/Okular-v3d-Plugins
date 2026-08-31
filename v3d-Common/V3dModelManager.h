@@ -63,6 +63,14 @@ public:
     // Last fully rendered model image (for stale-serving), or a null image.
     QImage LastRenderedModelImage(size_t pageNumber, size_t modelIndex) const;
 
+    // The page's last rendered model image scaled to the requested size,
+    // WITHOUT triggering a render. For background preload requests, which
+    // must not drive the shared renderer's size (each v3d page fits to a
+    // slightly different size, so a fresh preload render would flip the
+    // renderer's size and force the next visible render into a full
+    // recreation). Null image if the page has never been rendered.
+    QImage CachedModelImage(size_t pageNumber, size_t modelIndex, int width, int height) const;
+
     void SetDocument(const Okular::Document* document);
 
     bool mouseMoveEvent(QMouseEvent* event);
