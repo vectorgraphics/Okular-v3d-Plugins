@@ -20,6 +20,37 @@
 #include "shaderResources.h"
 #include <tinyexr.h>
 #include <cstdlib>
+#include <sstream>
+#include <stdexcept>
+
+// Vulkan error handling, adapted from asymptote/vkutils.cc checkVkResult():
+// the reference prints "Vulkan operation failed; message: <result>" and
+// reports the error (throws in standalone Asymptote). Throwing across the
+// generator/Qt boundary is not safe in okular, so we print and throw
+// V3dVulkanError instead; it is caught at the renderer's entry points
+// (HeadlessRenderer's constructor and render()), which reset the renderer
+// so the next frame starts from a clean full recreation. Unlike the
+// assert-only VK_CHECK_RESULT in VulkanTools.h (compiled out by NDEBUG),
+// this check is unconditional: a failed Vulkan call must never be silently
+// ignored and continued on with invalid handles.
+struct V3dVulkanError : std::runtime_error {
+	explicit V3dVulkanError(const std::string& msg) : std::runtime_error(msg) {}
+};
+
+#undef VK_CHECK_RESULT
+#define VK_CHECK_RESULT(f)                                \
+{                                                         \
+  VkResult res = (f);                                     \
+if (res != VK_SUCCESS)                                    \
+  {                                                       \
+    std::ostringstream v3dVkOss;                          \
+    v3dVkOss << "Vulkan operation failed; message: "      \
+             << vks::tools::errorString(res)              \
+             << " at " << __FILE__ << ":" << __LINE__;    \
+    std::cerr << v3dVkOss.str() << std::endl;             \
+    throw V3dVulkanError(v3dVkOss.str());                 \
+  }                                                       \
+}
 
 // Global VertexBuffers from asymptote/render.h (declared extern, defined in bezierpatch.cc / beziercurve.cc).
 // Accessible transitively via V3dObject.h -> render.h.
@@ -216,6 +247,11 @@ void HeadlessRenderer::createGraphicsPipeline(const PipelineConfig& config,
 
 HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 	: shaderPath(shaderPath) {
+	// Vulkan calls below may throw V3dVulkanError (see the VK_CHECK_RESULT
+	// redefinition at the top of this file). Init failure = rendering
+	// disabled: the existing initFailed semantics, render() returns
+	// nullptr (blank model image).
+	try {
 		if (!glslang::InitializeProcess()) {
 			std::cerr << "v3d: failed to initialize glslang, disabling rendering." << std::endl;
 			initialized = false;
@@ -298,7 +334,14 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 			VK_CHECK_RESULT(vkCreateSemaphore(device, &semCI, nullptr, &frameObjects[i].transferDoneSemaphore));
 		}
 
+	} catch (V3dVulkanError& e) {
+		// Vulkan init failed mid-way (the error was already printed by
+		// VK_CHECK_RESULT at the failing call). Partially-created objects
+		// are left to process exit (see the destructor's comment).
+		initFailed = true;
+		(void)e;
 	}
+}
 
 HeadlessRenderer::~HeadlessRenderer() {
 	if (hostReadableDestinationImageInitalized) {
@@ -3500,6 +3543,12 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	DrawMode drawMode,
 	bool remesh
 ) {
+	// Per-frame Vulkan calls may throw V3dVulkanError (see the
+	// VK_CHECK_RESULT redefinition at the top of this file). The catch at
+	// the end resets to the un-initialized state so the next frame does a
+	// clean full recreation instead of continuing on invalid state
+	// (matches the createTransparencyBuffers OOM path).
+	try {
 	m_BackgroundColor = bgColor;
 	m_Orthographic = orthographic;
 	this->remesh = remesh;
@@ -4042,4 +4091,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 	unsigned char* returnData = copyToHost(targetSize, imageSubresourceLayout, hasTransparency);
 
 	return returnData;
+	} catch (V3dVulkanError& e) {
+		// (the error was already printed at the failing call site)
+		try { cleanup(); } catch (V3dVulkanError&) { /* device lost: nothing left to clean */ }
+		initialized = false;
+		currentTargetSize = glm::ivec2{ 0, 0 };
+		return nullptr;
+	}
 }
