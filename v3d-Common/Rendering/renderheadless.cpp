@@ -3996,6 +3996,20 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 	// === If transparent: subpass 1 (transparentData) + subpass 2 (blend quad) ===
 	if (!isOpaque) {
+		// Matches vkrender.cc (7b7b466de): the transparent data was already uploaded
+		// during the count pass (recordCountCommandBuffer always draws the
+		// transparent count pipeline, even when interlock causes the opaque count
+		// draws to be skipped).  With interlock, `copied` had to stay false through
+		// the opaque uploads above so those buffers could upload, but that would
+		// make the transparent upload below re-upload the identical vertices/indices
+		// a second time.  Set it here -- after the opaque uploads but before the
+		// transparent upload -- so uploadBuffer() skips it (no-op when !interlock,
+		// where it is already true).
+		// The first upload is complete before this pass reads the buffer: the
+		// count/compute submission waited on transferDoneSemaphore, and
+		// readFeedback() (resizeFragmentBuffer) waited on inComputeFence before the
+		// main render pass was recorded.
+		copied = true;
 		vkCmdNextSubpass(frameObjects[currentFrame].commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
 		if (!transparentData.indices.empty()) {
