@@ -16,6 +16,7 @@
 // V3dObjects.cpp declares camp::materials; bring the declaration into scope.
 struct V3dMaterial;
 namespace camp { extern const std::vector<V3dMaterial>* materials; }
+namespace camp { extern double pixelsPerBp; }
 
 // Billboard transform: rotate vertex positions around a center point using the
 // normal matrix (inverse-transpose of view rotation) so that billboard objects
@@ -395,6 +396,14 @@ void V3dFile::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, t
     // Matches Asymptote: drawBezierPatch::render() reads diffuse.A from the current
     // material to set transparent = (diffuse.A < 1.0).
     camp::materials = &materials;
+
+    // Set the current pixels-per-bp scale: the render image is the v3d canvas
+    // (headerInfo.canvasWidth bp) at imageWidth px. Mirrors Asymptote's
+    // camp::pixelsPerBp(), used by drawPixel::bounds() to convert the pixel's
+    // device-pixel width to PostScript units for the offscreen cull box.
+    camp::pixelsPerBp = headerInfo.canvasWidth > 0
+        ? imageWidth / (double)headerInfo.canvasWidth
+        : 1.0;
 
     for (auto& object : objects) {
         // Record buffer sizes before this object adds its vertices.

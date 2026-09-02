@@ -20,6 +20,12 @@
 struct V3dMaterial;
 namespace camp { extern const std::vector<V3dMaterial>* materials; }
 
+// Current pixels per bp (render-image px / canvas bp), set by V3dFile::QueueMesh
+// before iterating objects. Mirrors Asymptote's camp::pixelsPerBp()
+// (renderBase.h), which drawPixel::bounds() uses to convert a pixel's
+// device-pixel width to PostScript units.
+namespace camp { extern double pixelsPerBp; }
+
 
 enum ObjectTypes {
     MATERIAL = 1,

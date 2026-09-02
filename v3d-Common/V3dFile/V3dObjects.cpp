@@ -14,6 +14,8 @@ using namespace camp;
 
 // Definition of the global materials pointer declared in V3dObjects.h.
 namespace camp { const std::vector<V3dMaterial>* materials = nullptr; }
+// Current pixels per bp (render-image px / canvas bp), see V3dObjects.h.
+namespace camp { double pixelsPerBp = 1.0; }
 
 // Compute tight Bézier patch bounds via recursive subdivision (matches drawsurface.cc).
 static void computeBezierPatchBounds(const triple* controls, triple& Min, triple& Max) {
@@ -2179,10 +2181,18 @@ void V3dPixel::QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, 
     (void)remesh; (void)orthographic; (void)drawMode;
     camp::materialIndex = materialIndex;
 
-    // Match Asymptote drawPixel::render(): offscreen check using bbox2(Min,Max).
+    // Match Asymptote drawPixel::bounds(): width is in device pixels; convert to
+    // PostScript units so the cull box covers the sprite's on-screen footprint.
+    // camp::pixelsPerBp is set by V3dFile::QueueMesh (mirrors Asymptote's
+    // camp::pixelsPerBp()).
     triple Min{position.x, position.y, position.z};
     triple Max{position.x, position.y, position.z};
+    double h = 0.5 * width / camp::pixelsPerBp;
+    triple H{h, h, h};
+    Min -= H;
+    Max += H;
 
+    // Match Asymptote drawPixel::render(): offscreen check using bbox2(Min,Max).
     if (bbox2(Min, Max).offscreen()) { // Fully offscreen
         fullyOnscreen = false;
         vertexData.clear();
