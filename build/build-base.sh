@@ -99,11 +99,9 @@ buildFunc() {
         cp "${BIN_DIR}/libv3dCommon.so" "stage/"
     fi
 
-    # okularpart (v3d-enabled PresentationWidget/PagePainter hooks) is not a
-    # generator plugin; install.sh places it in the kf6 parts directory.
-    if [[ -f "${BIN_DIR}/kf6/parts/okularpart.so" ]]; then
-        cp "${BIN_DIR}/kf6/parts/okularpart.so" "stage/"
-    fi
+    # okularpart is intentionally NOT staged: it is stock Okular (all v3d
+    # behavior lives in the generators and libv3dCommon), and the system's own
+    # part plugin is used.
 
     if [[ -d "../../asymptote/base/shaders" ]]; then
         cp ../../asymptote/base/shaders/*.glsl "stage/"
