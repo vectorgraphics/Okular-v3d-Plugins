@@ -18,6 +18,7 @@
 #include <set>
 
 #include <document.h>
+#include <observer.h>
 #include <page.h>
 
 #include "Rendering/renderheadless.h"
@@ -192,6 +193,10 @@ private:
     glm::ivec2 m_LastMousePosition{ 0, 0 };
 
     QPointer<QAbstractScrollArea> m_PageView;
+    // The PageView's DocumentObserver subobject, captured from the PageView's
+    // own PixmapRequest (see CacheRequest). refreshPixmap() deletes only this
+    // observer's page pixmap; every other observer's pixmaps are left alone.
+    Okular::DocumentObserver* m_PageViewObserver{ nullptr };
     QObject m_FilterParent;
 
     EventFilter* m_EventFilter{ nullptr };

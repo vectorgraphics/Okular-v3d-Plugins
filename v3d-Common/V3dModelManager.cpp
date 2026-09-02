@@ -883,6 +883,15 @@ void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
 void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
     Okular::Page* page = request->page();
 
+    // Remember the PageView's observer: Okular's PageView passes itself as the
+    // observer of its PixmapRequests (the pointer the Page stores as its
+    // rendered-pixmap key). refreshPixmap() uses it to delete only the
+    // PageView's page pixmap -- leaving the thumbnails' and presentation's
+    // pixmaps untouched.
+    if (request->priority() == PAGEVIEW_PRIO) {
+        m_PageViewObserver = request->observer();
+    }
+
     // Presentation-mode requests (PRESENTATION_PRIO / PRESENTATION_PRELOAD_PRIO)
     // come from Okular's PresentationWidget (a separate window from the PageView)
     // and are the actual on-screen view while a presentation is active. Treat them
@@ -1338,14 +1347,19 @@ void V3dModelManager::refreshPixmap(size_t pageNumber) {
     const bool refreshPageView =
         m_PageView && m_PageView->isVisible() && (!interactingWithPresentation || dualScreen);
 
-    // deletePixmaps() removes the pixmaps of ALL observers (PageView,
-    // PresentationWidget, thumbnails...).
+    // Delete only the PageView's OWN pixmap -- not the pixmaps of ALL
+    // observers (Page::deletePixmaps also orphaned the thumbnail panel's
+    // pixmap: the panel is not repainted at that moment, so its next repaint,
+    // e.g. after a small document scroll, painted the thumbnail from the
+    // now-empty Page and the thumbnail "disappeared"). Thumbnails are static
+    // previews that never need refreshing on model rotation, so their
+    // pixmaps stay in place. The PresentationWidget likewise deletes its own
+    // observer's pixmap in the resizeEvent handler triggered below and does
+    // not need a wipe.
     //
-    // It is ONLY done when the PageView is refreshed (or no presentation is
-    // active). For a presentation-only refresh it must be SKIPPED:
-    //  - the PresentationWidget's resizeEvent handler (triggered below)
-    //    deletes its own observer's pixmap and re-requests it, so it does not
-    //    need the wipe;
+    // The delete is ONLY done when the PageView is refreshed (or no
+    // presentation is active). For a presentation-only refresh it must be
+    // SKIPPED:
     //  - wiping the PageView's cached pixmap would be harmless by itself
     //    (Page::deletePixmap does not notify), BUT the presentation's new
     //    priority-0 request cancels any executing PageView request and the
@@ -1358,7 +1372,9 @@ void V3dModelManager::refreshPixmap(size_t pageNumber) {
     //    With the PageView's pixmap left in place, it simply keeps showing
     //    its last pixels (frozen) until the user interacts with it.
     if (refreshPageView || !presentationActive) {
-        m_Pages[pageNumber]->deletePixmaps();
+        if (m_PageViewObserver != nullptr) {
+            m_Pages[pageNumber]->deletePixmap(m_PageViewObserver);
+        }
     }
 
     // Normal view: the synthetic Ctrl key release makes the PageView redraw,
