@@ -330,8 +330,15 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     if (!hasRenderableData) {
         LOG("[v3d] RenderModel: EXIT - no renderable data after QueueMesh (culled?)\n");
-        QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
-        image.fill(Qt::black);
+        // Match the reference (vkrender.cc): the frame is still cleared every
+        // render, so an all-culled scene (e.g. translated fully offscreen) shows
+        // the v3d background color, not black.
+        const auto& bg = m_Models[pageNumber][modelIndex].file->headerInfo.background;
+        QImage image{ imageWidth, imageHeight, QImage::Format_RGB32 };
+        image.fill(QColor(qBound(0, int(bg.r * 255.0f + 0.5f), 255),
+                          qBound(0, int(bg.g * 255.0f + 0.5f), 255),
+                          qBound(0, int(bg.b * 255.0f + 0.5f), 255)));
+        image.setColorSpace(QColorSpace());
         return image;
     }
 
