@@ -108,7 +108,16 @@ static bool showVersion=false;
 // systemDir is resolved by resolveSysdir() (declared in locate.h). Under CMake
 // this file is compiled once per executable so that ASYMPTOTE_SYSDIR can differ
 // between asy and asy-ctan; the autotools build has only the one executable.
+//
+// In the CTAN/TeXLive build (--enable-texlive-build, or the asy-ctan target)
+// KPSEWHICH is defined and ASYMPTOTE_SYSDIR is empty: the data directory is
+// defined only by kpathsea, so there is nothing to relocate -- initDir()
+// resolves sysdir with kpsewhich at startup instead.
+#ifdef KPSEWHICH
+string systemDir="";
+#else
 string systemDir=resolveSysdir(ASYMPTOTE_SYSDIR);
+#endif
 string defaultPSdriver="ps2write";
 string defaultEPSdriver="eps2write";
 string defaultPNGdriver="png16malpha"; // pngalpha has issues at high resolutions
@@ -292,11 +301,14 @@ void queryRegistry()
     docdir= s;
   }
   // The registry entry describes a separately installed Asymptote, so it must
-  // not override a systemDir that initSysdir() resolved relative to this
+  // not override a systemDir that resolveSysdir() resolved relative to this
   // executable; that would send a binary run in place to the installed base/.
-  // An empty systemDir indicates a TeXLive build.
-  if (!systemDir.empty() && !docdir.empty() && !relocatedSysdir)
+  // The TeXLive (KPSEWHICH) build takes its sysdir from kpathsea in initDir()
+  // instead.
+#ifndef KPSEWHICH
+  if (!docdir.empty() && !relocatedSysdir)
     systemDir= docdir;
+#endif
 }
 
 #endif
@@ -322,6 +334,7 @@ bool cmyk;
 
 // Disable system calls.
 bool safe=true;
+const string defaultImageURL = "https://vectorgraphics.gitlab.io/asymptote/ibl";
 // Enable reading from other directories
 bool globalRead=true;
 // Enable writing to (or changing to) other directories
@@ -342,6 +355,26 @@ bool curlEnabled() {return curlOverride || !haveReadFile;}
 #else
 bool curlEnabled() {return false;}
 #endif
+
+bool iblNameOK(string const& name)
+{
+  if(name.find('%') != string::npos)
+    return false;
+  // Must be a relative path within the image library: no leading separator.
+  if(!name.empty() && (name[0] == '/' || name[0] == '\\'))
+    return false;
+  size_t start=0;
+  while(true) {
+    size_t end=name.find_first_of("/\\", start);
+    size_t len=(end == string::npos) ? string::npos : end - start;
+    if(name.substr(start,len) == "..")
+      return false;
+    if(end == string::npos)
+      break;
+    start=end+1;
+  }
+  return true;
+}
 
 const string suffix="asy";
 const string guisuffix="gui";
@@ -464,25 +497,29 @@ struct option : public gc {
     return ss.str();
   }
 
+  // Print a help line with the option label in a fixed-width column.
+  // If the label is too wide, the description wraps to the next line.
+  static void describeLine(const string &start, const string &text) {
+    const unsigned WIDTH=22;
+    cerr << std::left << std::setw(WIDTH) << start;
+    if (start.size() >= WIDTH) {
+      cerr << endl;
+      cerr << std::left << std::setw(WIDTH) << "";
+    }
+    cerr << text << endl;
+  }
+
   // Outputs description of the command for the -help option.
   virtual void describe(char option) {
     // Don't show the option if it has no description (deprecated options
     // are silently accepted but not listed).
     if(!hide() && !desc.empty() && ((option == 'h') ^ env())) {
-      const unsigned WIDTH=22;
       string start=describeStart();
-      cerr << std::left << std::setw(WIDTH) << start;
-      if (start.size() >= WIDTH) {
-        cerr << endl;
-        cerr << std::left << std::setw(WIDTH) << "";
-      }
-      cerr << " " << desc;
-      if(cmdlineonly) cerr << "; command-line only";
-      if(Default != "") {
-        cerr << " ";
-        cerr << Default;
-      }
-      cerr << endl;
+      string text=" " + desc;
+      if(cmdlineonly) text += "; command-line only";
+      if(Default != "")
+        text += " " + Default;
+      describeLine(start, text);
     }
   }
 
@@ -739,9 +776,29 @@ string GetEnv(string s, string Default) {
 }
 
 struct envSetting : public stringSetting {
-  envSetting(string name, string Default)
-    : stringSetting(name, 0, " ", "", GetEnv(name,Default)) {}
+  string help;   // explicit description; if empty, not listed under -h
+  string deflt;  // constant default value, shown in the -h listing
+
+  envSetting(string name, string Default,
+             string argname=" ", string desc="")
+    : stringSetting(name, 0, argname, "", GetEnv(name,Default)),
+      help(desc), deflt(Default) {}
   bool env() {return true;}
+
+  void describe(char option) override {
+    if(hide()) return;
+    if(option == 'e') {
+      // Consistent with the other environment settings: just the value.
+      describeLine("-"+name, " [" + GetEnv(name, deflt) + "]");
+    } else if(!help.empty()) {
+      // Documented environment settings also appear under -h (and hence the
+      // man page), like any other option, with their constant default value.
+      string text=" " + help;
+      if(deflt != "")
+        text += " [" + deflt + "]";
+      describeLine(describeStart(), text);
+    }
+  }
 };
 
 template<class T>
@@ -1110,6 +1167,7 @@ void displayFeatures(bool enabled)
     bool sigsegv=false;
     bool usegc=false;
     bool usethreads=false;
+    bool kpsewhich=false;
 
 #if HAVE_LIBGLM
     glm=true;
@@ -1195,24 +1253,29 @@ void displayFeatures(bool enabled)
     usethreads=true;
 #endif
 
-    feature("V3D      3D vector graphics output",glm && xdr);
-    feature("WebGL    3D HTML rendering",glm);
-    feature("OpenGL   3D OpenGL rendering",haveopengl);
-    feature("Vulkan   3D Vulkan rendering",havevulkan);
-    feature("SSBO     OpenGL shader storage buffer objects",ssbo);
-    feature("GSL      GNU Scientific Library (special functions)",gsl);
-    feature("FFTW3    Fast Fourier transforms",fftw3);
-    feature("Eigen    Eigenvalue library",eigen);
-    feature("XDR      External Data Representation (portable binary file format for V3D)",xdr);
-    feature("CURL     URL support",curl);
-    feature("LSP      Language Server Protocol",lsp);
-    feature("Readline Interactive history and editing",readline);
+#ifdef KPSEWHICH
+    kpsewhich=true;
+#endif
+
+    feature("V3D       3D vector graphics output",glm && xdr);
+    feature("WebGL     3D HTML rendering",glm);
+    feature("OpenGL    3D OpenGL rendering",haveopengl);
+    feature("Vulkan    3D Vulkan rendering",havevulkan);
+    feature("SSBO      OpenGL shader storage buffer objects",ssbo);
+    feature("GSL       GNU Scientific Library (special functions)",gsl);
+    feature("FFTW3     Fast Fourier transforms",fftw3);
+    feature("Eigen     Eigenvalue library",eigen);
+    feature("XDR       External Data Representation (portable binary file format for V3D)",xdr);
+    feature("CURL      URL support",curl);
+    feature("LSP       Language Server Protocol",lsp);
+    feature("Readline  Interactive history and editing",readline);
     if(!readline)
-      feature("Editline interactive editing (Readline is unavailable)",editline);
-    feature("Sigsegv  Distinguish stack overflows from segmentation faults",
+      feature("Editline  Interactive editing (Readline is unavailable)",editline);
+    feature("Sigsegv   Distinguish stack overflows from segmentation faults",
             sigsegv);
-    feature("GC       Boehm garbage collector",usegc);
-    feature("threads  Render 3D scenes in a separate thread",usethreads);
+    feature("GC        Boehm garbage collector",usegc);
+    feature("threads   Render 3D scenes in a separate thread",usethreads);
+    feature("kpsewhich Lookup system directory with kpsewhich",kpsewhich);
 }
 
 // Short license summary printed by asy --licenses.
@@ -1652,9 +1715,12 @@ void initSettings() {
                             "Show 3D axes in PDF output", true));
   addOption(new boolSetting("ibl", 0,
                             "Enable environment map image-based lighting", false));
-  addOption(new stringSetting("image", 0,"str","Environment image name","snowyField"));
-  addOption(new stringSetting("imageDir", 0,"str","Environment image library directory","ibl"));
-  addOption(new stringSetting("imageURL", 0,"str","Environment image library URL","https://vectorgraphics.gitlab.io/asymptote/ibl"));
+  addOption(new envSetting("image", "snowyField", "str",
+                           "Environment image name"));
+  addOption(new envSetting("imageDir", "ibl", "str",
+                           "Environment image library directory"));
+  addOption(new envSetting("imageURL", defaultImageURL,
+                           "str", "Environment image library URL"));
   addOption(new realSetting("render", 0, "n",
                             "Render 3D graphics using n pixels per bp",
                             havegl ? 2.0 : 0.0));
@@ -1671,8 +1737,8 @@ void initSettings() {
                             "Render 3D images in sRGB space", false));
   addOption(new boolSetting("offscreen", 0,
                             "Use offscreen rendering", false));
-  addOption(new IntSetting("device", 0, "n",
-                           "Set Vulkan device", -1));
+  addOption(new envSetting("device", "", "str",
+                           "Vulkan device, by index or name (see asy -vv)"));
   addOption(new boolSetting("twosided", 0,
                             "Use two-sided 3D lighting model for rendering",
                             true));
@@ -1860,8 +1926,8 @@ void initSettings() {
   addOption(new IntSetting("pdfreloaddelay", 0, "usec",
                            "Delay before attempting initial pdf reload"
                            ,750000));
-  addOption(new stringSetting("autoimport", 0, "str",
-                              "Module to automatically import"));
+  addOption(new envSetting("autoimport", "", "str",
+                           "Module to automatically import"));
   addOption(new userSetting("command", 'c', "str",
                             "Command to autoexecute"));
   addOption(new userSetting("user", 'u', "str",
@@ -2023,6 +2089,11 @@ string lookup(const string& symbol)
 }
 
 void initDir() {
+#ifdef KPSEWHICH
+  // TeXLive build: the data directory is defined only by kpathsea, so look
+  // it up with kpsewhich unless the user supplied -sysdir or ASYMPTOTE_SYSDIR.
+  // Other builds never run this, and there an empty sysdir can only come
+  // from an explicit -sysdir "".
   if(getSetting<string>("sysdir").empty()) {
     string s=lookup("TEXMFMAIN");
     if(s.size() > 1) {
@@ -2034,6 +2105,7 @@ void initDir() {
         initdir=s;
     }
   }
+#endif
 
   if(initdir.empty())
     initdir=Getenv("ASYMPTOTE_HOME",msdos);
@@ -2321,7 +2393,16 @@ void setOptions(int argc, char *argv[])
   if(verbose == 0 && !debug) GC_set_warn_proc(no_GCwarn);
 #endif
 
-  if(setlocale (LC_ALL, "") == NULL && debug)
+#if defined(_WIN32)
+  // Use the UTF-8 locale so the CRT's narrow file APIs (fopen, open, stat, ...)
+  // interpret their char* arguments as UTF-8 and internally convert to UTF-16
+  // for the Win32 calls.  Available on Windows 10 1903+; silently a no-op on
+  // older builds.  Users who need a different locale for number formatting can
+  // call the Asymptote locale() function in their code.
+  if(setlocale(LC_ALL, ".UTF-8") == NULL && debug)
+#else
+  if(setlocale(LC_ALL, "") == NULL && debug)
+#endif
     perror("setlocale");
 
   // Set variables for the file arguments.

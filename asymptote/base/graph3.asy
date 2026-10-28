@@ -385,7 +385,7 @@ axis Bounds(int type=Both, int type2=Both, triple align=O, bool extend=false)
   };
 }
 
-axis YZEquals(real y, real z, triple align=O, bool extend=false)
+axis YZEquals(real y, real z, triple align=O, bool extend=true)
 {
   return new void(picture pic, axisT axis) {
     axis.type=Value;
@@ -398,7 +398,7 @@ axis YZEquals(real y, real z, triple align=O, bool extend=false)
   };
 }
 
-axis XZEquals(real x, real z, triple align=O, bool extend=false)
+axis XZEquals(real x, real z, triple align=O, bool extend=true)
 {
   return new void(picture pic, axisT axis) {
     axis.type=Value;
@@ -411,7 +411,7 @@ axis XZEquals(real x, real z, triple align=O, bool extend=false)
   };
 }
 
-axis XYEquals(real x, real y, triple align=O, bool extend=false)
+axis XYEquals(real x, real y, triple align=O, bool extend=true)
 {
   return new void(picture pic, axisT axis) {
     axis.type=Value;
@@ -424,7 +424,7 @@ axis XYEquals(real x, real y, triple align=O, bool extend=false)
   };
 }
 
-axis YZZero(triple align=O, bool extend=false)
+axis YZZero(triple align=O, bool extend=true)
 {
   return new void(picture pic, axisT axis) {
     axis.type=Value;
@@ -437,7 +437,7 @@ axis YZZero(triple align=O, bool extend=false)
   };
 }
 
-axis XZZero(triple align=O, bool extend=false)
+axis XZZero(triple align=O, bool extend=true)
 {
   return new void(picture pic, axisT axis) {
     axis.type=Value;
@@ -450,7 +450,7 @@ axis XZZero(triple align=O, bool extend=false)
   };
 }
 
-axis XYZero(triple align=O, bool extend=false)
+axis XYZero(triple align=O, bool extend=true)
 {
   return new void(picture pic, axisT axis) {
     axis.type=Value;
@@ -540,14 +540,19 @@ void xaxis3At(picture pic=currentpicture, Label L="", axis axis,
   real z=axis.value2;
   real y2,z2;
   int[] divisor=copy(axis.xdivisor);
+  bool extend=axis.extend;
 
   pic.add(new void(picture f, transform3 t, transform3 T, projection P,
                    triple lb, triple rt) {
             transform3 tinv=inverse(t);
-            triple a=xmin == -infinity ? tinv*(lb.x-min3(p).x,ytrans(t,y),
-                                               ztrans(t,z)) : (xmin,y,z);
-            triple b=xmax == infinity ? tinv*(rt.x-max3(p).x,ytrans(t,y),
-                                              ztrans(t,z)) : (xmax,y,z);
+            triple a=xmin == -infinity
+              ? (extend ? tinv*(lb.x-min3(p).x,ytrans(t,y),ztrans(t,z))
+                        : (pic.userMin().x,y,z))
+              : (xmin,y,z);
+            triple b=xmax == infinity
+              ? (extend ? tinv*(rt.x-max3(p).x,ytrans(t,y),ztrans(t,z))
+                        : (pic.userMax().x,y,z))
+              : (xmax,y,z);
             real y0;
             real z0;
             if(abs(dir.y) < abs(dir.z)) {
@@ -558,12 +563,17 @@ void xaxis3At(picture pic=currentpicture, Label L="", axis axis,
               z0=z;
             }
 
-            triple a2=xmin == -infinity ? tinv*(lb.x-min3(p).x,ytrans(t,y0),
-                                                ztrans(t,z0)) : (xmin,y0,z0);
-            triple b2=xmax == infinity ? tinv*(rt.x-max3(p).x,ytrans(t,y0),
-                                               ztrans(t,z0)) : (xmax,y0,z0);
+            triple a2=xmin == -infinity
+              ? (extend ? tinv*(lb.x-min3(p).x,ytrans(t,y0),ztrans(t,z0))
+                        : (pic.userMin().x,y0,z0))
+              : (xmin,y0,z0);
+            triple b2=xmax == infinity
+              ? (extend ? tinv*(rt.x-max3(p).x,ytrans(t,y0),ztrans(t,z0))
+                        : (pic.userMax().x,y0,z0))
+              : (xmax,y0,z0);
 
-            if(xmin == -infinity || xmax == infinity) {
+            if(xmin == -infinity || xmax == infinity ||
+               divisor.length == 0) {
               bounds mx=autoscale(a.x,b.x,pic.scale.x.scale);
               pic.scale.x.tickMin=mx.min;
               pic.scale.x.tickMax=mx.max;
@@ -622,6 +632,12 @@ void xaxis3At(picture pic=currentpicture, Label L="", axis axis,
     }
 
     if(finite(a) && finite(b)) {
+      if(divisor.length == 0 && ticks != NoTicks3) {
+        bounds mx=autoscale(a.x,b.x,pic.scale.x.scale);
+        pic.scale.x.tickMin=mx.min;
+        pic.scale.x.tickMax=mx.max;
+        divisor=mx.divisor;
+      }
       picture d;
       ticks(d,pic.scaling3(warn=false),L,
             (a.x,0,0)--(b.x,0,0),(a2.x,0,0)--(b2.x,0,0),p,arrow,margin,
@@ -674,14 +690,19 @@ void yaxis3At(picture pic=currentpicture, Label L="", axis axis,
   real z=axis.value2;
   real x2,z2;
   int[] divisor=copy(axis.ydivisor);
+  bool extend=axis.extend;
 
   pic.add(new void(picture f, transform3 t, transform3 T, projection P,
                    triple lb, triple rt) {
             transform3 tinv=inverse(t);
-            triple a=ymin == -infinity ? tinv*(xtrans(t,x),lb.y-min3(p).y,
-                                               ztrans(t,z)) : (x,ymin,z);
-            triple b=ymax == infinity ? tinv*(xtrans(t,x),rt.y-max3(p).y,
-                                              ztrans(t,z)) : (x,ymax,z);
+            triple a=ymin == -infinity
+              ? (extend ? tinv*(xtrans(t,x),lb.y-min3(p).y,ztrans(t,z))
+                        : (x,pic.userMin().y,z))
+              : (x,ymin,z);
+            triple b=ymax == infinity
+              ? (extend ? tinv*(xtrans(t,x),rt.y-max3(p).y,ztrans(t,z))
+                        : (x,pic.userMax().y,z))
+              : (x,ymax,z);
             real x0;
             real z0;
             if(abs(dir.x) < abs(dir.z)) {
@@ -692,12 +713,17 @@ void yaxis3At(picture pic=currentpicture, Label L="", axis axis,
               z0=z;
             }
 
-            triple a2=ymin == -infinity ? tinv*(xtrans(t,x0),lb.y-min3(p).y,
-                                                ztrans(t,z0)) : (x0,ymin,z0);
-            triple b2=ymax == infinity ? tinv*(xtrans(t,x0),rt.y-max3(p).y,
-                                               ztrans(t,z0)) : (x0,ymax,z0);
+            triple a2=ymin == -infinity
+              ? (extend ? tinv*(xtrans(t,x0),lb.y-min3(p).y,ztrans(t,z0))
+                        : (x0,pic.userMin().y,z0))
+              : (x0,ymin,z0);
+            triple b2=ymax == infinity
+              ? (extend ? tinv*(xtrans(t,x0),rt.y-max3(p).y,ztrans(t,z0))
+                        : (x0,pic.userMax().y,z0))
+              : (x0,ymax,z0);
 
-            if(ymin == -infinity || ymax == infinity) {
+            if(ymin == -infinity || ymax == infinity ||
+               divisor.length == 0) {
               bounds my=autoscale(a.y,b.y,pic.scale.y.scale);
               pic.scale.y.tickMin=my.min;
               pic.scale.y.tickMax=my.max;
@@ -756,6 +782,12 @@ void yaxis3At(picture pic=currentpicture, Label L="", axis axis,
     }
 
     if(finite(a) && finite(b)) {
+      if(divisor.length == 0 && ticks != NoTicks3) {
+        bounds my=autoscale(a.y,b.y,pic.scale.y.scale);
+        pic.scale.y.tickMin=my.min;
+        pic.scale.y.tickMax=my.max;
+        divisor=my.divisor;
+      }
       picture d;
       ticks(d,pic.scaling3(warn=false),L,
             (0,a.y,0)--(0,b.y,0),(0,a2.y,0)--(0,a2.y,0),p,arrow,margin,
@@ -808,14 +840,19 @@ void zaxis3At(picture pic=currentpicture, Label L="", axis axis,
   real y=axis.value2;
   real x2,y2;
   int[] divisor=copy(axis.zdivisor);
+  bool extend=axis.extend;
 
   pic.add(new void(picture f, transform3 t, transform3 T, projection P,
                    triple lb, triple rt) {
             transform3 tinv=inverse(t);
-            triple a=zmin == -infinity ? tinv*(xtrans(t,x),ytrans(t,y),
-                                               lb.z-min3(p).z) : (x,y,zmin);
-            triple b=zmax == infinity ? tinv*(xtrans(t,x),ytrans(t,y),
-                                              rt.z-max3(p).z) : (x,y,zmax);
+            triple a=zmin == -infinity
+              ? (extend ? tinv*(xtrans(t,x),ytrans(t,y),lb.z-min3(p).z)
+                        : (x,y,pic.userMin().z))
+              : (x,y,zmin);
+            triple b=zmax == infinity
+              ? (extend ? tinv*(xtrans(t,x),ytrans(t,y),rt.z-max3(p).z)
+                        : (x,y,pic.userMax().z))
+              : (x,y,zmax);
             real x0;
             real y0;
             if(abs(dir.x) < abs(dir.y)) {
@@ -826,12 +863,17 @@ void zaxis3At(picture pic=currentpicture, Label L="", axis axis,
               y0=y;
             }
 
-            triple a2=zmin == -infinity ? tinv*(xtrans(t,x0),ytrans(t,y0),
-                                                lb.z-min3(p).z) : (x0,y0,zmin);
-            triple b2=zmax == infinity ? tinv*(xtrans(t,x0),ytrans(t,y0),
-                                               rt.z-max3(p).z) : (x0,y0,zmax);
+            triple a2=zmin == -infinity
+              ? (extend ? tinv*(xtrans(t,x0),ytrans(t,y0),lb.z-min3(p).z)
+                        : (x0,y0,pic.userMin().z))
+              : (x0,y0,zmin);
+            triple b2=zmax == infinity
+              ? (extend ? tinv*(xtrans(t,x0),ytrans(t,y0),rt.z-max3(p).z)
+                        : (x0,y0,pic.userMax().z))
+              : (x0,y0,zmax);
 
-            if(zmin == -infinity || zmax == infinity) {
+            if(zmin == -infinity || zmax == infinity ||
+               divisor.length == 0) {
               bounds mz=autoscale(a.z,b.z,pic.scale.z.scale);
               pic.scale.z.tickMin=mz.min;
               pic.scale.z.tickMax=mz.max;
@@ -890,6 +932,12 @@ void zaxis3At(picture pic=currentpicture, Label L="", axis axis,
     }
 
     if(finite(a) && finite(b)) {
+      if(divisor.length == 0 && ticks != NoTicks3) {
+        bounds mz=autoscale(a.z,b.z,pic.scale.z.scale);
+        pic.scale.z.tickMin=mz.min;
+        pic.scale.z.tickMax=mz.max;
+        divisor=mz.divisor;
+      }
       picture d;
       ticks(d,pic.scaling3(warn=false),L,
             (0,0,a.z)--(0,0,b.z),(0,0,a2.z)--(0,0,a2.z),p,arrow,margin,
@@ -1210,7 +1258,7 @@ void limits(picture pic=currentpicture, triple min, triple max)
 // Draw x, y and z axes.
 void axes3(picture pic=currentpicture,
            Label xlabel="", Label ylabel="", Label zlabel="",
-           bool extend=false,
+           bool extend=true,
            triple min=(-infinity,-infinity,-infinity),
            triple max=(infinity,infinity,infinity),
            pen p=currentpen, pen py=p, pen pz=p,
@@ -1723,7 +1771,7 @@ bool vperiodic(triple[][] a) {
   return true;
 }
 
-// return the surface described by a matrix f
+// return the surface described by a matrix f interpolated bilinearly
 surface surface(picture pic=currentpicture, triple[][] f, bool[][] cond={})
 {
   if(!rectangular(f)) abort("matrix is not rectangular");
@@ -1941,11 +1989,10 @@ real[][][] bispline(real[][] f, real[] x, real[] y,
                     splinetype xsplinetype=null,
                     splinetype ysplinetype=xsplinetype, bool[][] cond={})
 {
-  real epsilon=sqrtEpsilon*norm(y);
-  if(xsplinetype == null)
-    xsplinetype=(abs(x[0]-x[x.length-1]) <= epsilon) ? periodic : notaknot;
-  if(ysplinetype == null)
-    ysplinetype=(abs(y[0]-y[y.length-1]) <= epsilon) ? periodic : notaknot;
+  // Spline is null. The values at the two ends cannot show reliably that a
+  // function is periodic, so periodic end conditions must be requested.
+  if(xsplinetype == null) xsplinetype=notaknot;
+  if(ysplinetype == null) ysplinetype=notaknot;
   int n=x.length; int m=y.length;
   real[][] ft=transpose(f);
   real[][] tp=new real[m][];
@@ -1967,7 +2014,7 @@ real[][][] bispline(real[][] f, real[] x, real[] y,
 // return the surface described by a real matrix f, interpolated with
 // xsplinetype and ysplinetype.
 surface surface(picture pic=currentpicture, real[][] f, real[] x, real[] y,
-                splinetype xsplinetype=null,
+                splinetype xsplinetype=Spline,
                 splinetype ysplinetype=xsplinetype,
                 bool[][] cond={})
 {
@@ -1996,11 +2043,10 @@ surface surface(picture pic=currentpicture, real[][] f, real[] x, real[] y,
   real[] x=map(pic.scale.x.T,x);
   real[] y=map(pic.scale.y.T,y);
 
-  real epsilon=sqrtEpsilon*norm(y);
-  if(xsplinetype == null)
-    xsplinetype=(abs(x[0]-x[x.length-1]) <= epsilon) ? periodic : notaknot;
-  if(ysplinetype == null)
-    ysplinetype=(abs(y[0]-y[y.length-1]) <= epsilon) ? periodic : notaknot;
+  // Spline is null. The values at the two ends cannot show reliably that a
+  // function is periodic, so periodic end conditions must be requested.
+  if(xsplinetype == null) xsplinetype=notaknot;
+  if(ysplinetype == null) ysplinetype=notaknot;
   int n=x.length; int m=y.length;
   real[][] ft=transpose(f);
   real[][] tp=new real[m][];
@@ -2017,8 +2063,6 @@ surface surface(picture pic=currentpicture, real[][] f, real[] x, real[] y,
   for(int i=0; i < n; ++i)
     r[i]=clamped(d1[i],d2[i])(y,p[i]);
   surface s=bispline(f,p,q,r,x,y,cond);
-  if(xsplinetype == periodic) s.ucyclic(true);
-  if(ysplinetype == periodic) s.vcyclic(true);
   return s;
 }
 
@@ -2037,10 +2081,14 @@ surface surface(picture pic=currentpicture, real[][] f, pair a, pair b,
 
   real[] x=uniform(pic.scale.x.T,pic.scale.x.Tinv,a.x,b.x,nx);
   real[] y=uniform(pic.scale.y.T,pic.scale.y.Tinv,a.y,b.y,ny);
-  return surface(pic,f,x,y,xsplinetype,ysplinetype,cond);
+  surface s=surface(pic,f,x,y,xsplinetype,ysplinetype,cond);
+  // The parametric coordinates are the x and y coordinates of the points of
+  // the surface, which are scaled coordinates of pic.
+  s.domain(Scale(pic,a),Scale(pic,b));
+  return s;
 }
 
-// return the surface described by a real matrix f, interpolated linearly.
+// return the surface described by a real matrix f, interpolated bilinearly.
 surface surface(picture pic=currentpicture, real[][] f, pair a, pair b,
                 bool[][] cond={})
 {
@@ -2066,39 +2114,58 @@ surface surface(picture pic=currentpicture, real[][] f, pair a, pair b,
       if(all || condi[j])
         vi[j]=(x,pic.scale.y.Tinv(interp(a.y,b.y,j/ny)),fi[j]);
   }
-  return surface(pic,v,cond);
+  surface s=surface(pic,v,cond);
+  // The parametric coordinates are the x and y coordinates of the points of
+  // the surface, which are scaled coordinates of pic.
+  s.domain(a,b);
+  return s;
 }
 
-// return the surface described by a parametric function f over box(a,b),
-// interpolated linearly.
-surface surface(picture pic=currentpicture, triple f(pair z), pair a, pair b,
-                int nu=nmesh, int nv=nu, bool cond(pair z)=null)
+// return the surface described by a parametric function f evaluated at u and v
+// and interpolated bilinearly.
+surface surface(picture pic=currentpicture, triple f(pair z),
+                real[] u, real[] v, bool cond(pair z)=null)
 {
+  int nu=u.length-1;
+  int nv=v.length-1;
   if(nu <= 0 || nv <= 0) return nullsurface;
 
   bool[][] active;
   bool all=cond == null;
   if(!all) active=new bool[nu+1][nv+1];
 
-  real du=1/nu;
-  real dv=1/nv;
-  pair Idv=(0,dv);
-  pair dz=(du,dv);
+  triple[][] P=new triple[nu+1][nv+1];
 
-  triple[][] v=new triple[nu+1][nv+1];
-
-  pair a=Scale(pic,a);
-  pair b=Scale(pic,b);
   for(int i=0; i <= nu; ++i) {
-    real x=pic.scale.x.Tinv(interp(a.x,b.x,i*du));
+    real ui=u[i];
     bool[] activei=all ? null : active[i];
-    triple[] vi=v[i];
+    triple[] Pi=P[i];
     for(int j=0; j <= nv; ++j) {
-      pair z=(x,pic.scale.y.Tinv(interp(a.y,b.y,j*dv)));
-      if(all || (activei[j]=cond(z))) vi[j]=f(z);
+      pair z=(ui,v[j]);
+      if(all || (activei[j]=cond(z))) Pi[j]=f(z);
     }
   }
-  return surface(pic,v,active);
+  // The parametric coordinates are mesh coordinates, since u and v need not
+  // be evenly spaced. Callers that lay out a uniform grid call s.domain
+  // themselves.
+  return surface(pic,P,active);
+}
+
+// return the surface described by a parametric function f over box(a,b),
+// interpolated bilinearly. The parameters are sampled at evenly spaced values,
+// independent of the scaling of pic.
+surface surface(picture pic=currentpicture, triple f(pair z), pair a, pair b,
+                int nu=nmesh, int nv=nu, bool cond(pair z)=null)
+{
+  if(nu <= 0 || nv <= 0) return nullsurface;
+
+  real du=1/nu;
+  real dv=1/nv;
+  real[] u=sequence(new real(int i) {return interp(a.x,b.x,i*du);},nu+1);
+  real[] v=sequence(new real(int j) {return interp(a.y,b.y,j*dv);},nv+1);
+  surface s=surface(pic,f,u,v,cond);
+  s.domain(a,b);
+  return s;
 }
 
 // return the surface described by a parametric function f evaluated at u and v
@@ -2168,29 +2235,40 @@ surface surface(picture pic=currentpicture, triple f(pair z),
   surface s=surface(sx.length);
   s.index=new int[nu][nv];
   int k=0;
+  bool[] activeip =(all || active.length == 0) ? null : active[0];
   for(int i=0; i < nu; ++i) {
     int[] indexi=s.index[i];
+    bool[] activei=activeip;
+    if (!all) {
+      activeip = active[i+1];
+    }
     for(int j=0; j < nv; ++j) {
-      indexi[j]=k;
-      ++k;
+      if (all || (activei[j] && activei[j+1] && activeip[j] && activeip[j+1])) {
+        indexi[j]=k;
+        ++k;
+      }
     }
   }
 
-  for(int k=0; k < sx.length; ++k) {
-    triple[][] Q=new triple[4][];
-    real[][] Px=sx[k];
-    real[][] Py=sy[k];
-    real[][] Pz=sz[k];
-    for(int i=0; i < 4 ; ++i) {
-      real[] Pxi=Px[i];
-      real[] Pyi=Py[i];
-      real[] Pzi=Pz[i];
-      Q[i]=new triple[] {(Pxi[0],Pyi[0],Pzi[0]),
-                         (Pxi[1],Pyi[1],Pzi[1]),
-                         (Pxi[2],Pyi[2],Pzi[2]),
-                         (Pxi[3],Pyi[3],Pzi[3])};
+  for (int i=0; i < nu; ++i) {
+    for (int j=0; j < nv; ++j) {
+      if (!s.index[i].initialized(j)) continue;
+      int k=s.index[i][j];
+      triple[][] Q=new triple[4][];
+      real[][] Px=sx[k];
+      real[][] Py=sy[k];
+      real[][] Pz=sz[k];
+      for(int ii=0; ii < 4 ; ++ii) {
+        real[] Pxi=Px[ii];
+        real[] Pyi=Py[ii];
+        real[] Pzi=Pz[ii];
+        Q[ii]=new triple[] {(Pxi[0],Pyi[0],Pzi[0]),
+                            (Pxi[1],Pyi[1],Pzi[1]),
+                            (Pxi[2],Pyi[2],Pzi[2]),
+                            (Pxi[3],Pyi[3],Pzi[3])};
+      }
+      s.s[k]=patch(Q);
     }
-    s.s[k]=patch(Q);
   }
 
   // A cyclic u parameter should have splinetype either periodic or
@@ -2208,28 +2286,51 @@ surface surface(picture pic=currentpicture, triple f(pair z),
      joinsSmoothly(vsplinetype[2]) &&
      vperiodic(fx) && vperiodic(fy) && vperiodic(fz)) s.vcyclic(true);
 
+  // The parametric coordinates are left as surface coordinates: u and v may
+  // be spaced nonuniformly, so the map between the two is not affine in
+  // general. Callers that lay out a uniform grid call s.domain themselves.
+
   return s;
 }
 
 // return the surface described by a parametric function f over box(a,b),
-// interpolated with usplinetype and vsplinetype.
+// sampled at evenly spaced parameter values and interpolated with
+// usplinetype and vsplinetype.
 surface surface(picture pic=currentpicture, triple f(pair z), pair a, pair b,
                 int nu=nmesh, int nv=nu,
                 splinetype[] usplinetype, splinetype[] vsplinetype=Spline,
                 bool cond(pair z)=null)
 {
-  real[] x=uniform(pic.scale.x.T,pic.scale.x.Tinv,a.x,b.x,nu);
-  real[] y=uniform(pic.scale.y.T,pic.scale.y.Tinv,a.y,b.y,nv);
-  return surface(pic,f,x,y,usplinetype,vsplinetype,cond);
+  surface s=surface(pic,f,uniform(a.x,b.x,nu),uniform(a.y,b.y,nv),
+                    usplinetype,vsplinetype,cond);
+  s.domain(a,b);
+  return s;
 }
 
 // return the surface described by a real function f over box(a,b),
-// interpolated linearly.
+// interpolated bilinearly.
 surface surface(picture pic=currentpicture, real f(pair z), pair a, pair b,
                 int nx=nmesh, int ny=nx, bool cond(pair z)=null)
 {
-  return surface(pic,new triple(pair z) {return (z.x,z.y,f(z));},a,b,nx,ny,
-                 cond);
+  if(nx <= 0 || ny <= 0) return nullsurface;
+
+  // The samples are evenly spaced in the scaled coordinates of pic.
+  pair a=Scale(pic,a);
+  pair b=Scale(pic,b);
+  real dx=1/nx;
+  real dy=1/ny;
+  real[] x=sequence(new real(int i) {
+      return pic.scale.x.Tinv(interp(a.x,b.x,i*dx));
+    },nx+1);
+  real[] y=sequence(new real(int j) {
+      return pic.scale.y.Tinv(interp(a.y,b.y,j*dy));
+    },ny+1);
+  surface s=surface(pic,new triple(pair z) {return (z.x,z.y,f(z));},x,y,
+                    cond);
+  // The parametric coordinates are the x and y coordinates of the points of
+  // the surface, which are scaled coordinates of pic.
+  s.domain(a,b);
+  return s;
 }
 
 // return the surface described by a real function f over box(a,b),
@@ -2260,7 +2361,11 @@ surface surface(picture pic=currentpicture, real f(pair z), pair a, pair b,
       if(!all) activei[j]=cond(z);
     }
   }
-  return surface(pic,F,x,y,xsplinetype,ysplinetype,active);
+  surface s=surface(pic,F,x,y,xsplinetype,ysplinetype,active);
+  // The parametric coordinates are the x and y coordinates of the points of
+  // the surface, which are scaled coordinates of pic.
+  s.domain(Scale(pic,a),Scale(pic,b));
+  return s;
 }
 
 guide3[][] lift(real f(real x, real y), guide[][] g,

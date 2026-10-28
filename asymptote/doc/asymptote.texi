@@ -194,7 +194,7 @@ User modules
 * graph::                       2D linear & logarithmic graphs
 * three::                       3D vector graphics
 * graph3::                      3D linear & logarithmic graphs
-* palette::                     Color density images and palettes
+* palette::                     Color density images, palettes, surface coloring
 * colormap::                    Colormaps from matplotlib
 * texcolors::                   @acronym{CMYK} @TeX{} colors
 * x11colors::                   @acronym{RGB} @code{X11} colors
@@ -280,6 +280,13 @@ installing it, using the @code{Asymptote Web Application}:
 
 It is also possible to send remote commands to this server via the
 curl utility (@pxref{Command-Line Interface}).
+
+The @code{Asymptote Wiki} at
+@url{https://asymptote.ualberta.ca/wiki/} is a community gallery
+where users can share examples and modules. Examples are organized
+into user-defined categories, compiled with the installed version of
+@code{Asymptote}, and displayed as inline @acronym{SVG} (2D) or
+interactive @acronym{WebGL} (3D).
 
 A major advantage of @code{Asymptote} over other graphics packages is
 that it is a high-level programming language, as opposed to just a graphics
@@ -756,9 +763,9 @@ to the directory @code{base} (in the top level directory of the
 @cindex @code{asy-mode}
 @cindex @code{lasy-mode}
 Users of @code{emacs} can edit @code{Asymptote} code with the mode
-@code{asy-mode}, after enabling it by putting the following lines in their
-@code{.emacs} initialization file, replacing @code{ASYDIR} with the
-location of the @code{Asymptote} system directory (by default,
+@code{asy-mode}.  You can enable the mode by putting the following lines in your
+@code{.emacs} initialization file, replacing @code{ASYDIR} with
+the location of the @code{Asymptote} system directory (by default,
 @code{@value{Datadir}/asymptote} or @code{C:\Program Files\Asymptote}
 under @code{MSDOS}):
 @verbatim
@@ -1354,10 +1361,13 @@ point on a picture @code{dest} using @code{add} or @code{attach}
 @cindex @code{dot}
 To draw a dot, simply draw a path containing a single point.
 The @code{dot} command defined in the module @code{plain} draws a
-dot having a diameter equal to an explicit pen line width or the
-default line width magnified by @code{dotfactor} (6 by default),
-using the specified filltype (@pxref{filltype}) or @code{dotfilltype}
-(@code{Fill} by default):
+dot using the specified filltype (@pxref{filltype}) or @code{dotfilltype}
+(@code{Fill} by default). With @code{filltype=Fill}, the dot has a
+diameter equal to an explicit pen line width or the default line
+width magnified by @code{dotfactor} (6 by default). With other
+filltypes, the dot is drawn as a ring with an
+outer diameter of @code{dotfactor} times the pen line width,
+regardless of whether the line width is explicitly specified:
 @verbatim
 void dot(frame f, pair z, pen p=currentpen, filltype filltype=dotfilltype);
 void dot(picture pic=currentpicture, pair z, pen p=currentpen,
@@ -4185,14 +4195,37 @@ Data of a built-in type @code{T} can be written to an output file by
 calling one of the functions
 @cindex @code{write}
 @verbatim
-write(string s="", T x, suffix suffix=endl, ... T[]);
-write(file file, string s="", T x, suffix suffix=none, ... T[]);
-write(file file=stdout, string s="", explicit T[] x, ... T[][]);
-write(file file=stdout, T[][]);
-write(file file=stdout, T[][][]);
+write(file file=stdout, string s="", ... T[]);
 write(suffix suffix=endl);
 write(file file, suffix suffix=none);
+write(...);
 @end verbatim
+The last form accepts a heterogeneous list of writeable values,
+optionally prefixed by a @code{file} and/or an identifying
+@code{string}, and optionally suffixed by a @code{suffix} (a
+function of type @code{void(file)}).  It is used when no
+type-specific @code{write} overload matches, for example
+@code{write(42, 3.14, "done")}.  The file, identifying string, and
+suffix may instead be given anywhere in the list as the named
+arguments @code{file}, @code{s}, and @code{suffix}, as in
+@code{write(x, y, suffix=none)}.  The elements of a rest argument,
+as in @code{write(x ... a)}, are written after the other values.
+Values of any struct type that
+defines a publicly accessible @code{write(file, suffix)} method
+(such as @code{Label}), and arrays of such values, are written by
+calling that method.  The
+optional identifying string (if present) is written flush against
+the first data value (no tab separator), so
+@code{write("a", "b", 1)} produces
+@verbatim
+ab	1
+@end verbatim
+@noindent
+while @code{write(1, "a", "b")} produces
+@verbatim
+1	a	b
+@end verbatim
+@noindent
 @cindex @code{none}
 @cindex @code{flush}
 @cindex @code{endl}
@@ -4202,10 +4235,9 @@ write(file file, suffix suffix=none);
 @cindex @code{tab}
 @cindex @code{comma}
 If @code{file} is not specified, @code{stdout} is used and
-terminated by default with a newline. If specified, the optional
-identifying string @code{s} is written before the data @code{x}.
-An arbitrary number of data values may be listed when writing scalars
-or one-dimensional arrays. The @code{suffix} may be one of the following:
+the default @code{suffix} is @code{endl}. If specified, the optional
+identifying string @code{s} is written before the data.
+The @code{suffix} may be one of the following:
 @code{none} (do nothing), @code{flush} (output buffered data),
 @code{endl} (terminate with a newline and flush),
 @code{newl} (terminate with a newline),
@@ -4218,6 +4250,23 @@ file fout=output("test.txt");
 write(fout,1);                  // Writes "1"
 write(fout, endl);              // Writes a new line
 write(fout,"List: ",1,2,3);     // Writes "List: 1     2     3"
+@end verbatim
+@noindent
+When multiple arrays of the same scalar type @code{T} are listed, they are
+written as indexed columns, one index per line:
+@verbatim
+write(new int[] {1,2}, new int[]{3,4});
+// 0:      1       3
+// 1:      2       4
+@end verbatim
+Arrays of different types (or any mix of values) are written by the
+heterogeneous form, with each value on its own line:
+@verbatim
+write(new int[] {1,2}, new pair[]{1, I});
+// 1
+// 2
+// (1,0)
+// (0,1)
 @end verbatim
 @noindent
 
@@ -4537,16 +4586,26 @@ reference, a reference that does not actually refer to any instance of the
 structure.  Trying to use a field of a null reference will cause an error.
 
 @cindex alias
+The function @code{bool alias(T,T)} checks to see if two expressions of
+the same nullable type refer to the same instance of that type.
+In the example at the beginning of this section, @code{alias(foo,bar)}
+would return true, but @code{alias(foo,new T)} would return false, as
+@code{new T} creates a new instance of the structure @code{T}.
+If @code{a} has a well-defined type, then @code{alias(a,null)} is an idiomatic
+way to check whether @code{a} is @code{null}; however, @code{alias(null, null)}
+is an error since neither operand has a well-defined type.
+
 @cindex @code{==}
 @cindex @code{!=}
-The function @code{bool alias(T,T)} checks to see if two structure references
-refer to the same instance of the structure (or both to @code{null}).
-In the example at the beginning of this section, @code{alias(foo,bar)}
-would return true, but @code{alias(foo,new T)} would return false, as @code{new
-T} creates a new instance of the structure @code{T}.  The boolean operators
+The boolean operators
 @code{==} and @code{!=} are by default equivalent to @code{alias} and
 @code{!alias} respectively, but may be overwritten for a particular type
 (for example, to do a deep comparison).
+Because the default @code{==} and @code{!=} (like @code{alias}) require both
+operands to have the same type, no implicit casting is performed to reconcile
+differing operand types: comparing values of two different structure types is
+an error, even if a cast between them exists, unless a matching
+@code{operator ==} has been declared.
 
 Here is a simple example that illustrates the use of structures:
 @verbatim
@@ -5708,8 +5767,8 @@ This declares @code{a} to be @code{real} and implicitly declares @code{A} to
 be of type @code{real[]}.
 
 In the following list of built-in array functions, @code{T} represents a
-generic type. Note that the internal functions @code{alias}, @code{array},
-@code{copy}, @code{concat}, @code{sequence}, @code{map}, and
+generic type. Note that the internal functions @code{array}, @code{copy},
+@code{concat}, @code{sequence}, @code{map}, and
 @code{transpose}, which depend on type @code{T[]}, are defined only after the
 first declaration of a variable of type @code{T[]}.
 
@@ -6019,6 +6078,12 @@ quadratic equation @math{ax^2+bx+c=0};
 @item @code{real[] cubicroots(real a, real b, real c, real d);}
 This numerically robust solver returns the real roots of the
 cubic equation @math{ax^3+bx^2+cx+d=0}. Multiple roots are listed separately.
+
+@cindex @code{complexcubicroots}
+@item @code{pair[] complexcubicroots(real a, real b, real c, real d);}
+This numerically robust solver returns the complex roots of the
+cubic equation @math{ax^3+bx^2+cx+d=0}. Multiple roots are listed
+separately.
 
 @end table
 
@@ -6987,13 +7052,12 @@ This approach is necessary if we are redefining the @code{==}
 operator. Two @code{Person}s are equal if they have the same first name,
 last name, and age.
 
-The default @code{==} operator for user-defined structs considers two objects
-equal if they are the same object, meaning that changes to one will be reflected
-in the other. A hash method that plays well with the default @code{==}
-operator must remain the
-same even if the fields change. In this case, we can add a never-changing
-@code{id} field
-that uniquely identifies a @code{Person} object, and use that for hashing: 
+In contrast, the default @code{==} operator for structs considers two objects
+equal if they are the same object, meaning that changes to one will be
+reflected in the other. A hash method that plays well with this operator must
+remain the same even if the fields change. In this case, we can add a
+never-changing @code{id} field that uniquely identifies a @code{Person} object,
+and use that for hashing: 
 
 @verbatim
 struct Person {
@@ -8299,7 +8363,7 @@ These are the most commonly used base modules for creating graphics and visualiz
 * graph::                       2D linear & logarithmic graphs
 * three::                       3D vector graphics
 * graph3::                      3D linear & logarithmic graphs
-* palette::                     Color density images and palettes
+* palette::                     Color density images, palettes, surface coloring
 * colormap::                    Colormaps from matplotlib
 * texcolors::                   @acronym{CMYK} @TeX{} colors
 * x11colors::                   @acronym{RGB} @code{X11} colors
@@ -9192,6 +9256,7 @@ the routines
 @verbatim
 void draw(picture pic=currentpicture, surface s, int nu=1, int nv=1,
           material surfacepen=currentpen, pen meshpen=nullpen,
+          vertexPen vertexPen=null,
           light light=currentlight, light meshlight=nolight, string name="",
           render render=defaultrender);
 void draw(picture pic=currentpicture, surface s, int nu=1, int nv=1,
@@ -9200,6 +9265,7 @@ void draw(picture pic=currentpicture, surface s, int nu=1, int nv=1,
           render render=defaultrender);
 void draw(picture pic=currentpicture, surface s, int nu=1, int nv=1,
           material[] surfacepen, pen[] meshpen=nullpens,
+          vertexPen vertexPen=null,
           light light=currentlight, light meshlight=nolight, string name="",
           render render=defaultrender);
 
@@ -9209,6 +9275,10 @@ for drawing optional mesh lines for each Bezier patch (these
 parameters are ignored for Bezier triangles). The optional
 @code{name} parameter is used as a prefix for naming the surface
 patches in the @acronym{PRC} model tree.
+The optional @code{vertexPen} parameter specifies a function
+@code{pen(surfaceVertex)} that is evaluated at each patch corner to
+assign vertex colors (@pxref{Surface coloring}).
+@anchor{material}
 Here material is a structure defined in @code{three_light.asy}:
 @cindex @code{material}
 @cindex @code{diffusepen}
@@ -9300,9 +9370,18 @@ the directory specified by @code{-imageDir} (which defaults to @code{ibl})
 or, for @code{WebGL} rendering, the @acronym{URL} specified by
 @code{-imageURL} (which defaults to
 @url{https://vectorgraphics.gitlab.io/asymptote/ibl}).
+If the requested environment image (specified by @code{-image}, which
+defaults to @code{snowyField}) is not found locally, Asymptote will
+automatically download it from the @code{-imageURL} directory into the
+@code{-imageDir} search path, unless the @code{-imageURL} has been
+changed from its default, in which case @code{-nosafe} must also be
+given. To disable this automatic download, set @code{-image=""}.
 Additional rendered images can be generated on an @code{NVIDIA} @acronym{GPU}
 using the @code{reflect} program in the @code{cudareflect} subdirectory
 of the @code{Asymptote} source directory.
+For @acronym{HTML} (@code{WebGL}) output, the @acronym{EXR} images and the
+@code{tinyexr} decoder are loaded by the browser at runtime from the
+@code{-imageURL} directory.
 
 Sample Bezier surfaces are
 contained in the example files @code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/BezierSurface.html,,BezierSurface}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/BezierSurface.asy,,.asy}}, @code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/teapot.html,,teapot}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/teapot.asy,,.asy}},
@@ -9326,6 +9405,24 @@ the three-dimensional vector output format @code{V3D}, and
 two-dimensional vector output (@code{settings.render=0}). Since
 the legacy @acronym{PRC} output format does not support vertex
 shading of Bezier surfaces, @acronym{PRC} patches are shaded with the mean of the four vertex colors.
+
+@cindex surface coloring
+@cindex coloring surfaces
+@cindex vertex shading
+@cindex @code{vertexPen}
+@cindex @code{cornerPen}
+Vertex colors may be assigned at draw time using the
+@code{vertexPen} parameter of @code{draw(surface,...)}, for example
+to color a surface @code{s} according to its height:
+@verbatim
+draw(s,s.palette(zpart,Rainbow()));
+@end verbatim
+@noindent
+Predefined palettes such as @code{Rainbow()} are listed in @ref{palette};
+further palettes are available in the module @code{colormap}
+(@pxref{colormap}).
+Functions for coloring a surface by position, by parametric coordinates,
+by patch, or by corner are described in @ref{Surface coloring}.
 
 @cindex @code{surface}
 @cindex @code{planar}
@@ -9580,6 +9677,9 @@ within a @acronym{PDF} file using the @code{media9} @LaTeX{} package:
 An online @code{Javascript}-based V3D-aware @code{PDF} viewer is
 available at
 @url{https://github.com/vectorgraphics/pdfv3dReader}.
+An @code{Okular} plugin for interactive viewing of @acronym{V3D} files and
+@acronym{V3D}-embedded content in @acronym{PDF} files is available at
+@url{https://github.com/vectorgraphics/Okular-v3d-Plugins}.
 
 The @acronym{V3D} specification and the
 @code{pyv3d} library are available at
@@ -10271,23 +10371,40 @@ One can also place ticks along a general three-dimensional axis:
 @cindex @code{Spline}
 @cindex parametric surface
 Surface plots of matrices and functions over the region
-@code{box(a,b)} in the @math{XY} plane are also implemented:
+@code{box(a,b)} in the @math{XY} plane are also implemented.
+A surface can be constructed from a matrix @code{f} of heights, at evenly
+spaced points over @code{box(a,b)} or at the points @code{(x[i],y[j])},
+or from a matrix of points:
 @verbatim
 surface surface(real[][] f, pair a, pair b, bool[][] cond={});
 surface surface(real[][] f, pair a, pair b, splinetype xsplinetype,
                 splinetype ysplinetype=xsplinetype, bool[][] cond={});
 surface surface(real[][] f, real[] x, real[] y,
-                splinetype xsplinetype=null, splinetype ysplinetype=xsplinetype,
-                bool[][] cond={})
+                splinetype xsplinetype=Spline,
+                splinetype ysplinetype=xsplinetype,
+                bool[][] cond={});
 surface surface(triple[][] f, bool[][] cond={});
+@end verbatim
+
+The graph of a real function @math{f(x,y)} over @code{box(a,b)} is
+constructed with
+@verbatim
 surface surface(real f(pair z), pair a, pair b, int nx=nmesh, int ny=nx,
                 bool cond(pair z)=null);
 surface surface(real f(pair z), pair a, pair b, int nx=nmesh, int ny=nx,
                 splinetype xsplinetype, splinetype ysplinetype=xsplinetype,
                 bool cond(pair z)=null);
-surface surface(triple f(pair z), real[] u, real[] v,
-                splinetype[] usplinetype, splinetype[] vsplinetype=Spline,
-                bool cond(pair z)=null);
+@end verbatim
+@noindent
+On a logarithmic axis (@pxref{automatic scaling}), the points at which
+@code{f} is sampled are evenly spaced along the axis, as are the entries
+of a matrix over @code{box(a,b)}.
+
+A parametric surface for a function @math{f(u,v)} over the parameter
+space @code{box(a,b)}, as illustrated in the example
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/parametricsurface.html,,parametricsurface}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/parametricsurface.asy,,.asy}},
+is constructed with
+@verbatim
 surface surface(triple f(pair z), pair a, pair b, int nu=nmesh, int nv=nu,
                 bool cond(pair z)=null);
 surface surface(triple f(pair z), pair a, pair b, int nu=nmesh, int nv=nu,
@@ -10295,13 +10412,29 @@ surface surface(triple f(pair z), pair a, pair b, int nu=nmesh, int nv=nu,
                 bool cond(pair z)=null);
 @end verbatim
 @noindent
-The final two versions draw parametric surfaces for a function
-@math{f(u,v)} over the parameter space @code{box(a,b)},
-as illustrated in the example @code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/parametricsurface.html,,parametricsurface}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/parametricsurface.asy,,.asy}}.
-An optional splinetype @code{Spline} may be specified.
+The parameters, in contrast, are sampled at evenly spaced values over
+@code{box(a,b)} even in a picture with logarithmic axes. To sample them
+at other values, specify the values in the arrays @code{u} and @code{v}:
+@verbatim
+surface surface(triple f(pair z), real[] u, real[] v,
+                bool cond(pair z)=null);
+surface surface(triple f(pair z), real[] u, real[] v,
+                splinetype[] usplinetype, splinetype[] vsplinetype=Spline,
+                bool cond(pair z)=null);
+@end verbatim
+
+A @code{surface} constructor with no splinetype parameter interpolates linearly;
+the others interpolate with the splinetypes given, such as @code{Spline} for a smooth
+surface.
 The boolean array or function @code{cond} can be used to control which
-surface mesh cells are actually drawn (by default all mesh cells over
-@code{box(a,b)} are drawn).
+surface mesh cells are actually drawn (by default all mesh cells are
+drawn).
+@cindex surface coloring
+@cindex parametric coordinates
+A surface constructed with these routines may be colored at draw time as
+a function of position, parametric coordinates, or mesh cell
+(@pxref{Surface coloring}); the parametric coordinates of such a surface
+are described in @ref{Surface parametrization}.
 
 @cindex @code{surface}
 One can also construct the surface generated by rotating a path @code{g}
@@ -10316,6 +10449,120 @@ surface surface(triple c, path3 g, triple axis, int n=nslice,
 The optional argument @code{color(int i, real j)} can be used to override the
 surface color at the point obtained by rotating vertex @code{i} by
 angle @code{j} (in degrees).
+
+@anchor{Surface parametrization}
+@cindex surface parametrization
+@cindex parametric coordinates
+@cindex structured surface
+@cindex unstructured surface
+A surface constructed with any of the above routines is
+@dfn{structured}: its patches form a rectangular array of @code{nu} by
+@code{nv} mesh cells, and each point of the surface has parametric
+coordinates @math{(u,v)}. A surface assembled in any other way, from
+paths or from individual patches, is @dfn{unstructured} and has no
+parametric coordinates. Unstructured surfaces include @code{unitsphere} and the
+other predefined surfaces of module @code{three}, as well as the implicit
+surfaces produced by the modules @code{contour3} and
+@code{smoothcontour3}.
+
+@cindex @code{surface.paramPoint}
+@cindex @code{surface.paramNormal}
+The point and a normal vector (not normalized) of a structured surface
+@code{s} at the parametric coordinates @math{(u,v)} are returned by
+@verbatim
+triple s.paramPoint(real u, real v);
+triple s.paramNormal(real u, real v);
+@end verbatim
+@noindent
+These functions abort with an error if @code{s} is unstructured; calling
+one of them is therefore a simple test of whether a given surface is
+structured. A structured surface remains structured, with the same
+parametric coordinates, when a @code{transform3} is applied to it.
+
+The domain of the parametric coordinates depends on how the surface
+was constructed:
+@itemize @bullet
+@item for a surface constructed from a parametric function
+@code{triple f(pair z)} over @code{box(a,b)}, whether or not a splinetype
+is specified, @math{(u,v)} is the argument @code{z} of @code{f}: @math{u}
+ranges from @code{a.x} to @code{b.x} and @math{v} ranges from @code{a.y}
+to @code{b.y};
+
+@item for the graph of a real function @code{real f(pair z)} or of a real
+matrix @code{f} over @code{box(a,b)}, @math{(u,v)} are the @math{x} and
+@math{y} coordinates of the point of the surface, so that they also range
+over @code{box(a,b)}. On a logarithmic axis (@pxref{automatic scaling})
+the coordinate of a point is the logarithm of the value plotted there,
+and this is the parametric coordinate as well: for @math{x} plotted from 1
+to 100, @math{u} ranges from 0 to 2;
+
+@item for a surface constructed from any other matrix or arrays, or from
+a function sampled at the values in the arrays @code{u} and @code{v}, the
+parametric coordinates are mesh coordinates: @math{u} ranges from
+@code{0} to @code{nu} and @math{v} ranges from @code{0} to @code{nv},
+where @code{nu} and @code{nv} are the number of mesh cells in each
+direction (one less than the number of samples). The sample with
+indices @code{i} and @code{j} has parametric coordinates @math{(i,j)};
+
+@item for a surface of revolution, @math{u} is the angle of rotation
+measured in radians (not degrees), ranging from
+@code{radians(angle1)} to @code{radians(angle2)}, and @math{v} is the
+time along the path @code{g}, ranging from @code{0} to @code{length(g)}.
+@end itemize
+
+@cindex @code{surface.domain}
+@cindex @code{surface.paramCoords}
+A structured surface can be given a different domain with
+@verbatim
+void s.domain(pair a, pair b);
+@end verbatim
+@noindent
+after which the parametric coordinates range over @code{box(a,b)}, with
+the mesh taken to be uniform: the sample with indices @code{i} and
+@code{j} then has the parametric coordinates returned by
+@verbatim
+pair s.paramCoords(real i, real j);
+@end verbatim
+@noindent
+For example, if the entries of a matrix of triples are the values of a
+function on an evenly spaced grid over the unit square, the surface
+constructed from the matrix can be given the coordinates of that function
+with @code{s.domain((0,0),(1,1))}.
+
+@cindex @code{ucyclic}
+@cindex @code{vcyclic}
+Parametric coordinates must normally lie within this domain. The
+exception is a surface that closes on itself: if @code{s.ucyclic()}
+is @code{true}, then @math{u} may be any real number and is reduced
+modulo the length of its domain, and likewise for @math{v} if
+@code{s.vcyclic()} is @code{true}.
+Whether a surface is cyclic in a given direction depends on how it was
+constructed:
+@itemize @bullet
+@item a surface of revolution is cyclic in @math{u} if
+@code{angle2-angle1} is a multiple of 360 degrees (as it is by default).
+It is cyclic in @math{v} if the path @code{g} is cyclic;
+
+@item a surface constructed from a triple-valued function or matrix,
+with no splinetype specified, is cyclic in a direction if the samples
+along the two opposite edges of the mesh coincide;
+
+@item a surface constructed from a triple-valued function with a
+splinetype specified must meet two requirements to be cyclic in a
+direction. First, the samples along the two opposite edges of the mesh
+must coincide. Second, the splinetype in that direction must be
+periodic. The splinetype @code{Spline} chooses a periodic splinetype
+by itself, but only if the samples also approach the two edges with
+nearly the same slope, so that the surface closes without a kink;
+
+@item a surface constructed from a real-valued function or matrix is
+cyclic in a direction only if a splinetype is specified and the
+splinetype in that direction is @code{periodic}.
+@end itemize
+
+It is an error to evaluate the surface outside its domain in a
+direction in which it is not cyclic, or at a point belonging only to
+mesh cells that were omitted by @code{cond}.
 
 @noindent
 Surface lighting is illustrated in the example files
@@ -10346,10 +10593,12 @@ as illustrated in the examples @code{@uref{https://asymptote.sourceforge.io/gall
 
 @node palette
 @section @code{palette}
+@cindex @code{palette}
 @anchor{images}
 @cindex images
 @code{Asymptote} can also generate color density images
-and palettes. The following palettes are predefined in
+and palettes. For the use of palettes to color three-dimensional
+surfaces, see @ref{Surface coloring}. The following palettes are predefined in
 @code{palette.asy}:
 
 @table @code
@@ -10518,6 +10767,222 @@ that may be used to construct a pen array from a given function and palette:
 pen[] palette(real[] f, pen[] palette);
 pen[][] palette(real[][] f, pen[] palette);
 @end verbatim
+
+@menu
+* Surface coloring::            Coloring surfaces at draw time
+@end menu
+
+@node Surface coloring
+@subsection Surface coloring
+@cindex surface coloring
+@cindex coloring surfaces
+@cindex vertex shading
+@cindex vertex-dependent colors
+@cindex @code{surfaceVertex}
+@cindex @code{vertexPen}
+@anchor{surfaceVertex}
+A surface is colored at draw time by passing a function to the
+@code{vertexPen} parameter of @code{draw(surface,...)}. The function is
+called once for each patch corner and returns the pen to be used there.
+Its type, also called @code{vertexPen}, is defined in the @code{palette}
+module as an abbreviation for a function type:
+@verbatim
+using vertexPen=pen(surfaceVertex);
+@end verbatim
+@noindent
+The structure @code{surfaceVertex} provides the following information
+about the patch corner:
+@verbatim
+struct surfaceVertex {
+  triple z;      // vertex position in user coordinates
+  pair uv;       // parametric coordinates (structured surfaces only)
+  int patch;     // index of patch (see below)
+  int corner;    // index of corner in patch (0-3 or 0-2)
+  int U, V;      // mesh cell of patch (structured surfaces only)
+}
+@end verbatim
+@noindent
+The fields @code{uv}, @code{U}, and @code{V} are meaningful only for
+structured surfaces (@pxref{Surface parametrization}); for unstructured
+surfaces (such as @code{unitsphere}) they are zero.
+A simple pen function of a single @code{triple} argument is
+automatically converted to a @code{vertexPen}, so the following
+are equivalent:
+@verbatim
+draw(s, vertexPen=new pen(triple v) {return hsv(360*zpart(v),1,1);});
+draw(s, vertexPen=new pen(surfaceVertex sv) {
+  return hsv(360*zpart(sv.z),1,1);
+});
+@end verbatim
+
+@cindex @code{nolight}
+Color is thus a property of how a surface is drawn, rather than of the
+surface itself: drawing does not modify the surface, and the same
+surface can be drawn again with a different @code{vertexPen}. The
+vertex colors replace the color of
+@code{surfacepen}@footnote{Strictly, its diffuse color: a pen used as a
+@code{surfacepen} becomes the diffuse pen of a @code{material}
+(@pxref{material}).}: if
+@code{surfacepen} is @code{red}, the surface is no longer red. They
+also replace any colors stored in the surface when it was constructed.
+Other attributes of a @code{material}, such as its shininess, still
+apply. When the colors convey data, it is often preferable to
+show them exactly as specified, by turning the lighting off:
+@verbatim
+draw(s,s.palette(zpart,Rainbow()),nolight);
+@end verbatim
+
+@noindent
+@cindex @code{cornerPen}
+@cindex patch-dependent colors
+The convenience function @code{cornerPen} (defined in
+@code{three_surface.asy}) constructs a @code{vertexPen} that assigns a pen
+to each corner of each patch, using @code{sv.patch} and
+@code{sv.corner} for indexing:
+@verbatim
+vertexPen cornerPen(...pen[] p);
+vertexPen cornerPen(pen[][] p);
+@end verbatim
+@noindent
+The first form applies the same list of pens to every patch; it must
+supply a pen for every corner (four for a Bezier patch, three for a
+Bezier triangle). In the second form, corner @code{j} of patch @code{i}
+is drawn with pen @code{j} of the row @code{p[i % p.length]}. If that
+row is a cyclic array, @code{j} is likewise reduced modulo the length
+of the row; otherwise, it is an error for a patch to have more corners
+than the row has pens:
+@verbatim
+draw(s,cornerPen(red,green,blue,black));   // four pens per patch
+
+pen[] p={red,blue};
+p.cyclic=true;
+draw(s,cornerPen(new pen[][] {p}));        // red,blue,red,blue
+@end verbatim
+@noindent
+Corner @code{j} of a patch is node @code{j} of the boundary path of the
+patch, as returned by the patch method @code{external()}. For a surface
+constructed from a single cyclic path of length at most 4, this is
+node @code{j} of that path.
+The array @code{p} is copied, so subsequent changes to it do not
+affect the surface colors.
+
+@noindent
+@cindex parametric coordinates
+For a structured surface, @code{sv.uv} holds the parametric
+coordinates of the vertex, with the domain described in
+@ref{Surface parametrization}. Since these vary continuously from one
+patch to the next, a pen that depends on @code{sv.uv} colors the surface
+smoothly:
+@verbatim
+draw(s, vertexPen=new pen(surfaceVertex sv) {
+  return hsv(360*sv.uv.x/(2pi), 1, 1);
+});
+@end verbatim
+@noindent
+Both limits of the domain occur as values of @code{sv.uv}, even in a
+direction in which the surface is cyclic.
+
+@cindex mesh cell
+@cindex checkerboard
+The integer fields @code{sv.U} and @code{sv.V} identify the mesh cell
+containing the patch, with @code{0 <= sv.U < nu} and
+@code{0 <= sv.V < nv}. All corners of a patch are assigned the
+same cell, so a pen that depends only on @code{sv.U} and @code{sv.V}
+gives each patch a single flat color:
+@verbatim
+pen checkerboard(surfaceVertex sv) {
+  return (sv.U+sv.V) % 2 == 0 ? white : black;
+}
+draw(s, checkerboard);
+@end verbatim
+
+@noindent
+The field @code{sv.patch} is the position of the patch in the array
+@code{s.s} of patches that make up the surface @code{s}. It is
+available for every surface, but the order of this array is an internal
+detail of how the surface was constructed, which most users need not be
+aware of. Coloring by @code{sv.patch} (including @code{cornerPen} with
+a different row of pens for each patch) should therefore be a last
+resort, appropriate mainly for a surface that was assembled patch by
+patch, so that the order is known. Wherever possible, use the position
+@code{sv.z}, the parametric coordinates @code{sv.uv}, or the mesh cell
+@code{sv.U}, @code{sv.V} instead.
+
+@noindent
+@cindex @code{palette}
+The function @code{palette} (in the @code{palette} module) constructs a
+@code{vertexPen} that colors each vertex according to the value of a
+function @code{f} there:
+@verbatim
+vertexPen palette(real f(triple), real Min, real Max, pen[] palette);
+@end verbatim
+@noindent
+The value @code{Min} is mapped to the first pen of the palette,
+@code{Max} to the last, and the values in between to the pens in
+between. For example, to color a surface by
+height:@footnote{The built-in function @code{zpart} does the same as
+@code{height}, so it can be passed to @code{palette} directly, with
+nothing to define.}
+@verbatim
+real height(triple v) {return v.z;}
+draw(s,palette(height,0,1,Gradient(blue,red)));
+@end verbatim
+@noindent
+Here a vertex at height 0 is blue, a vertex at height 1 is red, and a
+vertex at height 0.5 is halfway between the two. The value of @code{f}
+at every vertex must lie between @code{Min} and @code{Max}.
+
+@cindex @code{surface.palette}
+When the range of @code{f} is not known in advance, the surface method
+@code{palette} finds it, using the least and greatest values of @code{f}
+at the vertices of the surface:
+@verbatim
+draw(s,s.palette(height,Gradient(blue,red)));
+@end verbatim
+@noindent
+Now the lowest vertex of @code{s} is blue and the highest is red. The
+resulting @code{vertexPen} should be used to draw that same surface.
+Here is a complete example, drawn with @code{nolight} so that the colors
+appear exactly as specified:
+@verbatiminclude colorsurface.asy
+@sp 1
+@center @image{./colorsurface}
+
+@cindex @code{fitColors}
+The function @code{fitColors} (also in the @code{palette} module)
+constructs a @code{vertexPen} from the colors at a few points, such as
+the corners of a square or a box, blending smoothly between them; the
+pen @code{colors[i]} is the color at the point @code{coords[i]}:
+@verbatim
+vertexPen fitColors(triple[] coords, pen[] colors);
+@end verbatim
+@noindent
+Each color component of the resulting
+@code{vertexPen} is a cubic polynomial in the position, chosen by
+least squares to fit the given colors, with a preference for
+polynomials of low degree. The fit works equally well whether or not
+the square or box is aligned with the coordinate axes. Since such a
+polynomial has only twenty coefficients, the given colors are closely
+approximated only when there are few of them; @code{fitColors} cannot
+produce an intricate pattern from a large number of points.
+If any of the pens is not opaque, the opacity is fit in the same way,
+using the blend mode of the first pen; otherwise the surface is opaque.
+If the pens are in different colorspaces, they are converted to that of
+the first pen @code{colors[0]}.
+
+Surface coloring is illustrated in the examples
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dgraphs/smoothelevation.html,,smoothelevation}@uref{https://asymptote.sourceforge.io/gallery/3Dgraphs/smoothelevation.asy,,.asy}}
+and
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/sphericalharmonic.html,,sphericalharmonic}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/sphericalharmonic.asy,,.asy}}
+(coloring by height or radius with @code{surface.palette}),
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/vertexshading.html,,vertexshading}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/vertexshading.asy,,.asy}}
+(@code{cornerPen}),
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/interlockedtori.html,,interlockedtori}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/interlockedtori.asy,,.asy}}
+and
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/mobiustorus.html,,mobiustorus}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/mobiustorus.asy,,.asy}}
+(coloring by parametric coordinates and by mesh cell), and
+@code{@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/fitcolors.html,,fitcolors}@uref{https://asymptote.sourceforge.io/gallery/3Dwebgl/fitcolors.asy,,.asy}}
+(@code{fitColors}).
 
 
 @node colormap
@@ -11583,7 +12048,8 @@ pictures (@pxref{deferred drawing}).
 @section @code{v3d}
 @cindex @code{v3d}
 This module provides support for the V3D 3D graphics format, which can be
-viewed using the Python @code{pyv3d} library or embedded within PDF documents.
+viewed using the Python @code{pyv3d} library, an @code{Okular} plugin
+(@url{https://github.com/vectorgraphics/Okular-v3d-Plugins}), or embedded within PDF documents.
 V3D content can be automatically generated by setting @code{settings.v3d=true},
 or existing V3D files can be imported using the @code{importv3d} function:
 @verbatim
@@ -11612,9 +12078,15 @@ If multiple files are specified, they are treated as separate
 @code{Asymptote} runs.
 
 @cindex @code{autoimport}
-If the string @code{autoimport} is nonempty, a module with this name is
-automatically imported for each run as the final step in loading module
-@code{plain}.
+If the string @code{autoimport} is nonempty, one or more modules are
+automatically imported for each run, immediately after loading module
+@code{plain}. Multiple modules may be specified as a comma-separated
+list, for example @code{-autoimport three,graph}. Path syntax is also
+accepted (for example, to autoimport a personal module kept in a
+subdirectory, @code{-autoimport mydir/common}; the module is imported
+under its last path component name, here @code{common}). Note that
+templated modules (such as @code{collections/hashmap}) cannot be autoimported
+because they require type parameters.
 
 @anchor{configuration file}
 @cindex configuration file
@@ -12071,6 +12543,11 @@ M-x lsp
 
 @end itemize
 
+To view all overloads of a function, execute
+@code{\(lsp-describe-thing-at-point)} (via @code{M-x}) which
+opens a help window, or set @code{\(setq lsp-eldoc-render-all t)}
+in your initialization file to show them in the echo area.
+
 @node PostScript to Asymptote
 @chapter @code{PostScript} to @code{Asymptote}
 @cindex @code{pstoedit}
@@ -12348,7 +12825,7 @@ developed the @code{Asymptote Web Application} hosted at
 @c  LocalWords:  pdftex comment getstring getstringprefix getreal defaultS hsv
 @c  LocalWords:  ticklocate autoscaleT autoscaling vectorfield autolimits dvi
 @c  LocalWords:  zlimits inline dvipdf hyperdvi autoconf gui zerowindingoverlap
-@c  LocalWords:  prepended intMax quadraticroots cubicroots filltype prepend dx
+@c  LocalWords:  prepended intMax quadraticroots cubicroots complexcubicroots filltype prepend dx
 @c  LocalWords:  ticklabel popup UnFill markroutine marknodes markuniform erf
 @c  LocalWords:  intersectpoint cyrillic mathtext russian brokenaxis Datadir ds
 @c  LocalWords:  resetdefaultpen latticeshade axialshade radialshade erfc det

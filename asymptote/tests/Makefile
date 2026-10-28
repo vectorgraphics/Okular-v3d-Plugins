@@ -1,8 +1,11 @@
 .NOTPARALLEL:
 
-TESTDIRS = $(wildcard */)
+# Every subdirectory is a test suite, except the byte-cache Python leaves behind
+# once any .py script here has been imported, and `idir/` which is a local
+# scratch directory (gitignored) with no .asy files.
+TESTDIRS = $(filter-out __pycache__/ idir/,$(wildcard */))
 
-test: $(TESTDIRS) test_collections_errors
+test: $(TESTDIRS) test_collections_errors test_surface_errors test_executable_path test_relocatable test_render3d
 
 $(TESTDIRS)::
 	@echo
@@ -11,6 +14,26 @@ $(TESTDIRS)::
 test_collections_errors:
 	@echo
 	python3 test_collections_errors.py
+
+test_surface_errors:
+	@echo
+	python3 test_surface_errors.py
+
+# getExecutablePath(), through the sysdir candidate it feeds.  Listed before
+# test_relocatable in `test:` above, and .NOTPARALLEL makes prerequisite order
+# the run order, so a broken exedir is reported here rather than as a wrong
+# sysdir in every row of the matrix.
+test_executable_path:
+	@echo
+	python3 test_executable_path.py --asy ../asy --asy-base-dir ../base
+
+test_relocatable:
+	@echo
+	python3 test_relocatable.py --asy ../asy --asy-base-dir ../base
+
+test_render3d:
+	@echo
+	python3 test_render3d.py || test $$? -eq 77
 
 $(EXTRADIRS)::
 	@echo

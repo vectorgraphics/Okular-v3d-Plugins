@@ -16,6 +16,21 @@ namespace camp {
 
 FILE *pipeout=NULL;
 
+namespace {
+// pipeout is a process-global stream opened once by openpipeout(), so its
+// cleanup is process-scoped (not tied to any penv/processData lifetime):
+// flush and close it at process exit.
+struct pipeoutGuard {
+  ~pipeoutGuard() {
+    if(pipeout) {
+      fclose(pipeout);
+      pipeout=NULL;
+    }
+  }
+} pipeoutGuardInstance;
+}
+
+
 string tab="\t";
 string newline="\n";
 
@@ -132,7 +147,14 @@ void ifile::open()
               "cannot read file:// URL when globalread is disabled");
           settings::haveReadFile=true;
         }
-        parser::readURL(buf,name);
+        string reason;
+        if(!parser::readURL(buf,name,reason)) {
+          ostringstream b;
+          b << "Cannot open file \"" << name << "\"";
+          if(!reason.empty())
+            b << " (" << reason << ")";
+          camp::reportError(b);
+        }
         stream=&buf;
       } else
 #endif
@@ -438,6 +460,7 @@ void iofile::writeline()
 void igzxfile::open()
 {
   name=locatefile(inpath(name));
+  settings::haveReadFile=true;
   gzfile=gzopen(name.c_str(),"rb");
   Check();
 
