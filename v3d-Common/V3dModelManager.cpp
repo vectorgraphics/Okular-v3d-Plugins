@@ -44,6 +44,77 @@ bool fileExists(const std::string& path) {
     return f.good();
 }
 
+// Old v3d files may store an absolute path in the IBL image name; reduce it
+// to the file name (relative paths, e.g. "snowyField/refl0", are preserved)
+// and drop trailing slashes, so the name is a relative path within the image
+// library.
+static std::string normalizeIBLName(const std::string& imageName)
+{
+    std::string name = imageName;
+    if (!name.empty() && name[0] == '/') {
+        size_t lastSlash = name.find_last_of('/');
+        name = (lastSlash != 0) ? name.substr(lastSlash + 1) : name.substr(1);
+    }
+    while (!name.empty() && name.back() == '/') name.pop_back();
+    return name;
+}
+
+// IBL image names come from untrusted v3d documents and must resolve within
+// the image library directory -- locally and on the server. Reject '%'
+// outright (ambiguous in URLs), a leading separator, '..' path components
+// (either separator), and control characters (a NUL in particular would let a
+// "..\0" bypass the ".." check below and be truncated to ".." at the OS
+// layer); relative subdirectories are otherwise allowed. Keep in sync with
+// settings::iblNameOK in the asymptote repo.
+static bool iblNameOK(const std::string& name)
+{
+    if (name.find('%') != std::string::npos)
+        return false;
+    // Control characters are never valid in a file path (and a NUL would let a
+    // "..\0" slip past the ".." check and truncate to ".." via the OS).
+    for (unsigned char c : name) {
+        if (c < 0x20 || c == 0x7f)
+            return false;
+    }
+    // Must be a relative path within the image library: no leading separator.
+    if (!name.empty() && (name[0] == '/' || name[0] == '\\'))
+        return false;
+    size_t start = 0;
+    while (true) {
+        size_t end = name.find_first_of("/\\", start);
+        size_t len = (end == std::string::npos) ? std::string::npos : end - start;
+        if (name.substr(start, len) == "..")
+            return false;
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    return true;
+}
+
+// Log a rejected IBL name safely, for debugging. The name is untrusted document
+// data, so non-printable bytes are escaped as \xHH -- the log must never emit
+// raw control characters or terminal escape sequences taken from the file. It
+// is gated behind the debug flag (LOG) so a hostile document cannot spam the
+// console on the per-render path.
+static void logRejectedIBLName(const std::string& name)
+{
+    static const char hex[] = "0123456789abcdef";
+    std::string safe;
+    safe.reserve(name.size());
+    for (unsigned char c : name) {
+        if (c >= 0x20 && c <= 0x7e) {
+            safe += static_cast<char>(c);
+        } else {
+            safe += '\\';
+            safe += 'x';
+            safe += hex[(c >> 4) & 0xf];
+            safe += hex[c & 0xf];
+        }
+    }
+    LOG("[v3d] IBL image name rejected (not a safe image-library path): %s\n", safe.c_str());
+}
+
 // Custom event for marshaling IBL download prompts from background threads to main thread.
 class IBLPromptEvent : public QEvent {
 public:
@@ -197,29 +268,37 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         return image;
     }
 
-    // Check IBL availability early -- if the model needs IBL but files aren't
-    // available yet, defer rendering entirely until download completes.
+    // Check IBL availability early. If the model needs IBL but the files
+    // aren't cached yet, render the no-IBL fallback so the scene is visible
+    // immediately (and shows what a "No" would look like while the download
+    // prompt is pending); the model is tracked and re-rendered with IBL once
+    // the files arrive.
     std::string imageName = m_Models[pageNumber][modelIndex].file->headerInfo.imageName;
     bool useIBL = false;
     std::string iblPath = "";
     if (!imageName.empty() && !m_IBLDeclined) {
-        iblPath = resolveIBLPath(imageName, /*doSchedule=*/false);
-        if (iblPath.empty()) {
-            // IBL missing -- track this model and return blank.
-            m_ModelsWithMissingIBL.insert({pageNumber, modelIndex});
+        // A name that could escape the image library can never resolve and
+        // must not prompt or download: render the scene without IBL instead.
+        if (!iblNameOK(normalizeIBLName(imageName))) {
+            logRejectedIBLName(imageName);
+        } else {
+            iblPath = resolveIBLPath(imageName, /*doSchedule=*/false);
+            if (iblPath.empty()) {
+                // IBL missing locally -- track this model so it is re-rendered
+                // once the files arrive.
+                m_ModelsWithMissingIBL.insert({pageNumber, modelIndex});
 
-            // Marshal the download prompt to the main thread via custom event.
-            // Post-and-forget: we can't wait synchronously because Okular's
-            // background worker thread doesn't process events during PDF loading.
-            // The popup will appear once Okular returns to its main event loop.
-            std::string base = getIBLBase();
-            scheduleIBLPrompt(imageName, base);
-
-            QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };
-            image.fill(Qt::black);
-            return image;
+                // Marshal the download prompt to the main thread via custom event.
+                // Post-and-forget: we can't wait synchronously because Okular's
+                // background worker thread doesn't process events during PDF loading.
+                // The popup will appear once Okular returns to its main event loop.
+                // Debounced per image, so this fires at most once per image name.
+                std::string base = getIBLBase();
+                scheduleIBLPrompt(imageName, base);
+            } else {
+                useIBL = true;
+            }
         }
-        useIBL = true;
     }
 
     if (!m_Models[pageNumber][modelIndex].m_HasChanged &&
@@ -1436,16 +1515,15 @@ void V3dModelManager::refreshPixmap(size_t pageNumber) {
 std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool doSchedule) {
     if (imageName.empty()) return "";
 
-    // Strip leading "/" from old files that may still store an absolute path.
-    // Preserve relative paths (e.g., "snowyField/refl0") in case we use subdirs later.
-    std::string name = imageName;
-    if (!name.empty() && name[0] == '/') {
-        size_t lastSlash = name.find_last_of('/');
-        name = (lastSlash != 0) ? name.substr(lastSlash + 1) : name.substr(1);
-    }
-    // Remove trailing slash if present.
-    while (!name.empty() && name.back() == '/') name.pop_back();
+    std::string name = normalizeIBLName(imageName);
     if (name.empty()) return "";
+
+    // Reject names that could escape the image library directory; treat as
+    // IBL unavailable (no local probes, no prompt, no download).
+    if (!iblNameOK(name)) {
+        logRejectedIBLName(imageName);
+        return "";
+    }
 
     // Helper: check if a path exists and return it.
     auto tryPath = [](const std::string& path) -> std::string {
@@ -1480,33 +1558,14 @@ std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool d
 
     std::string iblBase = getIBLBase();
 
-    // Strategy A: name contains a "/" -- it's a relative subdirectory path (e.g., "snowyField/refl0").
-    // Try as-is first.
-    if (name.find('/') != std::string::npos) {
-        std::string dir = iblBase + "/" + name;
-        std::string found = tryIBLDir(dir);
-        if (!found.empty()) return found;
-    }
-
-    // Strategy B: name is a bare identifier (e.g., "snowyField").
-    // 1. Check <iblBase>/<name>/ as an IBL subdirectory.
-    std::string dir = iblBase + "/" + name;
-    std::string found = tryIBLDir(dir);
+    // The IBL files for this document live in <iblBase>/<name>/ (name is a
+    // relative path within the library, e.g. "snowyField"). A miss is a
+    // miss: never substitute a different cached image for the one the
+    // document requested.
+    std::string found = tryIBLDir(iblBase + "/" + name);
     if (!found.empty()) return found;
 
-    // Strategy C: scan all immediate subdirectories of iblBase for one containing diffuse.exr.
-    // This handles the case where imageName matches a file inside a subdir we haven't guessed yet.
-    if (!iblBase.empty()) {
-        QDir qDir(QString::fromStdString(iblBase));
-        QStringList subdirs = qDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-        for (const QString& sd : subdirs) {
-            std::string candidate = iblBase + "/" + sd.toStdString();
-            found = tryIBLDir(candidate);
-            if (!found.empty()) return found;
-        }
-    }
-
-    // 4. Not found locally. Schedule deferred download prompt only if requested.
+    // Not found locally. Schedule deferred download prompt only if requested.
     if (doSchedule) {
         scheduleIBLDownload(name, iblBase);
     }
@@ -1534,10 +1593,13 @@ void V3dModelManager::scheduleIBLDownload(const std::string& imageName, const st
 
 void V3dModelManager::performIBLDownload(const std::string& imageName, const std::string& iblBase) {
     // If the name contains an absolute path, extract just the filename; relative paths are ok.
-    std::string name = imageName;
-    if (!name.empty() && name[0] == '/') {
-        size_t lastSlash = name.rfind('/');
-        name = (lastSlash != 0) ? name.substr(lastSlash + 1) : name.substr(1);
+    std::string name = normalizeIBLName(imageName);
+
+    // Last line of defense: never prompt for or write outside the image
+    // library directory, regardless of caller.
+    if (!iblNameOK(name)) {
+        logRejectedIBLName(imageName);
+        return;
     }
 
     const char* imageUrlEnv = std::getenv("OKULAR_V3D_IMAGE_URL");
@@ -1576,11 +1638,19 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
         tasks.push_back({remoteSubdir + fname, envDir + QLatin1Char('/') + fname});
     }
 
-    // Build the message.
-    QString msg = QString::fromLatin1("The IBL environment map '%1' was not found locally.\n\n")
-        .arg(qImageName);
-    msg += QString::fromLatin1("Would you like to download it (%1 files) from:\n%2?");
-    msg = msg.arg(tasks.size()).arg(QString::fromStdString(baseUrl));
+    // Build the message. Use concatenation rather than chained QString::arg:
+    // both the source URL (OKULAR_V3D_IMAGE_URL) and the destination directory
+    // (OKULAR_V3D_IMAGE_DIR / XDG) come from the environment and could contain
+    // a literal '%1'/'%2'/'%3' that arg() would misread as a placeholder and
+    // mangle. qImageName is known to be '%' -free (see iblNameOK).
+    const QString fromUrl = QString::fromStdString(baseUrl) + QLatin1Char('/') + qImageName + QLatin1Char('/');
+    QString msg = QStringLiteral("The IBL environment map '") + qImageName
+               + QStringLiteral("' was not found locally.\n\n")
+               + QStringLiteral("Would you like to download it (")
+               + QString::number(quint64(tasks.size()))
+               + QStringLiteral(" files) from:\n") + fromUrl
+               + QStringLiteral("\n\nto:\n") + envDir
+               + QLatin1Char('?');
 
     // Show a QMessageBox asking if the user wants to download.
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -1738,6 +1808,13 @@ std::string V3dModelManager::getIBLBase() const {
 }
 
 void V3dModelManager::scheduleIBLPrompt(const std::string& imageName, const std::string& iblBase) {
+    // Reject here: no prompt and no download for names that could escape the
+    // image library directory.
+    if (!iblNameOK(normalizeIBLName(imageName))) {
+        logRejectedIBLName(imageName);
+        return;
+    }
+
     // Debounce: avoid spamming the user with repeated prompts for the same image.
     static std::set<std::string> pendingPrompts;
     if (pendingPrompts.count(imageName)) return;

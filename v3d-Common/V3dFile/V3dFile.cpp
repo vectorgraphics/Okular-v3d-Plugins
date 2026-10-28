@@ -256,6 +256,19 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
                     case IMAGE: {
                         uint64_t strLen;
                         xdrFile >> strLen;
+
+                        // Sanity cap to prevent bad_alloc / a huge allocation from a
+                        // crafted file. An IBL name is a short relative path (PATH_MAX
+                        // is 4096); longer than that it can't be a valid path anyway.
+                        // On overflow we stop parsing this entry -- like the CENTERS
+                        // case above, the stream is left misaligned, so the rest of the
+                        // file is ignored rather than triggering a crash.
+                        if (strLen > 4096) {
+                            std::cout << "WARNING: IMAGE name length (" << strLen
+                                      << ") exceeds limit, skipping." << std::endl;
+                            break;
+                        }
+
                         std::string s;
                         s.resize(strLen);
                         for (uint64_t k = 0; k < strLen; ++k) {
