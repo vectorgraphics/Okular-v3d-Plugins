@@ -12,7 +12,6 @@
 #include <mutex>
 #include <set>
 #include <QTimer>
-#include <QSemaphore>
 #include <QThread>
 
 #include <generator.h>
@@ -140,25 +139,31 @@ static void logRejectedIBLName(const std::string& name)
 class IBLPromptEvent : public QEvent {
 public:
     using Callback = std::function<bool()>;
-    IBLPromptEvent(Callback&& cb, QSemaphore* sem)
-        : QEvent(QEvent::Type(QEvent::User + 1)), m_Callback(std::move(cb)), m_Semaphore(sem) {}
+    explicit IBLPromptEvent(Callback&& cb)
+        : QEvent(QEvent::Type(QEvent::User + 1)), m_Callback(std::move(cb)) {}
 
     Callback m_Callback;
-    QSemaphore* m_Semaphore;
 };
 
 // Event filter installed on qApp to catch IBLPromptEvent and run the callback on the main thread.
+//
+// Lifetime anchor for the IBL prompt: this filter is a child of the manager's
+// m_FilterParent and is removed from qApp + destroyed in ~V3dModelManager, so it
+// can never outlive the manager it points at. The callback captured in the event
+// therefore only ever runs on a live manager; the m_Manager check below makes that
+// guarantee explicit and keeps it safe even if the destructor's filter removal is
+// ever reordered.
 class IBLEventFilter : public QObject {
 public:
     // NO Q_OBJECT macro -- we only need eventFilter, no signals/slots.
-    explicit IBLEventFilter(QObject* parent) : QObject(parent) {}
+    explicit IBLEventFilter(QObject* parent, V3dModelManager* manager)
+        : QObject(parent), m_Manager(manager) {}
 
     bool eventFilter(QObject* /*object*/, QEvent* event) override {
         if (event->type() == QEvent::Type(QEvent::User + 1)) {
             IBLPromptEvent* promptEvent = static_cast<IBLPromptEvent*>(event);
-            promptEvent->m_Callback();
-            if (promptEvent->m_Semaphore) {
-                promptEvent->m_Semaphore->release();
+            if (m_Manager != nullptr && !m_Manager->isDestroying()) {
+                promptEvent->m_Callback();
             }
             // Do NOT delete event here -- Qt owns it and will delete it after
             // the filter chain returns. Deleting it ourselves causes use-after-free
@@ -167,6 +172,9 @@ public:
         }
         return false;
     }
+
+private:
+    V3dModelManager* m_Manager;
 };
 
 V3dModelManager::V3dModelManager(const Okular::Document* document) 
@@ -212,16 +220,21 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     qApp->installEventFilter(m_ApplicationEventFilter);
 
     // Install IBL event filter on qApp to handle cross-thread IBL download prompts.
-    m_IBLEventFilter = new IBLEventFilter(&m_FilterParent);
+    // The filter holds a back-pointer to the manager; it is a child of
+    // m_FilterParent and destroyed with the manager, so that back-pointer is
+    // always valid for the filter's lifetime.
+    m_IBLEventFilter = new IBLEventFilter(&m_FilterParent, this);
     qApp->installEventFilter(m_IBLEventFilter);
 }
 
 V3dModelManager::~V3dModelManager() {
+    // Set before anything below can be observed: the deferred-refresh timers and
+    // the IBL prompt event read this to refuse to touch the manager once it is gone.
     m_Destroying = true;
 
-    // Don't touch m_PendingTimers -- they may have been created on a different thread.
-    // The m_Destroying flag prevents callbacks from accessing destroyed members.
-    // Timers self-destruct when their singleShot fires or Okular exits.
+    // The deferred-refresh QTimers are children of m_FilterParent, so they are
+    // destroyed together with the manager (member destruction, below) and can never
+    // fire on freed state; they also delete themselves on fire, so nothing leaks.
     // Null out back-references first so in-flight events are safe.
     if (m_EventFilter) {
         m_EventFilter->modelManager = nullptr;
@@ -303,7 +316,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         if (!iblNameOK(normalizeIBLName(imageName))) {
             logRejectedIBLName(imageName);
         } else {
-            iblPath = resolveIBLPath(imageName, /*doSchedule=*/false);
+            iblPath = resolveIBLPath(imageName);
             if (iblPath.empty()) {
                 // IBL missing locally -- track this model so it is re-rendered
                 // once the files arrive.
@@ -454,7 +467,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // Match Asymptote prepareScene(): remesh is consumed after one non-OUTLINE render.
     if (m_Models[pageNumber][modelIndex].drawMode != DRAWMODE_OUTLINE)
         m_Models[pageNumber][modelIndex].remesh = false;
-    m_ReQueueModels = false;
 
     m_Models[pageNumber][modelIndex].initialized = true;
 
@@ -1562,7 +1574,7 @@ void V3dModelManager::refreshPixmap(size_t pageNumber) {
     }
 }
 
-std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool doSchedule) {
+std::string V3dModelManager::resolveIBLPath(const std::string& imageName) {
     if (imageName.empty()) return "";
 
     std::string name = normalizeIBLName(imageName);
@@ -1622,30 +1634,7 @@ std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool d
     std::string found = tryIBLDir(iblBase + "/" + name);
     if (!found.empty()) return found;
 
-    // Not found locally. Schedule deferred download prompt only if requested.
-    if (doSchedule) {
-        scheduleIBLDownload(name, iblBase);
-    }
     return "";
-}
-
-void V3dModelManager::scheduleIBLDownload(const std::string& imageName, const std::string& iblBase) {
-    // Debounce: avoid spamming the user with repeated prompts for the same image.
-    static std::set<std::string> pendingDownloads;
-    if (pendingDownloads.count(imageName)) return;
-
-    pendingDownloads.insert(imageName);
-
-    m_PendingIBLImageName = imageName;
-    m_PendingIBLIblBase = iblBase;
-
-    // Schedule on the main event loop so we're outside the render path / mutex hold.
-    QTimer* timer = new QTimer();
-    timer->setSingleShot(true);
-    QObject::connect(timer, &QTimer::timeout, [this]() {
-        if (!m_Destroying) performIBLDownload(m_PendingIBLImageName, m_PendingIBLIblBase);
-    });
-    timer->start(0);
 }
 
 void V3dModelManager::performIBLDownload(const std::string& imageName, const std::string& iblBase) {
@@ -1734,12 +1723,7 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
             m_ModelsWithMissingIBL.clear();
         }
         for (size_t pn : pages) {
-            QTimer* timer = new QTimer();
-            timer->setSingleShot(true);
-            QObject::connect(timer, &QTimer::timeout, [this, pn]() {
-                if (!m_Destroying) refreshPixmap(pn);
-            });
-            timer->start(25);
+            scheduleRefreshPixmap(pn, 25);
         }
         return;
     }
@@ -1840,7 +1824,6 @@ void V3dModelManager::onIBLDownloadComplete() {
         m_IBLNetManager = nullptr;
     }
 
-    m_ReQueueModels = true;
     std::set<size_t> affectedPages;
     // RenderModel (worker thread) inserts into m_ModelsWithMissingIBL and
     // resizes m_Models under m_ModelsMutex; guard our iteration/clear and
@@ -1859,13 +1842,23 @@ void V3dModelManager::onIBLDownloadComplete() {
     // Force Okular to re-request pixmaps for each affected page.
     // Stagger the calls to avoid the 1/60s refresh throttle.
     for (size_t pn : affectedPages) {
-        QTimer* timer = new QTimer();
-        timer->setSingleShot(true);
-        QObject::connect(timer, &QTimer::timeout, [this, pn]() {
-            if (!m_Destroying) refreshPixmap(pn);
-        });
-        timer->start(25);
+        scheduleRefreshPixmap(pn, 25);
     }
+}
+
+void V3dModelManager::scheduleRefreshPixmap(size_t pageNumber, int delayMs) {
+    // Parent to m_FilterParent (destroyed with the manager) so the timeout can
+    // never fire after the manager is gone -- the old parentless timers read
+    // m_Destroying from freed memory if destruction beat the delay -- and have
+    // it delete itself on fire so it never leaks. Both this and refreshPixmap()
+    // run on the main thread, so there is no cross-thread QObject ownership.
+    QTimer* timer = new QTimer(&m_FilterParent);
+    timer->setSingleShot(true);
+    QObject::connect(timer, &QTimer::timeout, [this, pageNumber]() {
+        if (!m_Destroying) refreshPixmap(pageNumber);
+    });
+    QObject::connect(timer, &QTimer::timeout, timer, &QObject::deleteLater);
+    timer->start(delayMs);
 }
 
 std::string V3dModelManager::getIBLBase() const {
@@ -1893,12 +1886,14 @@ void V3dModelManager::scheduleIBLPrompt(const std::string& imageName, const std:
     // will catch it and run the callback on the main thread, showing the dialog.
     // This works from both background threads (PDF loading) and the main thread
     // (standalone .v3d), since postEvent always delivers to the receiver's thread.
+    // The callback runs on the main thread via IBLEventFilter, which is destroyed
+    // with the manager, so the raw 'this' capture here is safe: the filter can
+    // never deliver the event to a destroyed manager.
     IBLPromptEvent* event = new IBLPromptEvent(
         [this, imageName, iblBase]() -> bool {
             performIBLDownload(imageName, iblBase);
             return !m_IBLDeclined;
-        },
-        nullptr  // No semaphore needed -- post-and-forget.
+        }
     );
 
     QCoreApplication::postEvent(qApp, event);

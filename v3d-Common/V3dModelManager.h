@@ -88,9 +88,13 @@ public:
     std::string getIBLBase() const;
     void scheduleIBLPrompt(const std::string& imageName, const std::string& iblBase);
 
-private:
-    bool m_ReQueueModels{ true }; // TODO should be per model
+    // True while the destructor is running (or has run). The IBL prompt event
+    // filter and the deferred-refresh timers consult this to refuse to touch the
+    // manager after it is gone. Set on the main thread only, so a plain read is
+    // safe for the (main-thread) readers.
+    bool isDestroying() const { return m_Destroying; }
 
+private:
     mutable QMutex m_ModelsMutex; // mutable: also locked from const getters (LastRenderedModelImage)
 
     // The public Cache* entry points take m_ModelsMutex; the *Unlocked
@@ -170,14 +174,17 @@ private:
     void refreshPixmap(size_t pageNumber);
 
     // Resolve an IBL environment map name to a full filesystem path.
-    // Lookup order: $OKULAR_V3D_IMAGE_DIR/imageName > XDG data dir > (return empty, schedule download).
-    std::string resolveIBLPath(const std::string& imageName, bool doSchedule = true);
-
-    // Schedule a deferred download prompt for a missing IBL image (via QTimer::singleShot).
-    void scheduleIBLDownload(const std::string& imageName, const std::string& iblBase);
+    // Lookup order: $OKULAR_V3D_IMAGE_DIR/imageName > XDG data dir > (return empty).
+    std::string resolveIBLPath(const std::string& imageName);
 
     // Actually show the QMessageBox and perform the download (runs on main event loop, not render path).
     void performIBLDownload(const std::string& imageName, const std::string& iblBase);
+
+    // Schedule a main-thread QTimer that calls refreshPixmap(pageNumber) after
+    // delayMs. The timer is parented to m_FilterParent (destroyed with the
+    // manager) so it can never fire on freed state, and it deletes itself on fire
+    // so it never leaks.
+    void scheduleRefreshPixmap(size_t pageNumber, int delayMs);
 
     // Called when each async QNetworkReply finishes. When all replies are done,
     // marks models as changed so Okular re-renders with IBL on the next cycle.
@@ -249,8 +256,6 @@ private:
     // threads (RenderModel): keep it lock-free but atomic.
     std::atomic<bool> m_IBLDeclined{ false };
     bool m_Destroying = false;
-    std::string m_PendingIBLImageName;
-    std::string m_PendingIBLIblBase;
 
     V3dModel* m_ActiveModel{ nullptr };
     int m_ActiveModelPage{ -1};
