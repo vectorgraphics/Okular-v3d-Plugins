@@ -257,6 +257,7 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 			initialized = false;
 			return;
 		}
+		glslangInitialized = true;
 
 		createInstance();
 		createPhysicalDevice();
@@ -390,11 +391,64 @@ HeadlessRenderer::~HeadlessRenderer() {
 		shaderModules.clear();
 	}
 
-	// Do not explicitly destroy commandPool, device, or instance.
-	// Asymptote's vkrender.cc takes the same approach: it skips explicit
-	// Vulkan teardown and lets process exit clean up.  The Intel ANV driver
-	// crashes inside vkDestroyDevice when validation layers are active
-	// (NULL deref in vk_meta_device_finish hash table iteration).
+	// Device-level teardown: the per-frame sync objects (re)created by
+	// cleanup() and the two command pools (their command buffers go with
+	// the pools). The NULL guards cover the partially-created states left
+	// by a V3dVulkanError in the constructor.
+	if (device != VK_NULL_HANDLE) {
+		// All queue work must be complete before the device's sync objects
+		// and command pools are destroyed.
+		VkResult idleRes = vkDeviceWaitIdle(device);
+		if (idleRes != VK_SUCCESS) {
+			std::cerr << "v3d: vkDeviceWaitIdle in ~HeadlessRenderer failed: " << idleRes << std::endl;
+		}
+
+		for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+			if (frameObjects[i].inComputeFence != VK_NULL_HANDLE) vkDestroyFence(device, frameObjects[i].inComputeFence, nullptr);
+			if (frameObjects[i].transferFence != VK_NULL_HANDLE) vkDestroyFence(device, frameObjects[i].transferFence, nullptr);
+			if (frameObjects[i].inFlightFence != VK_NULL_HANDLE) vkDestroyFence(device, frameObjects[i].inFlightFence, nullptr);
+			if (frameObjects[i].transferDoneSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, frameObjects[i].transferDoneSemaphore, nullptr);
+		}
+		if (timelineSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, timelineSemaphore, nullptr);
+
+		if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, nullptr);
+		if (transferCommandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, transferCommandPool, nullptr);
+	}
+
+	// The debug-report callback must be destroyed before the instance.
+	if (validationEnabled && debugReportCallback) {
+		PFN_vkDestroyDebugReportCallbackEXT destroyDebugReportCallbackEXT =
+			reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(
+				vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT"));
+		if (destroyDebugReportCallbackEXT) {
+			destroyDebugReportCallbackEXT(instance, debugReportCallback, nullptr);
+		}
+	}
+
+	// Destroy the device and instance: previously every opened document
+	// leaked its VkInstance/VkDevice until Okular exited, so a long session
+	// grew the driver's context count until new device creation started
+	// failing and rendering silently disabled. Exception: the Intel ANV
+	// driver crashes inside vkDestroyDevice when the validation layers are
+	// active (NULL deref in vk_meta_device_finish hash table iteration), so
+	// that debug configuration still defers device/instance teardown to
+	// process exit.
+	if (device != VK_NULL_HANDLE && !validationEnabled) {
+		vkDestroyDevice(device, nullptr);
+		device = VK_NULL_HANDLE;
+	}
+	if (instance != VK_NULL_HANDLE && !validationEnabled) {
+		vkDestroyInstance(instance, nullptr);
+		instance = VK_NULL_HANDLE;
+	}
+
+	// glslang's process-global state is reference-counted per
+	// InitializeProcess/FinalizeProcess pair (ShInitialize/ShFinalize), so
+	// finalizing here is safe while other renderers are still active.
+	if (glslangInitialized) {
+		glslangInitialized = false;
+		glslang::FinalizeProcess();
+	}
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageCallback(
@@ -411,8 +465,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageCallback(
 
 	return VK_FALSE;
 }
-
-VkDebugReportCallbackEXT debugReportCallback{};
 
 uint32_t HeadlessRenderer::getMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties) {
 	VkPhysicalDeviceMemoryProperties deviceMemoryProperties;
@@ -538,6 +590,7 @@ void HeadlessRenderer::createInstance() {
 		PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT = reinterpret_cast<PFN_vkCreateDebugReportCallbackEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugReportCallbackEXT"));
 		assert(vkCreateDebugReportCallbackEXT);
 		VK_CHECK_RESULT(vkCreateDebugReportCallbackEXT(instance, &debugReportCreateInfo, nullptr, &debugReportCallback));
+		validationEnabled = true;
 	}
 }
 

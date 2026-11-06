@@ -177,50 +177,14 @@ private:
     V3dModelManager* m_Manager;
 };
 
-V3dModelManager::V3dModelManager(const Okular::Document* document) 
+V3dModelManager::V3dModelManager(const Okular::Document* document)
     : m_Document(document)
-    , m_HeadlessRenderer(nullptr) 
     , m_StartTime(std::chrono::system_clock::now()) {
 
-    const std::vector<std::string> shaderSearchPaths {
-        "./",
-        "/usr/lib64/qt6/plugins/okular_generators/",
-        "/usr/lib/x86_64-linux-gnu/qt6/plugins/okular/generators/",
-        "C:\\Program Files\\Okular\\bin\\"
-    };
-
-    // Every shader file HeadlessRenderer compiles (createShaderModules).
-    // Require all of them up front so a partial shader installation degrades
-    // to a blank model at document open, instead of only failing at first
-    // render.
-    const std::vector<std::string> requiredShaders {
-        "vertex.glsl", "fragment.glsl", "count.glsl", "screen.glsl",
-        "blend.glsl", "sum1.glsl", "sum2.glsl", "sum3.glsl"
-    };
-
-    std::string shaderPath = "";
-
-    for (const auto& path : shaderSearchPaths) {
-        bool complete = true;
-        for (const auto& shader : requiredShaders) {
-            if (!fileExists(path + shader)) {
-                complete = false;
-                break;
-            }
-        }
-        if (complete) {
-            shaderPath = path;
-            break;
-        }
-    }
-
-    if (shaderPath == "") {
-        std::cout << "Shaders could not be found, disabling v3d rendering." << std::endl;
-        // Do NOT call std::exit() -- this runs for every PDF opened.
-        // m_HeadlessRenderer stays nullptr; RenderModel will return a blank image.
-    } else {
-        m_HeadlessRenderer = std::make_unique<HeadlessRenderer>(shaderPath);
-    }
+    // The HeadlessRenderer (shader probing + glslang + Vulkan
+    // instance/device) is created lazily in ensureHeadlessRenderer() on
+    // the first AddModel, so a document without 3D content never pays for
+    // it at open time.
 
     m_PageView = GetPageViewWidget();
 
@@ -282,8 +246,58 @@ V3dModelManager::~V3dModelManager() {
 
 
 
+void V3dModelManager::ensureHeadlessRenderer() {
+    if (m_HeadlessRenderer || m_HeadlessRendererMissing) {
+        return;
+    }
+
+    const std::vector<std::string> shaderSearchPaths {
+        "./",
+        "/usr/lib64/qt6/plugins/okular_generators/",
+        "/usr/lib/x86_64-linux-gnu/qt6/plugins/okular/generators/",
+        "C:\\Program Files\\Okular\\bin\\"
+    };
+
+    // Every shader file HeadlessRenderer compiles (createShaderModules).
+    // Require all of them up front so a partial shader installation degrades
+    // to a blank model at first render, instead of only failing mid-render.
+    const std::vector<std::string> requiredShaders {
+        "vertex.glsl", "fragment.glsl", "count.glsl", "screen.glsl",
+        "blend.glsl", "sum1.glsl", "sum2.glsl", "sum3.glsl"
+    };
+
+    std::string shaderPath = "";
+
+    for (const auto& path : shaderSearchPaths) {
+        bool complete = true;
+        for (const auto& shader : requiredShaders) {
+            if (!fileExists(path + shader)) {
+                complete = false;
+                break;
+            }
+        }
+        if (complete) {
+            shaderPath = path;
+            break;
+        }
+    }
+
+    if (shaderPath == "") {
+        std::cout << "Shaders could not be found, disabling v3d rendering." << std::endl;
+        // Do NOT call std::exit() -- this runs for every 3D document opened.
+        m_HeadlessRendererMissing = true;
+    } else {
+        m_HeadlessRenderer = std::make_unique<HeadlessRenderer>(shaderPath);
+    }
+}
+
 void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
     QMutexLocker locker(&m_ModelsMutex);
+
+    // AddModel is the first call for a document that actually contains 3D
+    // models: pay for the renderer here (main thread, before any render)
+    // instead of in the constructor, where every opened document paid.
+    ensureHeadlessRenderer();
 
     if (m_Models.size() < pageNumber + 1) {
         m_Models.resize(pageNumber + 1);
@@ -301,7 +315,12 @@ void V3dModelManager::AddModel(V3dModel model, size_t pageNumber) {
 QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int imageWidth, int imageHeight) {
     QMutexLocker locker(&m_ModelsMutex);
 
-    // If shaders were not found at construction, rendering is disabled.
+    // AddModel (which always precedes any render for a document) has already
+    // created the renderer; this is only reached if that invariant ever
+    // changes (the guard makes RenderModel self-sufficient either way).
+    ensureHeadlessRenderer();
+
+    // If the shaders were missing (or renderer init failed), rendering is disabled.
     if (!m_HeadlessRenderer) {
         LOG("[v3d] RenderModel: EXIT - no HeadlessRenderer (shaders missing)\n");
         QImage image{ imageWidth, imageHeight, QImage::Format_ARGB32 };

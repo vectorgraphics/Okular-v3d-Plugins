@@ -101,6 +101,14 @@ private:
     // variants below assume the caller already holds it (QMutex is
     // non-recursive).
     void EnsureCachedRequestSize(size_t pageNumber); // caller holds m_ModelsMutex
+
+    // Lazily create the HeadlessRenderer on first use (the first AddModel of
+    // a document that actually contains 3D models): documents without v3d
+    // content never pay for shader probing + glslang + Vulkan init at open
+    // time, and the renderer is destroyed with the manager instead of
+    // leaking a driver context per opened document. No-op once created (or
+    // once the shaders were found to be missing). Caller holds m_ModelsMutex.
+    void ensureHeadlessRenderer();
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
     void cacheRequestUnlocked(Okular::PixmapRequest* request);
     void cacheRequestSizeUnlocked(size_t pageNumber, int width, int height, int priority);
@@ -199,6 +207,9 @@ private:
     std::vector<V3dModel> m_EmptyModels;
 
     std::unique_ptr<HeadlessRenderer> m_HeadlessRenderer;
+    // ensureHeadlessRenderer() probed the shader paths and found no complete
+    // set: rendering is disabled for this document and it must not re-probe.
+    bool m_HeadlessRendererMissing{ false };
 
     bool m_Dragging{ false };
 

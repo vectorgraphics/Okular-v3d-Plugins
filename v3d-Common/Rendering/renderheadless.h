@@ -297,6 +297,16 @@ public:
 	glm::ivec2 currentTargetSize{ 0, 0 };
 	bool initialized{ false };
 	bool initFailed{ false };  // True when Vulkan device creation failed (e.g., bad OKULAR_V3D_DEVICE)
+	// True once createInstance() enabled the validation layers (created the
+	// debug-report callback). vkDestroyDevice crashes on Intel ANV with the
+	// validation layers active, so the destructor defers device/instance
+	// teardown to process exit in that configuration only.
+	bool validationEnabled{ false };
+	// True once glslang::InitializeProcess() succeeded; the destructor pairs
+	// it with glslang::FinalizeProcess() (glslang's process state is
+	// reference-counted per init/finalize pair, so this is safe while other
+	// renderers are still active).
+	bool glslangInitialized{ false };
 	bool interlock{ false };
 	bool Opaque{ true };  // Matches Asymptote: set once per QueueMesh via setOpaque()
 	bool srgb{ false }; // TODO: control via env var
