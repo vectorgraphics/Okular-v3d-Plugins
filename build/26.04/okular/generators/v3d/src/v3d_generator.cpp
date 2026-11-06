@@ -65,6 +65,13 @@ bool V3dGenerator::loadDocument(const QString &fileName, QVector<Okular::Page *>
 
     glm::vec2 pageSize = m_ModelManager.GetCanvasSize(0);
 
+    // A file with a zero, negative, or NaN CANVAS_* field would otherwise
+    // make the loop below spin forever (0 * 2 is 0, NaN > 600 is always
+    // false), hanging the UI thread. (!>0 also rejects NaN.)
+    if (!(pageSize.x > 0.0f) || !(pageSize.y > 0.0f)) {
+        pageSize = glm::vec2{ 720.0f, 720.0f };
+    }
+
     while (!(pageSize.x > 600)) {
         pageSize.x *= 2;
         pageSize.y *= 2;
