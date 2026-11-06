@@ -18,13 +18,19 @@ Adds support for opening pdf files with v3d files embedded inside, currently rot
 6. Finally, run `./install.sh` with root permissions
 
 ## Building
-In order to build the plugins for a specific version of Okular, navigate to `release/<desired version>/` and execute the script `./build.sh`. You will most likely only be able to build the plugin for the versions of Okular that ship with your package manager due to dependency versioning.
+To build and install the plugins for your system:
 
-For convenience here is the full list of packages needed to build the plugins on Fedora 44:
-`sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel okular`
+1. Install the build dependencies. For convenience here is the full list of packages needed to build the plugins on Fedora 44:
+   `sudo dnf install cmake g++ extra-cmake-modules qt6-qttools-devel qt6-qtsvg-devel kf6-karchive-devel kf6-kbookmarks-devel kf6-kcompletion-devel kf6-kconfig-devel kf6-kconfigwidgets-devel kf6-ki18n-devel kf6-kio-devel kf6-threadweaver-devel kf6-kparts-devel kf6-kcrash-devel kf6-kiconthemes-devel plasma-activities-devel kf6-kpty-devel poppler-qt6-devel glm-devel libtirpc-devel vulkan-validation-layers qt6-qtbase-private-devel okular`
 
-And for Ubuntu 26.04:
-`sudo apt install cmake g++ extra-cmake-modules qt6-tools-dev qt6-svg-dev libkf6archive-dev libkf6bookmarks-dev libkf6completion-dev libkf6config-dev libkf6configwidgets-dev libkf6i18n-dev libkf6kio-dev libkf6threadweaver-dev libkf6parts-dev libkf6crash-dev libkf6iconthemes-dev libkf6pty-dev libpoppler-qt6-dev libglm-dev libtirpc-dev vulkan-validationlayers qt6-base-private-dev libkf6textwidgets-dev glslang-dev spirv-tools okular`
+   And for Ubuntu 26.04:
+   `sudo apt install cmake g++ extra-cmake-modules qt6-tools-dev qt6-svg-dev libkf6archive-dev libkf6bookmarks-dev libkf6completion-dev libkf6config-dev libkf6configwidgets-dev libkf6i18n-dev libkf6kio-dev libkf6threadweaver-dev libkf6parts-dev libkf6crash-dev libkf6iconthemes-dev libkf6pty-dev libpoppler-qt6-dev libglm-dev libtirpc-dev vulkan-validationlayers qt6-base-private-dev libkf6textwidgets-dev glslang-dev spirv-tools okular`
+
+2. Find out what version of Okular you have installed (see step 2 of Installing above). The version will have the format `YY.MM.0X` where YY is the year, MM is the month, and 0X is the sub-version.
+
+3. Navigate to `build/<YY.MM>/`, matching the version of Okular you have installed, and run `./build.sh` (run `./build.sh --help` for the other options, e.g. `--debug` or `--clean`). This builds the plugins and stages the installable files (plugins, shaders, metadata, and the install script) in `stage/`. You will most likely only be able to build the plugin for the versions of Okular that ship with your package manager due to dependency versioning.
+
+4. Run `sudo ./build.sh --install` to install the staged plugins. This step does not rebuild anything: it only copies the staged files into the system plugin directories and updates the mime database, so it is safe to run as root and the build tree stays owned by your user (the next `./build.sh` run remains incremental).
 
 ## Building plugins for a new version of Okular
 For this example, we will be building plugins for Okular version 25.04
@@ -115,7 +121,7 @@ if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty(
         int xMax = (int)(request->width() * model.maxBound.x);
         int yMin = (int)(request->height() * model.minBound.y);
         int yMax = (int)(request->height() * model.maxBound.y);
-        
+
         int imageWidth = xMax - xMin;
         int imageHeight = yMax - yMin;
 

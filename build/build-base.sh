@@ -11,7 +11,8 @@ buildFunc() {
             echo "  --clean-only    Deletes all existing build files"
             echo "  --release       Builds the release version of the plugins"
             echo "  --debug         Builds the debug version of the plugins"
-            echo "  --install       Build then run the install script from the stage directory"
+            echo "  --install       Install the staged plugins without building (requires a"
+            echo "                  previous ./build.sh run; safe to run with sudo)"
 
             exit
         fi
@@ -45,6 +46,21 @@ buildFunc() {
             install=1
         fi
     done
+
+    if [[ $install -eq 1 ]]; then
+        # Install-only: do not build, restage, or touch the build tree. The
+        # stage directory must already exist from a previous ./build.sh run.
+        # Safe to run with sudo: it only reads stage/ and writes to the
+        # system plugin directories, so the build tree is never opened by
+        # root (no rebuild, no ownership changes).
+        if [[ ! -f "stage/install.sh" ]]; then
+            echo "Error: stage/install.sh not found. Run ./build.sh (without --install) first."
+            exit 1
+        fi
+        cd "stage/" || { echo "Error: stage directory not found."; exit 1; }
+        bash "./install.sh"
+        exit 0
+    fi
 
     if [[ $clean -eq 1 ]] || [[ $cleanOnly -eq 1 ]]; then
         rm -rf build/
@@ -117,10 +133,5 @@ buildFunc() {
 
     if [[ -f "../../base-release/okularApplication_v3d.desktop" ]]; then
         cp "../../base-release/okularApplication_v3d.desktop" "stage/"
-    fi
-
-    if [[ $install -eq 1 ]]; then
-        cd "stage/" || { echo "Error: stage directory not found."; exit 1; }
-        bash "./install.sh"
     fi
 }
