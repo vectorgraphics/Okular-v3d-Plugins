@@ -17,9 +17,22 @@ bool ApplicationEventFilter::eventFilter(QObject *object, QEvent *event) {
     if (event->type() == QEvent::KeyPress) {
         QKeyEvent* keyPress = dynamic_cast<QKeyEvent*>(event);
 
-        if (keyPress != nullptr) {
+        // This filter is installed on qApp, so it receives every window's
+        // keys. Deliver to the manager only if the key was pressed in this
+        // document's own window (PageView or presentation), so with several
+        // windows open H/M cannot act on a model in a window the user is not
+        // looking at.
+        if (keyPress != nullptr && modelManager->keyEventInOwnWindow(object)) {
             return modelManager->keyPressEvent(keyPress);
         }
+    }
+
+    // Re-resolve and rebind m_PageView (posted from cacheRequestUnlocked,
+    // possibly on a pixmap worker thread, when this document's own
+    // PageView-priority requests start arriving).
+    if (event->type() == QEvent::Type(QEvent::User + 2)) {
+        modelManager->rebindPageView();
+        return true;
     }
 
     // Track Okular's PresentationWidget (presentation mode shows pages in a

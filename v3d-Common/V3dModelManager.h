@@ -114,6 +114,24 @@ private:
     void cacheRequestSizeUnlocked(size_t pageNumber, int width, int height, int priority);
     void cachePageUnlocked(size_t pageNumber, Okular::Page* page);
 
+    // Re-resolve the PageView this document is shown in (see
+    // resolvePageView) and rebind m_PageView (and the mouse EventFilter) to
+    // it. The constructor-time scan (GetPageViewWidget) is correct except
+    // when this document's own window's PageView does not exist yet, in
+    // which case it binds to the other window's view; this document's first
+    // PAGEVIEW_PRIO pixmap request (by which time its PageView exists)
+    // triggers the re-resolution. Posted to the main event loop from
+    // cacheRequestUnlocked() (which may run on a pixmap worker thread) and
+    // delivered through ApplicationEventFilter.
+    void rebindPageView();
+
+    // True if a key event (received by the app-level event filter, which
+    // sees every window's keys) was pressed in this document's own window --
+    // the PageView's top-level window or the active presentation window.
+    // Without this gate, with several windows open, H/M could act on a model
+    // in a window the user is not looking at. Main thread only.
+    bool keyEventInOwnWindow(QObject* object) const;
+
     float GetDevicePixelRatio();
 
 #ifdef MOUSE_BOUNDARIES
@@ -221,6 +239,14 @@ private:
     // own PixmapRequest (see CacheRequest). refreshPixmap() deletes only this
     // observer's page pixmap; every other observer's pixmaps are left alone.
     Okular::DocumentObserver* m_PageViewObserver{ nullptr };
+    // Observer of the last PAGEVIEW_PRIO request seen (each PageView has a
+    // stable observer, so a new one means a new PageView shows this
+    // document). Equality only -- never dereferenced. Written under
+    // m_ModelsMutex (also from pixmap worker threads).
+    Okular::DocumentObserver* m_LastSeenPageViewObserver{ nullptr };
+    // A PageViewRebindEvent (QEvent::User + 2) is in the main event queue.
+    // Guarded by m_ModelsMutex.
+    bool m_PendingRebindPosted{ false };
     QObject m_FilterParent;
 
     EventFilter* m_EventFilter{ nullptr };

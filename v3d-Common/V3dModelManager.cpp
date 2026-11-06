@@ -145,6 +145,15 @@ public:
     Callback m_Callback;
 };
 
+// Custom event requesting a PageView re-resolution on the main thread
+// (posted by cacheRequestUnlocked() from any thread, handled by
+// ApplicationEventFilter).
+class PageViewRebindEvent : public QEvent {
+public:
+    explicit PageViewRebindEvent()
+        : QEvent(QEvent::Type(QEvent::User + 2)) {}
+};
+
 // Event filter installed on qApp to catch IBLPromptEvent and run the callback on the main thread.
 //
 // Lifetime anchor for the IBL prompt: this filter is a child of the manager's
@@ -186,6 +195,12 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     // the first AddModel, so a document without 3D content never pays for
     // it at open time.
 
+    // Initial binding: with several windows open this prefers the PageView
+    // in the active window (the one the document is being opened in). If
+    // this document's own window's PageView does not exist yet, it binds to
+    // the other window's view; rebindPageView() re-resolves on this
+    // document's first pixmap request, which arrives before the user can
+    // interact with the document.
     m_PageView = GetPageViewWidget();
 
     // Parent filters to our own QObject so we fully control their lifetime.
@@ -1055,6 +1070,23 @@ void V3dModelManager::cacheRequestUnlocked(Okular::PixmapRequest* request) {
     // pixmaps untouched.
     if (request->priority() == PAGEVIEW_PRIO) {
         m_PageViewObserver = request->observer();
+
+        // Each PageView has a stable observer, so a PAGEVIEW_PRIO request
+        // from an observer we have not seen before means this document is
+        // being shown by a PageView the constructor-time scan may not have
+        // bound to (its window's PageView did not exist yet, or the scan
+        // picked the other window's view). Request a re-resolution on the
+        // main thread (this may run on a pixmap worker thread); at most one
+        // event is in flight at a time, and an in-flight event already
+        // re-resolves, so skipping the post here is safe.
+        Okular::DocumentObserver* observer = request->observer();
+        if (observer != m_LastSeenPageViewObserver) {
+            m_LastSeenPageViewObserver = observer;
+            if (!m_PendingRebindPosted) {
+                m_PendingRebindPosted = true;
+                QCoreApplication::postEvent(qApp, new PageViewRebindEvent());
+            }
+        }
     }
 
     // Presentation-mode requests (PRESENTATION_PRIO / PRESENTATION_PRELOAD_PRIO)
@@ -1446,36 +1478,124 @@ glm::vec2 V3dModelManager::GetNormalizedPositionRelativeToPage(const glm::vec2& 
     return (pos - glm::vec2{ border.le, border.hi }) / pageSize;
 }
 
-QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
-    QAbstractScrollArea* pageView = nullptr;
+namespace {
+// Identify an Okular PageView by its meta-object class name (it inherits
+// QAbstractScrollArea and has the Q_OBJECT macro). Using the Qt meta-object
+// system is more robust than counting children (QBoxLayout / QFrame
+// heuristics), which can break if Okular's internal widget hierarchy
+// changes, and lets the plugin stay free of a link dependency on the
+// application's part library.
+QAbstractScrollArea* pageViewOf(const QWidget* widget) {
+    if (widget != nullptr && widget->inherits("PageView")) {
+        // const_cast is safe: the widget is a live, non-const object; only
+        // the accessor (e.g. QApplication::activeWindow()) is const-qualified.
+        return const_cast<QAbstractScrollArea*>(qobject_cast<const QAbstractScrollArea*>(widget));
+    }
+    return nullptr;
+}
 
+// Deterministic best-effort resolution (main thread only) of the PageView
+// that shows the document this manager belongs to: a document is opened in
+// the window that is active (every standard flow focuses the window a
+// document is opened in), so with several windows open prefer the PageView
+// in the active window; with a single PageView in the app there is no
+// ambiguity. Returns nullptr if no PageView exists yet.
+QAbstractScrollArea* resolvePageView() {
+    QAbstractScrollArea* sole = nullptr;
+    int count = 0;
     for (QWidget* widget : QApplication::allWidgets()) {
-        // Okular's PageView class inherits from QAbstractScrollArea and has the
-        // Q_OBJECT macro, so its meta-object class name is "PageView".  Using the
-        // Qt meta-object system to identify it by type is far more robust than
-        // counting children (QBoxLayout / QFrame heuristics) which can break if
-        // Okular's internal widget hierarchy changes.
-        if (!widget->inherits("PageView")) {
-            continue;
+        if (QAbstractScrollArea* pv = pageViewOf(widget)) {
+            ++count;
+            sole = pv;
         }
-
-        QAbstractScrollArea* scrollArea = dynamic_cast<QAbstractScrollArea*>(widget);
-        if (scrollArea == nullptr) {
-            continue;
-        }
-
-        if (pageView != nullptr) {
-            std::cout << "ERROR, multiple pageViews found" << std::endl;
-        }
-
-        pageView = scrollArea;
+    }
+    if (count == 1) {
+        return sole;
     }
 
+    const QWidget* active = QApplication::activeWindow();
+    if (active != nullptr) {
+        if (QAbstractScrollArea* pv = pageViewOf(active)) {
+            return pv;
+        }
+        for (QWidget* child : active->findChildren<QWidget*>()) {
+            if (QAbstractScrollArea* pv = pageViewOf(child)) {
+                return pv;
+            }
+        }
+    }
+
+    return sole;
+}
+}
+
+QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
+    // Initial binding (main thread, from the constructor). If this document
+    // was opened in a new window whose PageView does not exist yet, this
+    // binds to the other window's view -- rebindPageView() re-resolves on
+    // this document's first pixmap request, by which time the PageView
+    // exists.
+    QAbstractScrollArea* pageView = resolvePageView();
+
     if (pageView == nullptr) {
-        std::cout << "ERROR, pageview was not found" << std::endl;
+        LOG("[v3d] GetPageViewWidget: no PageView found yet; rebindPageView() binds it on the first pixmap request\n");
     }
 
     return pageView;
+}
+
+void V3dModelManager::rebindPageView() {
+    // Main thread only: posted to the main event loop from
+    // cacheRequestUnlocked() (which may run on a pixmap worker thread) and
+    // delivered through ApplicationEventFilter, so the Qt widget operations
+    // below never run off the main thread.
+    bool pending = false;
+    {
+        QMutexLocker locker(&m_ModelsMutex);
+        pending = m_PendingRebindPosted;
+        m_PendingRebindPosted = false;
+    }
+    if (!pending) {
+        return;
+    }
+
+    // Resolved from the live widget list, so the result is live by
+    // construction.
+    QAbstractScrollArea* pageView = resolvePageView();
+
+    if (pageView == nullptr || pageView == m_PageView) {
+        return;
+    }
+
+    LOG("[v3d] rebindPageView: %p -> %p\n", (void*)m_PageView.data(), (void*)pageView);
+
+    // (Re)install the mouse filter on the resolved viewport. m_EventFilter
+    // was never created when the constructor found no PageView at all (this
+    // document's PageView did not exist yet during Document::open).
+    if (m_EventFilter == nullptr) {
+        m_EventFilter = new EventFilter(&m_FilterParent, this);
+    } else if (m_PageView != nullptr) {
+        m_PageView->viewport()->removeEventFilter(m_EventFilter);
+    }
+    pageView->viewport()->installEventFilter(m_EventFilter);
+    m_PageView = pageView;
+}
+
+bool V3dModelManager::keyEventInOwnWindow(QObject* object) const {
+    // Main thread only (key events are dispatched on it).
+    QWidget* widget = qobject_cast<QWidget*>(object);
+    if (widget == nullptr) {
+        return false;
+    }
+
+    QWidget* keyWindow = widget->window();
+
+    // During presentation the keys arrive in the presentation window.
+    if (m_PresentationWidget != nullptr && keyWindow == m_PresentationWidget->window()) {
+        return true;
+    }
+
+    return m_PageView != nullptr && keyWindow == m_PageView->window();
 }
 
 void V3dModelManager::requestPixmapRefresh(size_t pageNumber) {
