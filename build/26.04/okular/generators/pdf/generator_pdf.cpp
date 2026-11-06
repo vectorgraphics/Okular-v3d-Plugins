@@ -1299,6 +1299,64 @@ static bool shouldAbortRenderCallback(const QVariant &vPayload)
     return payload->request->shouldAbortRender();
 }
 
+void PDFGenerator::renderV3dModels(QImage &img, Okular::PixmapRequest *request)
+{
+    // Skip v3d Vulkan rendering for thumbnail requests -- use the pre-rendered
+    // PDF bitmap preview instead. Thumbnails should be static, non-interactive.
+    if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
+        bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
+        // Background preloads of adjacent pages must not drive the shared
+        // renderer: each v3d page fits to a slightly different size, so a
+        // fresh preload render would flip the renderer's size and force the
+        // next visible render (e.g. the first drag frame after entering a
+        // presentation) into a full resource recreation. Serve the page's
+        // last rendered image (scaled) instead; the page gets a true render
+        // the first time it is actually viewed.
+        bool isPreload = (request->priority() == PAGEVIEW_PRELOAD_PRIO || request->priority() == PRESENTATION_PRELOAD_PRIO);
+
+        size_t pageNumber = (size_t)request->page()->number();
+
+        int i = 0;
+        for (auto& model : modelManager.Models(pageNumber)) {
+            if (!isThumbnail) {
+                int xMin = (int)(request->width() * model.minBound.x);
+                int xMax = (int)(request->width() * model.maxBound.x);
+                int yMin = (int)(request->height() * model.minBound.y);
+                int yMax = (int)(request->height() * model.maxBound.y);
+                int imageWidth = xMax - xMin;
+                int imageHeight = yMax - yMin;
+
+                modelManager.CacheRequest(request);
+
+                QImage image = isPreload
+                    ? modelManager.CachedModelImage(pageNumber, i, imageWidth, imageHeight)
+                    : modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
+
+                if (!image.isNull()) {
+                    QPainter painter{ &img };
+
+                    if (request->isTile()) {
+                        painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
+                    } else {
+                        painter.drawImage(xMin, yMin, image);
+                    }
+                }
+            }
+
+            ++i;
+        }
+    }
+
+    modelManager.DrawMouseBoundaries(&img, request->pageNumber());
+
+    // Remember the last rendered page image (final composite, after the v3d
+    // sub-images were drawn on top) for stale-serving; see the top of
+    // image(). Implicitly shared -- no pixel duplication.
+    if (!request->isTile() && !img.isNull()) {
+        m_LastPageImage = { request->page()->number(), QSize(request->width(), request->height()), img };
+    }
+}
+
 QImage PDFGenerator::image(Okular::PixmapRequest *request)
 {
     // ========== begin v3d ==========
@@ -1445,59 +1503,17 @@ QImage PDFGenerator::image(Okular::PixmapRequest *request)
     }
 
     // ========== begin v3d ==========
-    // Skip v3d Vulkan rendering for thumbnail requests -- use the pre-rendered
-    // PDF bitmap preview instead. Thumbnails should be static, non-interactive.
-    if (!img.isNull() && img.format() != QImage::Format_Mono && !modelManager.Empty()) {
-        bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
-        // Background preloads of adjacent pages must not drive the shared
-        // renderer: each v3d page fits to a slightly different size, so a
-        // fresh preload render would flip the renderer's size and force the
-        // next visible render (e.g. the first drag frame after entering a
-        // presentation) into a full resource recreation. Serve the page's
-        // last rendered image (scaled) instead; the page gets a true render
-        // the first time it is actually viewed.
-        bool isPreload = (request->priority() == PAGEVIEW_PRELOAD_PRIO || request->priority() == PRESENTATION_PRELOAD_PRIO);
-
-        size_t pageNumber = (size_t)request->page()->number();
-
-        int i = 0;
-        for (auto& model : modelManager.Models(pageNumber)) {
-            if (!isThumbnail) {
-                int xMin = (int)(request->width() * model.minBound.x);
-                int xMax = (int)(request->width() * model.maxBound.x);
-                int yMin = (int)(request->height() * model.minBound.y);
-                int yMax = (int)(request->height() * model.maxBound.y);
-                int imageWidth = xMax - xMin;
-                int imageHeight = yMax - yMin;
-
-                modelManager.CacheRequest(request);
-
-                QImage image = isPreload
-                    ? modelManager.CachedModelImage(pageNumber, i, imageWidth, imageHeight)
-                    : modelManager.RenderModel(pageNumber, i, imageWidth, imageHeight);
-
-                if (!image.isNull()) {
-                    QPainter painter{ &img };
-
-                    if (request->isTile()) {
-                        painter.drawImage(xMin - request->normalizedRect().left * request->width(), yMin - request->normalizedRect().top * request->height(), image);
-                    } else {
-                        painter.drawImage(xMin, yMin, image);
-                    }
-                }
-            }
-
-            ++i;
-        }
-    }
-
-    modelManager.DrawMouseBoundaries(&img, request->pageNumber());
-
-    // Remember the last rendered page image (final composite, after the v3d
-    // sub-images were drawn on top) for stale-serving; see the top of
-    // image(). Implicitly shared -- no pixel duplication.
-    if (!request->isTile() && !img.isNull()) {
-        m_LastPageImage = { request->page()->number(), QSize(request->width(), request->height()), img };
+    // v3d exception boundary (see v3d-Common/CMakeLists.txt): rendering and
+    // cache updates run code compiled with exceptions on this worker thread
+    // while the core frames around it are not -- contain failures here so
+    // the page is served without the 3D overlay instead of unwinding into
+    // them.
+    try {
+        renderV3dModels(img, request);
+    } catch (const std::exception& e) {
+        std::cerr << "v3d: pixmap request failed: " << e.what() << "; serving the page without the 3D model." << std::endl;
+    } catch (...) {
+        std::cerr << "v3d: pixmap request failed (unknown exception); serving the page without the 3D model." << std::endl;
     }
     // ========== end v3d ==========
 
@@ -2054,6 +2070,67 @@ void PDFGenerator::addSynopsisChildren(const QList<Poppler::OutlineItem> &outlin
     }
 }
 
+void PDFGenerator::addV3dModelsFromAnnotation(Poppler::Annotation *annotation, Okular::Page *page)
+{
+    Poppler::RichMediaAnnotation *richMedia = dynamic_cast<Poppler::RichMediaAnnotation *>(annotation);
+    if (richMedia == nullptr) {
+        return;
+    }
+
+    Poppler::RichMediaAnnotation::Content *content = richMedia->content();
+    if (content == nullptr) {
+        return;
+    }
+
+    QList<Poppler::RichMediaAnnotation::Asset *> assets = content->assets();
+
+    for (Poppler::RichMediaAnnotation::Asset *asset : assets) {
+        if (asset == nullptr) {
+            continue;
+        }
+
+        Poppler::EmbeddedFile *embeddedFile = asset->embeddedFile();
+        if (embeddedFile == nullptr) {
+            continue;
+        }
+
+        QByteArray fileData = embeddedFile->data();
+
+        // Only run zlib on data that actually looks like a gzip
+        // stream: gzip-hpp reports failure via return value instead
+        // of throwing, and a non-gzip payload is just noise to skip.
+        bool isGzip = (fileData.size() >= 2 &&
+                       static_cast<unsigned char>(fileData[0]) == 0x1f &&
+                       static_cast<unsigned char>(fileData[1]) == 0x8b);
+
+        if (!isGzip) {
+            std::cerr << "v3d: embedded file is not gzip-compressed, skipping." << std::endl;
+            continue;
+        }
+
+        std::string decompressedData;
+        gzip::Decompressor decompressor;
+        if (!decompressor.decompress(decompressedData, fileData.data(), fileData.size())) {
+            std::cerr << "v3d: failed to decompress embedded file, skipping." << std::endl;
+            continue;
+        }
+
+        if (decompressedData.empty()) {
+            std::cerr << "v3d: embedded file decompressed to empty data, skipping." << std::endl;
+            continue;
+        }
+
+        xdr::memixstream xdrFile{ (uint8_t*)decompressedData.data(), decompressedData.size() };
+
+        QRectF bound = annotation->boundary().normalized();
+
+        glm::vec2 minBound{ bound.left(), bound.top() };
+        glm::vec2 maxBound{ bound.right(), bound.bottom() };
+
+        modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
+    }
+}
+
 void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page)
 {
     QSet<Poppler::Annotation::SubType> subtypes;
@@ -2065,67 +2142,16 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
     for (auto &a : popplerAnnotations) {
         // ========== begin v3d ==========
         if (a->subType() == Poppler::Annotation::SubType::ARichMedia) {
-            QRectF bound = a->boundary();
-            bound = bound.normalized();
-
-            Poppler::RichMediaAnnotation* richMedia = dynamic_cast<Poppler::RichMediaAnnotation*>(a.get());
-            if (richMedia == nullptr) {
-                continue;
-            }
-
-            Poppler::RichMediaAnnotation::Content* content = richMedia->content();
-            if (content == nullptr) {
-                continue;
-            }
-
-            QList<Poppler::RichMediaAnnotation::Asset*> assets = content->assets();
-
-            for (Poppler::RichMediaAnnotation::Asset* asset : assets) {
-                if (asset == nullptr) {
-                    continue;
-                }
-
-                Poppler::EmbeddedFile* embeddedFile = asset->embeddedFile();
-                if (embeddedFile == nullptr) {
-                    continue;
-                }
-
-                QByteArray fileData = embeddedFile->data();
-
-                // Only run zlib on data that actually looks like a gzip
-                // stream: gzip-hpp reports failure via return value instead
-                // of throwing, and a non-gzip payload is just noise to skip.
-                bool isGzip = (fileData.size() >= 2 &&
-                               static_cast<unsigned char>(fileData[0]) == 0x1f &&
-                               static_cast<unsigned char>(fileData[1]) == 0x8b);
-
-                if (!isGzip) {
-                    std::cerr << "v3d: embedded file is not gzip-compressed, skipping." << std::endl;
-                    continue;
-                }
-
-                std::string decompressedData;
-                gzip::Decompressor decompressor;
-                if (!decompressor.decompress(decompressedData, fileData.data(), fileData.size())) {
-                    std::cerr << "v3d: failed to decompress embedded file, skipping." << std::endl;
-                    continue;
-                }
-
-                if (decompressedData.empty()) {
-                    std::cerr << "v3d: embedded file decompressed to empty data, skipping." << std::endl;
-                    continue;
-                }
-
-                xdr::memixstream xdrFile{ (uint8_t*)decompressedData.data(), decompressedData.size() };
-
-                QRectF bound = a->boundary();
-                bound = bound.normalized();
-
-                glm::vec2 minBound{ bound.left(), bound.top() };
-                glm::vec2 maxBound{ bound.right(), bound.bottom() };
-
-                modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
-
+            // v3d exception boundary (see v3d-Common/CMakeLists.txt): the v3d
+            // parsing stack is compiled with exceptions while the host frames
+            // above are not, so a failure must be contained here -- it skips
+            // only this model instead of unwinding into them.
+            try {
+                addV3dModelsFromAnnotation(a.get(), page);
+            } catch (const std::exception& e) {
+                std::cerr << "v3d: failed to process embedded model: " << e.what() << ", skipping." << std::endl;
+            } catch (...) {
+                std::cerr << "v3d: failed to process embedded model (unknown exception), skipping." << std::endl;
             }
         }
         // ========== end v3d ==========

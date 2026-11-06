@@ -352,7 +352,18 @@ HeadlessRenderer::~HeadlessRenderer() {
 	destroyIBLResources();
 
 	if (initialized) {
-		cleanup();
+		// cleanup() may still throw V3dVulkanError (it recreates per-frame sync
+		// objects). An exception escaping a destructor would terminate the
+		// process -- the entry-point boundaries (see v3d-Common/CMakeLists.txt)
+		// cannot catch it. Leaking whatever teardown left behind at document
+		// close is acceptable: process exit reclaims it.
+		try {
+			cleanup();
+		} catch (const std::exception& e) {
+			std::cerr << "v3d: renderer teardown failed: " << e.what() << std::endl;
+		} catch (...) {
+			std::cerr << "v3d: renderer teardown failed (unknown exception)" << std::endl;
+		}
 
 		vkDestroyBuffer(device, uniformBuffer, nullptr);
 		vkFreeMemory(device, uniformBufferMemory, nullptr);

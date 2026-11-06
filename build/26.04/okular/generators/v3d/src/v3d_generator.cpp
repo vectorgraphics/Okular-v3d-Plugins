@@ -11,6 +11,8 @@
 
 #include <gui/priorities.h>
 
+#include <iostream>
+
 OKULAR_EXPORT_PLUGIN(V3dGenerator, "libokularGenerator_v3d.json")
 
 V3dGenerator::V3dGenerator(QObject *parent, const QVariantList &args) {
@@ -19,35 +21,49 @@ V3dGenerator::V3dGenerator(QObject *parent, const QVariantList &args) {
 }
 
 void V3dGenerator::generatePixmap(Okular::PixmapRequest* request) {
-    m_ModelManager.CacheRequest(request);
-
-    // For thumbnail requests, return a blank image instead of triggering
-    // expensive Vulkan rendering. Thumbnails should be static, non-interactive.
-    bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
-
+    // v3d exception boundary (see v3d-Common/CMakeLists.txt): rendering runs
+    // code compiled with exceptions while the core frames around it are not --
+    // contain failures here. The request must always be completed, or the
+    // page would wait for a pixmap that never arrives.
     QImage image;
-    if (isThumbnail) {
-        image = QImage((int)request->width(), (int)request->height(), QImage::Format_ARGB32);
-        image.fill(Qt::black);
-    } else {
-        // While the user is actively driving the presentation window (same
-        // screen), serve PageView requests from the last rendered image
-        // instead of re-rendering -- see V3dModelManager::
-        // ShouldSuppressPageViewRender() for the why.
-        if ((request->priority() == PAGEVIEW_PRIO || request->priority() == PAGEVIEW_PRELOAD_PRIO) &&
-            m_ModelManager.ShouldSuppressPageViewRender()) {
-            image = m_ModelManager.LastRenderedModelImage(0, 0);
-            if (!image.isNull() &&
-                (image.width() != (int)request->width() || image.height() != (int)request->height())) {
-                // All observers render the same page, so the aspect matches
-                // and a plain rescale keeps the framing identical.
-                image = image.scaled((int)request->width(), (int)request->height(),
-                                     Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    try {
+        m_ModelManager.CacheRequest(request);
+
+        // For thumbnail requests, return a blank image instead of triggering
+        // expensive Vulkan rendering. Thumbnails should be static, non-interactive.
+        bool isThumbnail = (request->priority() == THUMBNAILS_PRIO || request->priority() == THUMBNAILS_PRELOAD_PRIO);
+
+        if (isThumbnail) {
+            image = QImage((int)request->width(), (int)request->height(), QImage::Format_ARGB32);
+            image.fill(Qt::black);
+        } else {
+            // While the user is actively driving the presentation window (same
+            // screen), serve PageView requests from the last rendered image
+            // instead of re-rendering -- see V3dModelManager::
+            // ShouldSuppressPageViewRender() for the why.
+            if ((request->priority() == PAGEVIEW_PRIO || request->priority() == PAGEVIEW_PRELOAD_PRIO) &&
+                m_ModelManager.ShouldSuppressPageViewRender()) {
+                image = m_ModelManager.LastRenderedModelImage(0, 0);
+                if (!image.isNull() &&
+                    (image.width() != (int)request->width() || image.height() != (int)request->height())) {
+                    // All observers render the same page, so the aspect matches
+                    // and a plain rescale keeps the framing identical.
+                    image = image.scaled((int)request->width(), (int)request->height(),
+                                         Qt::IgnoreAspectRatio, Qt::FastTransformation);
+                }
+            }
+            if (image.isNull()) {
+                image = m_ModelManager.RenderModel(0, 0, (int)request->width(), (int)request->height());
             }
         }
-        if (image.isNull()) {
-            image = m_ModelManager.RenderModel(0, 0, (int)request->width(), (int)request->height());
-        }
+    } catch (const std::exception& e) {
+        std::cerr << "v3d: pixmap request failed: " << e.what() << "; serving a blank image." << std::endl;
+    } catch (...) {
+        std::cerr << "v3d: pixmap request failed (unknown exception); serving a blank image." << std::endl;
+    }
+    if (image.isNull()) {
+        image = QImage((int)request->width(), (int)request->height(), QImage::Format_ARGB32);
+        image.fill(Qt::black);
     }
 
     QPixmap* pixmap = new QPixmap(QPixmap::fromImage(image));
@@ -57,35 +73,45 @@ void V3dGenerator::generatePixmap(Okular::PixmapRequest* request) {
 }
 
 bool V3dGenerator::loadDocument(const QString &fileName, QVector<Okular::Page *> &pagesVector) {
-    if (document() != nullptr) {
-        m_ModelManager.SetDocument(document());
+    // v3d exception boundary (see v3d-Common/CMakeLists.txt): file parsing
+    // runs code compiled with exceptions while the core open path is not --
+    // contain failures here, failing the open instead of unwinding into it.
+    try {
+        if (document() != nullptr) {
+            m_ModelManager.SetDocument(document());
+        }
+
+        m_ModelManager.AddModel(V3dModel{ fileName.toStdString() }, 0);
+
+        glm::vec2 pageSize = m_ModelManager.GetCanvasSize(0);
+
+        // A file with a zero, negative, or NaN CANVAS_* field would otherwise
+        // make the loop below spin forever (0 * 2 is 0, NaN > 600 is always
+        // false), hanging the UI thread. (!>0 also rejects NaN.)
+        if (!(pageSize.x > 0.0f) || !(pageSize.y > 0.0f)) {
+            pageSize = glm::vec2{ 720.0f, 720.0f };
+        }
+
+        while (!(pageSize.x > 600)) {
+            pageSize.x *= 2;
+            pageSize.y *= 2;
+        }
+
+        Okular::Page* page = new Okular::Page(0, pageSize.x, pageSize.y, Okular::Rotation0);
+
+        pagesVector.append(page);
+
+        // Cache the page so that refreshPixmap() can call deletePixmaps() on it
+        // during drag rotation, providing visual feedback for raw .v3d files.
+        m_ModelManager.CachePage(0, page);
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "v3d: failed to load document: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "v3d: failed to load document (unknown exception)" << std::endl;
     }
-
-    m_ModelManager.AddModel(V3dModel{ fileName.toStdString() }, 0);
-
-    glm::vec2 pageSize = m_ModelManager.GetCanvasSize(0);
-
-    // A file with a zero, negative, or NaN CANVAS_* field would otherwise
-    // make the loop below spin forever (0 * 2 is 0, NaN > 600 is always
-    // false), hanging the UI thread. (!>0 also rejects NaN.)
-    if (!(pageSize.x > 0.0f) || !(pageSize.y > 0.0f)) {
-        pageSize = glm::vec2{ 720.0f, 720.0f };
-    }
-
-    while (!(pageSize.x > 600)) {
-        pageSize.x *= 2;
-        pageSize.y *= 2;
-    }
-
-    Okular::Page* page = new Okular::Page(0, pageSize.x, pageSize.y, Okular::Rotation0);
-
-    pagesVector.append(page);
-
-    // Cache the page so that refreshPixmap() can call deletePixmaps() on it
-    // during drag rotation, providing visual feedback for raw .v3d files.
-    m_ModelManager.CachePage(0, page);
-
-    return true;
+    return false;
 }
 
 bool V3dGenerator::doCloseDocument() {

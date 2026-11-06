@@ -194,6 +194,13 @@ private:
     void setAdditionalDocumentAction(Okular::Document::DocumentAdditionalActionType type, Okular::Action *action);
 
 // ========== begin v3d ==========
+    // Add the v3d models embedded as rich-media file attachments on `page`
+    // (exception boundary into the v3d parsing stack, see addAnnotations()).
+    void addV3dModelsFromAnnotation(Poppler::Annotation *annotation, Okular::Page *page);
+    // Render the page's v3d models onto `img` and update the v3d caches
+    // (exception boundary into the v3d rendering stack, see image()).
+    void renderV3dModels(QImage &img, Okular::PixmapRequest *request);
+
     // Last fully rendered page image (any page/size), used to serve stale
     // PageView-priority requests during an active presentation-only refresh
     // (see image()).

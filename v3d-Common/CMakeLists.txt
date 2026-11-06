@@ -67,6 +67,17 @@ target_compile_definitions(v3dCommon PUBLIC
     HAVE_RENDERER
 )
 
+# The rest of Okular/poppler/KF6 is built with -fno-exceptions: an exception
+# that unwinds out of a generator .so into a host frame has no valid landing
+# pad there (undefined behavior; a throw escaping a destructor terminates).
+# Exceptions are kept HERE because the renderer's VK_CHECK_RESULT throws
+# V3dVulkanError on every failed Vulkan call, and they are contained at every
+# plugin-to-host boundary instead:
+#   - HeadlessRenderer constructor, render() and ~HeadlessRenderer
+#     (V3dVulkanError)
+#   - PDFGenerator::addAnnotations / PDFGenerator::image
+#   - V3dGenerator::loadDocument / V3dGenerator::generatePixmap
+# so no exception ever crosses into a -fno-exceptions frame.
 target_compile_options(v3dCommon PUBLIC -fexceptions -fno-extended-identifiers)
 
 # Override the project-level -fvisibility=hidden so that all v3dCommon symbols
