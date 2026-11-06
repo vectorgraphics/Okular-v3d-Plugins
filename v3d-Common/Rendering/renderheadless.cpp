@@ -736,6 +736,19 @@ void HeadlessRenderer::createMaterialBuffer(const std::vector<GPUMaterial>& mate
 }
 
 void HeadlessRenderer::createLightBuffer(const std::vector<GPULight>& lights) {
+    // Guard: vkCreateBuffer with size==0 is invalid usage.
+    if (lights.empty()) {
+        std::cout << "v3d: no lights found, creating minimal buffer." << std::endl;
+        GPULight emptyLight{};
+        createBuffer(
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &lightBuffer, &lightBufferMemory, sizeof(GPULight), &emptyLight);
+        VkDeviceSize size = sizeof(GPULight);
+        vkMapMemory(device, lightBufferMemory, 0, size, 0, &lightBufferMapped);
+        return;
+    }
+
     VkDeviceSize size = sizeof(GPULight) * lights.size();
 
     auto result = createBuffer(
@@ -3827,8 +3840,10 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 		}
 
 		GPULight gpuLight{};
-		gpuLight.direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
-		gpuLight.color     = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
+		if (!lights.empty()) {
+			gpuLight.direction = glm::vec4{ lights[0].direction.x, lights[0].direction.y, lights[0].direction.z, 0.0f };
+			gpuLight.color     = glm::vec4{ lights[0].color.r, lights[0].color.g, lights[0].color.b, 1.0f };
+		}
 		if (lightBufferMapped) {
 			std::memcpy(lightBufferMapped, &gpuLight, sizeof(GPULight));
 		}
