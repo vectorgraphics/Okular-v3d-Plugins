@@ -431,6 +431,10 @@ private:
 	void createDescriptorPool();
 	void createDescirptorSets();
 	bool createAttachments(VkFormat colorFormat, VkFormat depthFormat, int targetWidth, int targetHeight);
+	// Compile one shader file into a VkShaderModule. On a compile failure
+	// (missing/empty file, parse or link error) sets initFailed (rendering
+	// stays disabled for this renderer) and throws V3dVulkanError; the
+	// diagnostics are printed at the failure site.
 	VkShaderModule createShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 
 	// Pipeline variant for shader-option selection (matches vkrender.cc PipelineType).
@@ -498,7 +502,9 @@ private:
 
 	void modifyShaderOptions(std::vector<std::string>& options, PipelineType type);
 	// Populate shaderModules.  A no-op after the first call: the shaders are
-	// compiled once per session (see shaderModules).
+	// compiled once per session (see shaderModules).  On a compile failure
+	// createShaderModule() sets initFailed and throws V3dVulkanError, which
+	// the caller's catch converts to a blank image (see render()).
 	void createShaderModules();
 	// Build the 32-byte graphics push constants (see PushConstants).
 	PushConstants buildPushConstants(uint32_t nlights);
@@ -543,7 +549,6 @@ private:
 	bool createTransparencyBuffers(int width, int height);
 	VkSemaphore createTimelineSemaphore(uint64_t initialValue);
 	void zeroTransparencyBuffers();
-	VkShaderModule createComputeShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options);
 	void updateTransparencyDescriptors();
 	void createCountRenderPass(int targetWidth, int targetHeight);
 	void createGraphicsRenderPass(int targetWidth, int targetHeight);

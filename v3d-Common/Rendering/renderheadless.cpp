@@ -1574,47 +1574,6 @@ void HeadlessRenderer::createComputePipelineLayout() {
 	VK_CHECK_RESULT(vkCreatePipelineLayout(device, &layoutInfo, nullptr, &computePipelineLayout));
 }
 
-VkShaderModule HeadlessRenderer::createComputeShaderModule(EShLanguage lang, std::string const & filePath, std::vector<std::string> const & options) {
-	std::string header = "#version 450\n";
-	for (auto const & option: options) {
-		header += "#define " + option + "\n";
-	}
-	auto fileContents = readFile(filePath.c_str());
-	fileContents.emplace_back(0);
-
-	std::vector<char> source(header.begin(), header.end());
-	source.insert(source.end(), fileContents.begin(), fileContents.end());
-
-	std::vector<const char*> const shaderSources {source.data()};
-	auto const res = getShaderResources();
-	auto const compileMessages = EShMessages(EShMsgSpvRules | EShMsgVulkanRules);
-	auto shader = glslang::TShader(lang);
-	glslang::TProgram program;
-	std::vector<std::uint32_t> spirv;
-
-	shader.setStrings(shaderSources.data(), shaderSources.size());
-
-	if (!shader.parse(&res, 100, false, compileMessages)) {
-		std::cout << "failed to parse " + filePath + ":\n" << shader.getInfoLog() << std::endl;
-	}
-
-	program.addShader(&shader);
-	if (!program.link(compileMessages)) {
-		std::cout << "failed to link shader " + filePath << ": " << shader.getInfoLog() << std::endl;
-	}
-
-	glslang::GlslangToSpv(*program.getIntermediate(lang), spirv);
-
-	VkShaderModule shaderModule;
-	VkShaderModuleCreateInfo moduleCreateInfo{};
-	moduleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	moduleCreateInfo.codeSize = spirv.size() * sizeof(std::uint32_t);
-	moduleCreateInfo.pCode = spirv.data();
-	VK_CHECK_RESULT(vkCreateShaderModule(device, &moduleCreateInfo, NULL, &shaderModule));
-
-	return shaderModule;
-}
-
 void HeadlessRenderer::createComputePipelines() {
 	createShaderModules(); // no-op after the first call
 
@@ -1944,7 +1903,15 @@ VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::strin
 	for (auto const & option: options) {
 		header += "#define " + option + "\n";
 	}
-	auto fileContents= readFile(filePath.c_str());
+	auto fileContents = readFile(filePath.c_str());
+	if (fileContents.empty()) {
+		// readFile already printed why (missing or empty file). The header
+		// alone has no entry point, so fail here: the file will not appear
+		// mid-session, so disable rendering (initFailed) instead of erroring
+		// on every frame.
+		initFailed = true;
+		throw V3dVulkanError("v3d: shader file missing or empty: " + filePath);
+	}
 	fileContents.emplace_back(0); // terminate string
 
 	std::vector<char> source(header.begin(), header.end());
@@ -1969,6 +1936,12 @@ VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::strin
 								+ filePath
 								+ ":\n" + shader.getInfoLog()
 								+ " " + shader.getInfoDebugLog() << std::endl;
+		// A failed parse leaves program.getIntermediate(lang) null; continuing
+		// on to GlslangToSpv would dereference it and segfault. The sources and
+		// the glslang version are fixed for the process lifetime, so disable
+		// rendering (initFailed) and let the caller's catch return a blank image.
+		initFailed = true;
+		throw V3dVulkanError("v3d: shader parse failed for " + filePath);
 	}
 
 	program.addShader(&shader);
@@ -1977,6 +1950,14 @@ VkShaderModule HeadlessRenderer::createShaderModule(EShLanguage lang, std::strin
 		std::cout << "failed to link shader "
 								+ filePath
 								+ ": " + shader.getInfoLog() << std::endl;
+		initFailed = true;
+		throw V3dVulkanError("v3d: shader link failed for " + filePath);
+	}
+
+	if (!program.getIntermediate(lang)) {
+		std::cout << "failed to get SPIR-V intermediate for " << filePath << std::endl;
+		initFailed = true;
+		throw V3dVulkanError("v3d: no SPIR-V intermediate for " + filePath);
 	}
 
 	glslang::GlslangToSpv(*program.getIntermediate(lang), spirv);
@@ -2017,6 +1998,10 @@ void HeadlessRenderer::createShaderModules()
 	// ibl, orthographic) only through push constants, plus a few
 	// session-fixed #defines (interlock, localSize, blockSize), so compile
 	// each module exactly once per session; pipeline (re)creation reuses them.
+	// A compile failure (see createShaderModule) sets initFailed and throws
+	// V3dVulkanError; the caller's catch resets per-frame state and returns
+	// a blank image, and the initFailed check at the top of render() keeps
+	// rendering disabled from then on.
 	if (!shaderModules.empty())
 		return;
 
@@ -2075,9 +2060,9 @@ void HeadlessRenderer::createShaderModules()
 	shaderModules[TransparentFrag] = frag("fragment.glsl", optionsFor(transparentShaderOptions, PIPELINE_TRANSPARENT));
 	// Compute.
 	std::vector<std::string> const computeOptions = optionsFor(noOptions, PIPELINE_DONTCARE);
-	shaderModules[Sum1] = createComputeShaderModule(EShLangCompute, shaderPath + "sum1.glsl", computeOptions);
-	shaderModules[Sum2] = createComputeShaderModule(EShLangCompute, shaderPath + "sum2.glsl", computeOptions);
-	shaderModules[Sum3] = createComputeShaderModule(EShLangCompute, shaderPath + "sum3.glsl", computeOptions);
+	shaderModules[Sum1] = createShaderModule(EShLangCompute, shaderPath + "sum1.glsl", computeOptions);
+	shaderModules[Sum2] = createShaderModule(EShLangCompute, shaderPath + "sum2.glsl", computeOptions);
+	shaderModules[Sum3] = createShaderModule(EShLangCompute, shaderPath + "sum3.glsl", computeOptions);
 }
 
 PushConstants HeadlessRenderer::buildPushConstants(uint32_t nlights)

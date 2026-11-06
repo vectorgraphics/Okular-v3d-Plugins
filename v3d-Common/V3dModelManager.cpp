@@ -189,10 +189,26 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
         "C:\\Program Files\\Okular\\bin\\"
     };
 
+    // Every shader file HeadlessRenderer compiles (createShaderModules).
+    // Require all of them up front so a partial shader installation degrades
+    // to a blank model at document open, instead of only failing at first
+    // render.
+    const std::vector<std::string> requiredShaders {
+        "vertex.glsl", "fragment.glsl", "count.glsl", "screen.glsl",
+        "blend.glsl", "sum1.glsl", "sum2.glsl", "sum3.glsl"
+    };
+
     std::string shaderPath = "";
 
     for (const auto& path : shaderSearchPaths) {
-        if (fileExists(path + "vertex.glsl") && fileExists(path + "fragment.glsl")) {
+        bool complete = true;
+        for (const auto& shader : requiredShaders) {
+            if (!fileExists(path + shader)) {
+                complete = false;
+                break;
+            }
+        }
+        if (complete) {
             shaderPath = path;
             break;
         }
