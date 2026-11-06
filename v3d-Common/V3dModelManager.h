@@ -298,9 +298,15 @@ private:
     // Async download state: number of replies still pending.
     int m_PendingDownloadCount = 0;
     QNetworkAccessManager* m_IBLNetManager = nullptr;  // lives for duration of download batch.
-    // Written on the main thread (download declined), read on render worker
-    // threads (RenderModel): keep it lock-free but atomic.
-    std::atomic<bool> m_IBLDeclined{ false };
+    // Environment-map image names (normalized, see normalizeIBLName) the user
+    // declined downloading. Per image name, so declining one map does not
+    // suppress prompts for other maps. Guarded by m_ModelsMutex: RenderModel
+    // reads it while holding the lock, and the decline path inserts under it.
+    // Intentionally NOT cleared in Clear(): a decline is a decision about a
+    // specific asset in the shared image library, so another document using
+    // the same map is not re-prompted (matching the process-wide
+    // pendingPrompts debounce in scheduleIBLPrompt).
+    std::set<std::string> m_IBLDeclinedNames;
     bool m_Destroying = false;
 
     V3dModel* m_ActiveModel{ nullptr };

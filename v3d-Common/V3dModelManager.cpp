@@ -360,14 +360,23 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     std::string imageName = m_Models[pageNumber][modelIndex].file->headerInfo.imageName;
     bool useIBL = false;
     std::string iblPath = "";
-    if (!imageName.empty() && !m_IBLDeclined) {
+    if (!imageName.empty()) {
         // A name that could escape the image library can never resolve and
         // must not prompt or download: render the scene without IBL instead.
         if (!iblNameOK(normalizeIBLName(imageName))) {
             logRejectedIBLName(imageName);
         } else {
             iblPath = resolveIBLPath(imageName);
-            if (iblPath.empty()) {
+            if (!iblPath.empty()) {
+                // Present locally (downloaded earlier or placed by hand): use
+                // it even if a download was declined before -- the decline
+                // refused the download, not a file that exists now.
+                useIBL = true;
+            } else if (m_IBLDeclinedNames.count(normalizeIBLName(imageName))) {
+                // Download declined for this image name: render the no-IBL
+                // fallback, keep the model untracked, and don't re-prompt.
+                // Other image names are unaffected.
+            } else {
                 // IBL missing locally -- track this model so it is re-rendered
                 // once the files arrive.
                 m_ModelsWithMissingIBL.insert({pageNumber, modelIndex});
@@ -379,8 +388,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
                 // Debounced per image, so this fires at most once per image name.
                 std::string base = getIBLBase();
                 scheduleIBLPrompt(imageName, base);
-            } else {
-                useIBL = true;
             }
         }
     }
@@ -1894,17 +1901,25 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
     QApplication::restoreOverrideCursor();
 
     if (result != QMessageBox::Yes) {
-        // User declined -- render normally without IBL.
-        m_IBLDeclined = true;
+        // User declined downloading THIS image -- record the decline for this
+        // name only (other maps still prompt and download), untrack this
+        // image's models, and refresh only the pages that show them.
         std::set<size_t> pages;
         // RenderModel (worker thread) inserts into m_ModelsWithMissingIBL
-        // under m_ModelsMutex; guard our iteration/clear the same way.
+        // under m_ModelsMutex; guard our iteration/erase the same way.
         {
             QMutexLocker locker(&m_ModelsMutex);
-            for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
-                pages.insert(pn);
+            m_IBLDeclinedNames.insert(name);
+            for (auto it = m_ModelsWithMissingIBL.begin(); it != m_ModelsWithMissingIBL.end(); ) {
+                const auto& [pn, mi] = *it;
+                if (m_Models.size() > pn && m_Models[pn].size() > mi &&
+                    normalizeIBLName(m_Models[pn][mi].file->headerInfo.imageName) == name) {
+                    pages.insert(pn);
+                    it = m_ModelsWithMissingIBL.erase(it);
+                } else {
+                    ++it;
+                }
             }
-            m_ModelsWithMissingIBL.clear();
         }
         for (size_t pn : pages) {
             scheduleRefreshPixmap(pn, 25);
@@ -2076,7 +2091,7 @@ void V3dModelManager::scheduleIBLPrompt(const std::string& imageName, const std:
     IBLPromptEvent* event = new IBLPromptEvent(
         [this, imageName, iblBase]() -> bool {
             performIBLDownload(imageName, iblBase);
-            return !m_IBLDeclined;
+            return true;
         }
     );
 
