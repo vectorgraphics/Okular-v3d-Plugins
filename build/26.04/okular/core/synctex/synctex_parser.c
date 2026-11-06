@@ -487,7 +487,7 @@ DEFINE_SYNCTEX_TREE_GETSET(target)
 
 /*  We ensure that SYNCTEX_BUFFER_SIZE < UINT_MAX, I don't know if it makes sense... */
 /*  Actually, the minimum buffer size is driven by integer and float parsing, including the unit.
- *  ±0.123456789e123??
+ *  +/-0.123456789e123??
  */
 #define SYNCTEX_BUFFER_MIN_SIZE 32
 #define SYNCTEX_BUFFER_SIZE 32768
@@ -1624,6 +1624,8 @@ static const synctex_data_model_s synctex_data_model_ref = {synctex_data_tag_idx
                                                             -1,                     /* width_V */
                                                             -1,                     /* height_V */
                                                             -1,                     /* depth_V */
+                                                            -1,                     /* name */
+                                                            -1,                     /* page */
                                                             synctex_data_ref_thv_max};
 static synctex_class_s synctex_class_ref = {
     NULL,                     /*  No scanner yet */
@@ -6495,14 +6497,14 @@ SYNCTEX_INLINE static synctex_box_s _synctex_data_box_V(synctex_node_p node)
 
 /**
  *  The higher box node in the parent hierarchy which
- *  mean line number is the one of node ±1.
+ *  mean line number is the one of node +/-1.
  *  This enclosing box is computed as follows
  *  1) get the first hbox in the parent linked list
  *  starting at node.
  *  If there is none, simply return the parent of node.
  *  2) compute the mean line number
  *  3) scans up the tree for the higher hbox with
- *  the same mean line number, ±1 eventually
+ *  the same mean line number, +/-1 eventually
  *  - parameter node: a node.
  *  - returns: a (proxy to a) box node.
  *  - author: JL
@@ -6514,7 +6516,7 @@ static synctex_node_p _synctex_node_box_visible(synctex_node_p node)
         int bound = 1500000 / (node->class->scanner->pre_magnification / 1000);
         synctex_node_p parent = NULL;
         /*  get the first enclosing parent
-         *  then get the highest enclosing parent with the same mean line ±1 */
+         *  then get the highest enclosing parent with the same mean line +/-1 */
         node = _synctex_node_or_handle_target(node);
         if (!_synctex_node_is_box(node)) {
             if ((parent = _synctex_tree_parent(node))) {
@@ -8001,7 +8003,7 @@ SYNCTEX_INLINE static synctex_nd_lr_s _synctex_eq_get_closest_children_in_box_v2
 #pragma mark Updater
 #endif
 
-typedef int (*synctex_print_f)(synctex_updater_p, const char *, ...); /*  print formatted to either FILE *  or gzFile */
+typedef int (*synctex_print_f)(synctex_updater_p, const char *, ...) SYNCTEX_PRINTF_FORMAT(2, 3); /*  print formatted to either FILE *  or gzFile */
 typedef void (*synctex_close_f)(synctex_updater_p);                   /*  close FILE *  or gzFile */
 
 #define SYNCTEX_BITS_PER_BYTE 8

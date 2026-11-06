@@ -376,12 +376,7 @@ char *_synctex_merge_strings(const char *first, ...)
             do {
                 if ((size = strlen(temp)) > 0) {
                     /*  There is something to merge */
-                    if (dest != strncpy(dest, temp, size)) {
-                        _synctex_error("!  _synctex_merge_strings: Copy problem");
-                        free(result);
-                        result = NULL;
-                        return NULL;
-                    }
+                    memcpy(dest, temp, size);
                     dest += size;
                 }
             } while ((temp = va_arg(arg, const char *)) != NULL);
