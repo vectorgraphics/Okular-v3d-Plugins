@@ -580,7 +580,9 @@ private:
 	                          uint32_t width, uint32_t height,
 	                          VkImage& image, VkDeviceMemory& memory,
 	                          VkImageView& imageView, VkSampler& sampler);
-	void initIBL(const std::string& iblPath);
+	// Returns true if all 12 IBL files loaded and the images were created;
+	// false if any file is missing/unreadable (no Vulkan resources created).
+	bool initIBL(const std::string& iblPath);
 	void createIBLPlaceholders();
 	void writeIBLDescriptors();
 	void updateIBL(const std::string& iblPath);

@@ -1531,14 +1531,21 @@ std::string V3dModelManager::resolveIBLPath(const std::string& imageName, bool d
         return f.good() ? path : "";
     };
 
-    // The iblPath must point to a directory containing diffuse.exr + refl0..10.exr.
-    // We also verify that the parent directory has refl.exr (common BRDF LUT).
+    // The iblPath must point to a directory containing diffuse.exr and all
+    // 11 reflection layers refl0..10.exr. We also verify that the parent
+    // directory has refl.exr (common BRDF LUT). A directory missing any file
+    // is a partial/interrupted download and must not be accepted: the
+    // renderer would then bind null views/samplers for the missing layers.
     auto tryIBLDir = [&tryPath](const std::string& dir) -> std::string {
         if (!dir.empty() && dir.back() == '/') return dir;
         std::string d = dir + "/";
         // Check diffuse.exr exists in this directory.
         std::string diffuse = tryPath(d + "diffuse.exr");
         if (diffuse.empty()) return "";
+        // Check all 11 reflection layers exist in this directory.
+        for (int i = 0; i <= 10; ++i) {
+            if (tryPath(d + "refl" + std::to_string(i) + ".exr").empty()) return "";
+        }
         // Check refl.exr exists in the parent directory.
         std::string parent = d.substr(0, d.size() - 1);
         size_t slash = parent.find_last_of('/');

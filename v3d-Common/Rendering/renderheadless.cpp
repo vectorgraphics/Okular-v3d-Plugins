@@ -860,6 +860,21 @@ void HeadlessRenderer::createDescirptorSets() {
 }
 
 void HeadlessRenderer::writeIBLDescriptors() {
+	// Defense in depth: vkUpdateDescriptorSets with a null imageView/sampler
+	// is invalid usage (driver-dependent crash). initIBL()/
+	// createIBLPlaceholders() are all-or-nothing, so this should never fire;
+	// if it does, skip the write and keep the previous (valid) state instead
+	// of corrupting the descriptor sets.
+	if (irradianceView == VK_NULL_HANDLE || irradianceSampler == VK_NULL_HANDLE ||
+		brdfView == VK_NULL_HANDLE || brdfSampler == VK_NULL_HANDLE ||
+		reflectionView == VK_NULL_HANDLE || reflectionSampler == VK_NULL_HANDLE) {
+		static bool warned = false;
+		if (!warned) {
+			std::cerr << "v3d: writeIBLDescriptors called with incomplete IBL handles; skipping." << std::endl;
+			warned = true;
+		}
+		return;
+	}
 	for (size_t i = 0; i < maxFramesInFlight; i++) {
 		VkDescriptorImageInfo irradianceInfo{};
 		irradianceInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -2939,16 +2954,19 @@ VkResult HeadlessRenderer::createIBLImage3D(const std::vector<std::vector<float>
 	return VK_SUCCESS;
 }
 
-void HeadlessRenderer::initIBL(const std::string& iblPath) {
+bool HeadlessRenderer::initIBL(const std::string& iblPath) {
+	// Load all 12 EXRs before creating any Vulkan resources (all-or-nothing):
+	// a partially present directory (interrupted download) must not leave a
+	// mix of valid and null IBL images, because the descriptor sets are
+	// written for all three IBL bindings unconditionally.
 	// Load diffuse.exr -> irradiance (2D)
 	int w = 0, h = 0;
 	auto diffuseData = loadEXR(iblPath + "/diffuse.exr", w, h);
 	if (diffuseData.empty()) {
 		std::cerr << "v3d: failed to load IBL diffuse.exr from " << iblPath << std::endl;
-		return;
+		return false;
 	}
-	createIBLImage(diffuseData, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
-		irradianceImg, irradianceImgMemory, irradianceView, irradianceSampler);
+	int diffuseW = w, diffuseH = h;
 
 	// Load refl.exr -> brdf (2D) - from imageDir (parent of iblPath)
 	std::string imageDir = iblPath.substr(0, iblPath.find_last_of('/'));
@@ -2957,10 +2975,9 @@ void HeadlessRenderer::initIBL(const std::string& iblPath) {
 	auto brdfData = loadEXR(reflPath, w, h);
 	if (brdfData.empty()) {
 		std::cerr << "v3d: failed to load IBL refl.exr from " << reflPath << std::endl;
-		return;
+		return false;
 	}
-	createIBLImage(brdfData, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
-		brdfImg, brdfImgMemory, brdfView, brdfSampler);
+	int brdfW = w, brdfH = h;
 
 	// Load refl0.exr .. refl10.exr -> reflection (3D, depth=11)
 	constexpr int NTEXTURES = 11;
@@ -2971,14 +2988,21 @@ void HeadlessRenderer::initIBL(const std::string& iblPath) {
 		auto layerData = loadEXR(iblPath + "/refl" + std::to_string(i) + ".exr", w, h);
 		if (layerData.empty()) {
 			std::cerr << "v3d: failed to load IBL refl" << i << ".exr from " << iblPath << std::endl;
-			return;
+			return false;
 		}
 		layers.push_back(std::move(layerData));
 	}
+
+	// Every file is present; only now create the Vulkan images.
+	createIBLImage(diffuseData, static_cast<uint32_t>(diffuseW), static_cast<uint32_t>(diffuseH),
+		irradianceImg, irradianceImgMemory, irradianceView, irradianceSampler);
+	createIBLImage(brdfData, static_cast<uint32_t>(brdfW), static_cast<uint32_t>(brdfH),
+		brdfImg, brdfImgMemory, brdfView, brdfSampler);
 	createIBLImage3D(layers, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
 		reflectionImg, reflectionImgMemory, reflectionView, reflectionSampler);
 
 	iblImagePath = iblPath;
+	return true;
 }
 
 void HeadlessRenderer::createIBLPlaceholders() {
@@ -3054,7 +3078,12 @@ void HeadlessRenderer::updateIBL(const std::string& iblPath) {
 	vkDeviceWaitIdle(device);
 
 	destroyIBLResources();
-	initIBL(iblPath);
+	if (!initIBL(iblPath)) {
+		// Partially present image library: keep the 1x1 placeholders so the
+		// IBL descriptor bindings stay valid. The path is not recorded, so a
+		// later, complete library can still be picked up.
+		createIBLPlaceholders();
+	}
 	writeIBLDescriptors();
 }
 
@@ -3640,10 +3669,11 @@ void HeadlessRenderer::uploadToPersistentBuffer(
 
 		// Initialize IBL resources before creating descriptor sets. The
 		// fragment shader always declares the IBL samplers (bindings 11-13);
-		// when IBL is off the descriptor sets hold 1x1 placeholder images
-		// (matches vkrender.cc initVulkan: initIBL() / createIBLPlaceholders()).
-		if (ibl && !iblPath.empty()) {
-			initIBL(iblPath);
+		// when IBL is off (or the image library is incomplete) the descriptor
+		// sets hold 1x1 placeholder images (matches vkrender.cc initVulkan:
+		// initIBL() / createIBLPlaceholders()).
+		if (ibl && !iblPath.empty() && initIBL(iblPath)) {
+			// IBL images loaded; descriptor sets are written below.
 		} else {
 			createIBLPlaceholders();
 		}
