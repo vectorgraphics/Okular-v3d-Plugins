@@ -17,6 +17,8 @@ Adds support for opening pdf files with v3d files embedded inside, currently rot
 5. `cd release`
 6. Finally, run `./install.sh` with root permissions
 
+To uninstall later, run `./uninstall.sh` with root permissions from the same `release` directory. It removes the plugin's files and restores the distribution's poppler generator, leaving PDF support exactly as the package manager left it.
+
 ## Building
 To build and install the plugins for your system:
 
@@ -31,6 +33,8 @@ To build and install the plugins for your system:
 3. Navigate to `build/<YY.MM>/`, matching the version of Okular you have installed, and run `./build.sh` (run `./build.sh --help` for the other options, e.g. `--debug` or `--clean`). This builds the plugins and stages the installable files (plugins, shaders, metadata, and the install script) in `stage/`. You will most likely only be able to build the plugin for the versions of Okular that ship with your package manager due to dependency versioning.
 
 4. Run `sudo ./build.sh --install` to install the staged plugins. This step does not rebuild anything: it only copies the staged files into the system plugin directories and updates the mime database, so it is safe to run as root and the build tree stays owned by your user (the next `./build.sh` run remains incremental).
+
+5. To remove the plugins later, run `sudo ./build.sh --uninstall`. Like `--install`, it requires the staged scripts from a previous `./build.sh` run (a `--clean` wipes them) and does not rebuild anything: it removes the plugin's files from the system plugin directories, restores the distribution's poppler generator if the install had replaced it, and updates the mime database, so it is safe to run as root for the same reason.
 
 ## Building plugins for a new version of Okular
 For this example, we will be building plugins for Okular version 25.04

@@ -13,6 +13,8 @@ buildFunc() {
             echo "  --debug         Builds the debug version of the plugins"
             echo "  --install       Install the staged plugins without building (requires a"
             echo "                  previous ./build.sh run; safe to run with sudo)"
+            echo "  --uninstall     Uninstall the staged plugins without building (requires a"
+            echo "                  previous ./build.sh run; safe to run with sudo)"
 
             exit
         fi
@@ -23,6 +25,7 @@ buildFunc() {
     release=0
     debug=0
     install=0
+    uninstall=0
 
     for arg in $@
     do
@@ -45,6 +48,10 @@ buildFunc() {
         if [[ $arg = "--install" ]]; then
             install=1
         fi
+
+        if [[ $arg = "--uninstall" ]]; then
+            uninstall=1
+        fi
     done
 
     if [[ $install -eq 1 ]]; then
@@ -59,6 +66,21 @@ buildFunc() {
         fi
         cd "stage/" || { echo "Error: stage directory not found."; exit 1; }
         bash "./install.sh"
+        exit 0
+    fi
+
+    if [[ $uninstall -eq 1 ]]; then
+        # Uninstall-only: run the staged uninstall.sh without building,
+        # restaging, or touching the build tree (mirror of --install).
+        # Safe to run with sudo: it only reads stage/ and writes to the
+        # system plugin directories, so the build tree is never opened by
+        # root (no rebuild, no ownership changes).
+        if [[ ! -f "stage/uninstall.sh" ]]; then
+            echo "Error: stage/uninstall.sh not found. Run ./build.sh (without --uninstall) first."
+            exit 1
+        fi
+        cd "stage/" || { echo "Error: stage directory not found."; exit 1; }
+        bash "./uninstall.sh"
         exit 0
     fi
 
@@ -125,6 +147,10 @@ buildFunc() {
 
     if [[ -f "../../base-release/install.sh" ]]; then
         cp "../../base-release/install.sh" "stage/"
+    fi
+
+    if [[ -f "../../base-release/uninstall.sh" ]]; then
+        cp "../../base-release/uninstall.sh" "stage/"
     fi
 
     if [[ -f "../../base-release/v3d-mime.xml" ]]; then
