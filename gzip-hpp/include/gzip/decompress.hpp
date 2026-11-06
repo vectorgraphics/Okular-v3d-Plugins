@@ -5,7 +5,6 @@
 
 // std
 #include <limits>
-#include <stdexcept>
 #include <string>
 
 namespace gzip {
@@ -20,11 +19,18 @@ class Decompressor
     {
     }
 
+    // Decompresses the zlib/gzip stream in data into output.
+    // Returns true on success. On any failure (zlib init error, input or
+    // output that would exceed max_, or a decompression error) returns
+    // false, leaves output empty, and has released the zlib stream. Callers
+    // cannot rely on exceptions: report failure via the return value.
     template <typename OutputType>
-    void decompress(OutputType& output,
+    bool decompress(OutputType& output,
                     const char* data,
                     std::size_t size) const
     {
+        output.clear();
+
         z_stream inflate_s;
 
         inflate_s.zalloc = nullptr;
@@ -43,13 +49,15 @@ class Decompressor
         // (8 to 15) + 32 to automatically detect gzip/zlib header
         constexpr int window_bits = 15 + 32; // auto with windowbits of 15
 
+        int init_ret = Z_OK;
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
-        if (inflateInit2(&inflate_s, window_bits) != Z_OK)
-        {
-            //throw std::runtime_error("inflate init failed");
-        }
+        init_ret = inflateInit2(&inflate_s, window_bits);
 #pragma GCC diagnostic pop
+        if (init_ret != Z_OK)
+        {
+            return false;
+        }
         inflate_s.next_in = reinterpret_cast<z_const Bytef*>(data);
 
 #ifdef DEBUG
@@ -58,13 +66,13 @@ class Decompressor
         if (size_64 > std::numeric_limits<unsigned int>::max())
         {
             inflateEnd(&inflate_s);
-            // throw std::runtime_error("size arg is too large to fit into unsigned int type x2");
+            return false;
         }
 #endif
         if (size > max_ || (size * 2) > max_)
         {
             inflateEnd(&inflate_s);
-            // throw std::runtime_error("size may use more memory than intended when decompressing");
+            return false;
         }
         inflate_s.avail_in = static_cast<unsigned int>(size);
         std::size_t size_uncompressed = 0;
@@ -74,7 +82,7 @@ class Decompressor
             if (resize_to > max_)
             {
                 inflateEnd(&inflate_s);
-                // throw std::runtime_error("size of output string will use more memory then intended when decompressing");
+                return false;
             }
             output.resize(resize_to);
             inflate_s.avail_out = static_cast<unsigned int>(2 * size);
@@ -82,18 +90,21 @@ class Decompressor
             int ret = inflate(&inflate_s, Z_FINISH);
             if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR)
             {
-                std::string error_msg = inflate_s.msg;
                 inflateEnd(&inflate_s);
-                // throw std::runtime_error(error_msg);
+                output.clear();
+                return false;
             }
 
             size_uncompressed += (2 * size - inflate_s.avail_out);
         } while (inflate_s.avail_out == 0);
         inflateEnd(&inflate_s);
         output.resize(size_uncompressed);
+        return true;
     }
 };
 
+// Convenience wrapper around Decompressor. Returns the decompressed data on
+// success and an empty string on failure; check emptiness to detect errors.
 inline std::string decompress(const char* data, std::size_t size)
 {
     Decompressor decomp;

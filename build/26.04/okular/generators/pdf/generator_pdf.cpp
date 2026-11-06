@@ -2092,9 +2092,9 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
 
                 QByteArray fileData = embeddedFile->data();
 
-                // Guard: check for gzip magic bytes before decompressing.
-                // gzip-hpp throws on bad data but exceptions are disabled in this build
-                // (-fno-exceptions), so a throw would abort the process.
+                // Only run zlib on data that actually looks like a gzip
+                // stream: gzip-hpp reports failure via return value instead
+                // of throwing, and a non-gzip payload is just noise to skip.
                 bool isGzip = (fileData.size() >= 2 &&
                                static_cast<unsigned char>(fileData[0]) == 0x1f &&
                                static_cast<unsigned char>(fileData[1]) == 0x8b);
@@ -2104,7 +2104,12 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
                     continue;
                 }
 
-                std::string decompressedData = gzip::decompress(fileData.data(), fileData.size());
+                std::string decompressedData;
+                gzip::Decompressor decompressor;
+                if (!decompressor.decompress(decompressedData, fileData.data(), fileData.size())) {
+                    std::cerr << "v3d: failed to decompress embedded file, skipping." << std::endl;
+                    continue;
+                }
 
                 if (decompressedData.empty()) {
                     std::cerr << "v3d: embedded file decompressed to empty data, skipping." << std::endl;
