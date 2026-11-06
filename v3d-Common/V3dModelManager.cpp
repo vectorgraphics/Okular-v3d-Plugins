@@ -9,6 +9,7 @@
 #include <QScreen>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 #include <set>
 #include <QTimer>
 #include <QSemaphore>
@@ -37,6 +38,26 @@ namespace camp {
         return projViewMat;
     }
     const glm::dmat3& getNormMat()     { return normMat; }
+}
+
+namespace {
+    // Every v3d render -- from any document, on any thread -- clears and
+    // fills the same process-global Asymptote scene state: the camp::
+    // vertex buffers (materialData/colorData/lineData/transparentData/
+    // pointData, defined in the vendored Asymptote sources), camp::materials,
+    // camp::pixelsPerBp, camp::projViewMat, camp::normMat, and the
+    // static lastPage/lastModel locals in RenderModel. The per-manager
+    // m_ModelsMutex only serializes renders of ONE document; with two
+    // v3d-bearing documents open (two PixmapGenerationThreads), or a
+    // standalone .v3d on the main thread plus a PDF on a worker, two
+    // RenderModel calls run concurrently under different managers' mutexes
+    // and tear the shared buffers (clear() while another thread
+    // push_back's -> realloc UAF, the "multiple documents crash").
+    //
+    // This single process-wide mutex serializes the global-buffer section
+    // of RenderModel (buffer clear + QueueMesh + HeadlessRenderer::render,
+    // which reads the same buffers) across all documents.
+    std::mutex v3dRenderGlobalsMutex;
 }
 
 bool fileExists(const std::string& path) {
@@ -345,6 +366,15 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     using namespace std;
     using namespace camp;
+
+    // Serialize the process-global Asymptote state across documents: from
+    // here (first write of a camp global) through QueueMesh (fills the
+    // buffers) and HeadlessRenderer::render (reads them) no other RenderModel
+    // may run. The per-manager mutex is already held; this is the
+    // cross-document one (see v3dRenderGlobalsMutex above). The guard
+    // releases on every return path, including the !hasRenderableData early
+    // out below.
+    std::lock_guard<std::mutex> renderGlobalsLock{ v3dRenderGlobalsMutex };
 
     // Match vkrender.cc: projViewMat = projMat * viewMat
     projViewMat = m_Models[pageNumber][modelIndex].projMat * m_Models[pageNumber][modelIndex].viewMat;
