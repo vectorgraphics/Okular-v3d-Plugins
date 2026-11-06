@@ -744,6 +744,11 @@ Okular::Document::OpenResult PDFGenerator::loadDocumentWithPassword(const QStrin
 
 Okular::Document::OpenResult PDFGenerator::loadDocumentFromDataWithPassword(const QByteArray &fileData, QList<Okular::Page *> &pagesVector, const QString &password)
 {
+    // ========== begin v3d ==========
+    if (document() != nullptr) {
+        modelManager.SetDocument(document());
+    }
+    // ========== end v3d ==========
 #ifndef NDEBUG
     if (pdfdoc) {
         qCDebug(OkularPdfDebug) << "PDFGenerator: multiple calls to loadDocument. Check it.";
@@ -761,6 +766,20 @@ Okular::Document::OpenResult PDFGenerator::init(QList<Okular::Page *> &pagesVect
     if (!pdfdoc) {
         return Okular::Document::OpenError;
     }
+
+    // ========== begin v3d ==========
+    // A (new) document is being loaded into this generator: drop the previous
+    // document's cached page backgrounds and last composite so no stale 2D
+    // content is served for the new document's pages (m_BackgroundCache is
+    // keyed only by page/size/rotation, so a same-sized page would otherwise
+    // return the old document's background). The 3D model state itself is
+    // reset in SetDocument() -> V3dModelManager::Clear(). Guarded with the
+    // same userMutex image() uses for these caches.
+    userMutex()->lock();
+    m_BackgroundCache.clear();
+    m_LastPageImage = {};
+    userMutex()->unlock();
+    // ========== end v3d ==========
 
     if (pdfdoc->isLocked()) {
         pdfdoc->unlock(password.toLatin1(), password.toLatin1());

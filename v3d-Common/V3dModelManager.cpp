@@ -694,10 +694,39 @@ glm::vec2 V3dModelManager::GetCanvasSize(size_t pageNumber) {
 }
 
 void V3dModelManager::SetDocument(const Okular::Document* document) {
+    // A (new or different) document is about to be loaded into this manager:
+    // drop the previous document's models and cached state first. Without this,
+    // a generator reused for a new document composites the old document's 3D
+    // models onto the new one -- e.g. closing a 3D PDF and opening a 2D PDF
+    // still shows the 3D model, and it keeps intercepting mouse input. Runs on
+    // the main thread, before any AddModel() for the new document.
+    Clear();
     m_Document = document;
+}
+
+void V3dModelManager::Clear() {
+    QMutexLocker locker(&m_ModelsMutex);
+
+    // Per-document content and caches (all guarded by m_ModelsMutex).
+    m_Models.clear();
+    m_ModelImages.clear();
+    m_Pages.clear();
+    m_CachedRequestSizes.clear();
+    m_ModelsWithMissingIBL.clear();
+    m_PresentationRequestSizes.clear();
+
+    // Interaction / input state from the previous document. Clear() runs on
+    // the main thread (from SetDocument), so these main-thread-only fields are
+    // safe to reset here; m_PendingRebindPosted is guarded by m_ModelsMutex.
+    m_Dragging = false;
     m_ActiveModel = nullptr;
     m_ActiveModelPage = -1;
-    m_Dragging = false;
+    m_LastEventSource = nullptr;
+    m_PendingRebindPosted = false;
+    m_SuppressPageViewRender.store(false, std::memory_order_release);
+
+    // The HeadlessRenderer is intentionally retained: it is reusable across
+    // documents and re-creating a Vulkan device per load is expensive.
 }
 
 bool V3dModelManager::mouseMoveEvent(QMouseEvent* event) {

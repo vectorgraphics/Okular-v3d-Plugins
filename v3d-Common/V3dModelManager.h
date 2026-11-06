@@ -74,6 +74,15 @@ public:
 
     void SetDocument(const Okular::Document* document);
 
+    // Discard all per-document state (models, cached model images, page
+    // references, cached request sizes, IBL/download bookkeeping and input
+    // state) so that a generator reused for a new document does not leak the
+    // previous document's 3D content -- or keep intercepting mouse input for
+    // it. Called by SetDocument() before the new document's models are added.
+    // The HeadlessRenderer is retained (reusable across documents; re-creating
+    // a Vulkan device per load is expensive).
+    void Clear();
+
     bool mouseMoveEvent(QMouseEvent* event);
     bool mouseButtonPressEvent(QMouseEvent* event);
     bool mouseButtonReleaseEvent(QMouseEvent* event);
