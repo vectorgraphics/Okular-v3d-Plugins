@@ -124,12 +124,14 @@ private:
     void cachePageUnlocked(size_t pageNumber, Okular::Page* page);
 
     // Re-resolve the PageView this document is shown in (see
-    // resolvePageView) and rebind m_PageView (and the mouse EventFilter) to
-    // it. The constructor-time scan (GetPageViewWidget) is correct except
-    // when this document's own window's PageView does not exist yet, in
-    // which case it binds to the other window's view; this document's first
-    // PAGEVIEW_PRIO pixmap request (by which time its PageView exists)
-    // triggers the re-resolution. Posted to the main event loop from
+    // resolvePageView: the window whose KParts::Part reports this
+    // document's url, window activation only as a fallback) and rebind
+    // m_PageView (and the mouse EventFilter) to it. The constructor-time
+    // scan (GetPageViewWidget) is correct except when this document's own
+    // window's PageView does not exist yet, in which case it binds to the
+    // other window's view; this document's first PAGEVIEW_PRIO pixmap
+    // request (by which time its PageView exists) triggers the
+    // re-resolution. Posted to the main event loop from
     // cacheRequestUnlocked() (which may run on a pixmap worker thread) and
     // delivered through ApplicationEventFilter.
     void rebindPageView();

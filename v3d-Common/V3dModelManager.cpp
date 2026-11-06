@@ -195,10 +195,10 @@ V3dModelManager::V3dModelManager(const Okular::Document* document)
     // the first AddModel, so a document without 3D content never pays for
     // it at open time.
 
-    // Initial binding: with several windows open this prefers the PageView
-    // in the active window (the one the document is being opened in). If
-    // this document's own window's PageView does not exist yet, it binds to
-    // the other window's view; rebindPageView() re-resolves on this
+    // Initial binding: with several windows open this binds to the
+    // PageView of the window whose part opened this document's url. If
+    // this document's own window's PageView does not exist yet, it binds
+    // to the other window's view; rebindPageView() re-resolves on this
     // document's first pixmap request, which arrives before the user can
     // interact with the document.
     m_PageView = GetPageViewWidget();
@@ -1530,13 +1530,94 @@ QAbstractScrollArea* pageViewOf(const QWidget* widget) {
     return nullptr;
 }
 
-// Deterministic best-effort resolution (main thread only) of the PageView
-// that shows the document this manager belongs to: a document is opened in
-// the window that is active (every standard flow focuses the window a
-// document is opened in), so with several windows open prefer the PageView
-// in the active window; with a single PageView in the app there is no
-// ambiguity. Returns nullptr if no PageView exists yet.
-QAbstractScrollArea* resolvePageView() {
+// Read the url exposed by a KParts::Part (one per Okular tab/window)
+// through the Qt meta-object system: KParts::ReadOnlyPart declares
+// Q_PROPERTY(QUrl url READ url). Going through the meta object (rather
+// than the KParts headers) keeps the plugin free of a link dependency on
+// KParts. Returns an empty QUrl when the object has no such property.
+QUrl partUrl(const QObject* object) {
+    const QMetaObject* meta = object->metaObject();
+    const int index = meta->indexOfProperty("url");
+    if (index < 0) {
+        return QUrl();
+    }
+    return meta->property(index).read(const_cast<QObject*>(object)).toUrl();
+}
+
+// Deterministic resolution (main thread only) of the PageView that shows
+// the given document: each Okular window hosts one KParts::Part per tab,
+// and the part's url is the very url it passes to the document when it
+// opens it (Document::currentDocument()), so the document's window is the
+// one whose part reports the same url. This deliberately does not use
+// window activation state: on headless or remote X servers (e.g. Xvnc)
+// a newly opened window may not become the active one Qt reports, and
+// the activation-based fallback below then binds the manager to the
+// other window's PageView. Returns nullptr when no part
+// claims the document (empty document url, or a window whose PageView
+// does not exist yet).
+QAbstractScrollArea* resolvePageViewForDocument(const Okular::Document* document) {
+    if (document == nullptr) {
+        return nullptr;
+    }
+
+    const QUrl documentUrl = document->currentDocument();
+    if (documentUrl.isEmpty()) {
+        return nullptr;
+    }
+
+    for (QWidget* window : QApplication::topLevelWidgets()) {
+        int partCount = 0;
+        bool urlMatches = false;
+
+        for (QObject* object : window->findChildren<QObject*>()) {
+            if (!object->inherits("KParts::Part")) {
+                continue;
+            }
+            ++partCount;
+            if (partUrl(object) == documentUrl) {
+                urlMatches = true;
+            }
+        }
+        if (partCount == 0 || !urlMatches) {
+            continue;
+        }
+
+        QList<QAbstractScrollArea*> pageViews;
+        for (QWidget* widget : window->findChildren<QWidget*>()) {
+            if (QAbstractScrollArea* pageView = pageViewOf(widget)) {
+                pageViews.append(pageView);
+            }
+        }
+        if (pageViews.isEmpty()) {
+            continue; // The PageView does not exist yet; the rebind triggered
+                      // by this document's first pixmap request will bind it.
+        }
+
+        if (partCount == 1) {
+            // Single-tab window: its only PageView shows the document.
+            return pageViews.first();
+        }
+
+        // Multi-tab window: the visible tab's PageView is the one that is
+        // (re)requesting pixmaps right now; when another tab is activated,
+        // its PageView's first requests re-trigger the rebind.
+        for (QAbstractScrollArea* pageView : pageViews) {
+            if (pageView->isVisible()) {
+                return pageView;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+// Fallback heuristic (main thread only) for when the document's window
+// cannot be identified by url: a document is opened in the window that is
+// active (every standard flow focuses the window a document is opened in),
+// so with several windows open prefer the PageView in the active window;
+// with a single PageView in the app there is no ambiguity. Returns nullptr
+// if no PageView exists yet.
+QAbstractScrollArea* resolvePageViewHeuristic() {
     QAbstractScrollArea* sole = nullptr;
     int count = 0;
     for (QWidget* widget : QApplication::allWidgets()) {
@@ -1563,15 +1644,25 @@ QAbstractScrollArea* resolvePageView() {
 
     return sole;
 }
+
+// Main-thread-only resolution of the PageView showing the document: the
+// deterministic document-URL match first, the window-activation heuristic
+// as a fallback.
+QAbstractScrollArea* resolvePageView(const Okular::Document* document) {
+    if (QAbstractScrollArea* pageView = resolvePageViewForDocument(document)) {
+        return pageView;
+    }
+    return resolvePageViewHeuristic();
+}
 }
 
 QAbstractScrollArea* V3dModelManager::GetPageViewWidget() {
-    // Initial binding (main thread, from the constructor). If this document
-    // was opened in a new window whose PageView does not exist yet, this
-    // binds to the other window's view -- rebindPageView() re-resolves on
-    // this document's first pixmap request, by which time the PageView
-    // exists.
-    QAbstractScrollArea* pageView = resolvePageView();
+    // Initial binding (main thread, from the constructor). This matches the
+    // window whose part opened this document's url. If the document's own
+    // window's PageView does not exist yet, this falls back to the other
+    // window's view -- rebindPageView() re-resolves on this document's
+    // first pixmap request, by which time the PageView exists.
+    QAbstractScrollArea* pageView = resolvePageView(m_Document);
 
     if (pageView == nullptr) {
         LOG("[v3d] GetPageViewWidget: no PageView found yet; rebindPageView() binds it on the first pixmap request\n");
@@ -1595,9 +1686,10 @@ void V3dModelManager::rebindPageView() {
         return;
     }
 
-    // Resolved from the live widget list, so the result is live by
+    // Resolved from the live widget list (by the document's url first,
+    // window activation only as a fallback), so the result is live by
     // construction.
-    QAbstractScrollArea* pageView = resolvePageView();
+    QAbstractScrollArea* pageView = resolvePageView(m_Document);
 
     if (pageView == nullptr || pageView == m_PageView) {
         return;
