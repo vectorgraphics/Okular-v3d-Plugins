@@ -93,8 +93,14 @@ private:
 
     mutable QMutex m_ModelsMutex; // mutable: also locked from const getters (LastRenderedModelImage)
 
-    void EnsureCachedRequestSize(size_t pageNumber);
+    // The public Cache* entry points take m_ModelsMutex; the *Unlocked
+    // variants below assume the caller already holds it (QMutex is
+    // non-recursive).
+    void EnsureCachedRequestSize(size_t pageNumber); // caller holds m_ModelsMutex
     void CacheRequestSize(size_t pageNumber, int width, int height, int priority);
+    void cacheRequestUnlocked(Okular::PixmapRequest* request);
+    void cacheRequestSizeUnlocked(size_t pageNumber, int width, int height, int priority);
+    void cachePageUnlocked(size_t pageNumber, Okular::Page* page);
 
     float GetDevicePixelRatio();
 
@@ -239,7 +245,9 @@ private:
     // Async download state: number of replies still pending.
     int m_PendingDownloadCount = 0;
     QNetworkAccessManager* m_IBLNetManager = nullptr;  // lives for duration of download batch.
-    bool m_IBLDeclined = false;
+    // Written on the main thread (download declined), read on render worker
+    // threads (RenderModel): keep it lock-free but atomic.
+    std::atomic<bool> m_IBLDeclined{ false };
     bool m_Destroying = false;
     std::string m_PendingIBLImageName;
     std::string m_PendingIBLIblBase;

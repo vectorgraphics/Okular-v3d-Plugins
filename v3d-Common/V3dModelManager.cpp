@@ -960,6 +960,15 @@ void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
 }
 
 void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
+    // Request-cache state (m_CachedRequestSizes, m_Pages,
+    // m_PresentationRequestSizes, m_PageViewObserver) is written here from
+    // pixmap worker threads and read from the main thread, so everything
+    // runs under m_ModelsMutex.
+    QMutexLocker locker(&m_ModelsMutex);
+    cacheRequestUnlocked(request);
+}
+
+void V3dModelManager::cacheRequestUnlocked(Okular::PixmapRequest* request) {
     Okular::Page* page = request->page();
 
     // Remember the PageView's observer: Okular's PageView passes itself as the
@@ -981,7 +990,7 @@ void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
     if (request->priority() != PAGEVIEW_PRIO && request->priority() != PAGEVIEW_PRELOAD_PRIO &&
         request->priority() != PRESENTATION_PRIO && request->priority() != PRESENTATION_PRELOAD_PRIO) {
         if (m_CachedRequestSizes.size() < (size_t)(page->number() + 1) || (m_CachedRequestSizes[page->number()].size.x == 0 && m_CachedRequestSizes[page->number()].size.y == 0)) {
-            CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
+            cacheRequestSizeUnlocked(page->number(), request->width(), request->height(), request->priority());
         }
         return;
     }
@@ -996,8 +1005,8 @@ void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
         m_PresentationRequestSizes[page->number()] = glm::ivec2{ request->width(), request->height() };
     }
 
-    CacheRequestSize(page->number(), request->width(), request->height(), request->priority());
-    CachePage(page->number(), page);
+    cacheRequestSizeUnlocked(page->number(), request->width(), request->height(), request->priority());
+    cachePageUnlocked(page->number(), page);
 
 #ifdef MOUSE_BOUNDARIES
     if (m_MouseBoundaryLines.size() < page->number() + 1) {
@@ -1008,12 +1017,18 @@ void V3dModelManager::CacheRequest(Okular::PixmapRequest* request) {
 }
 
 void V3dModelManager::EnsureCachedRequestSize(size_t pageNumber) {
+    // Caller holds m_ModelsMutex.
     if (m_CachedRequestSizes.size() <= pageNumber) {
         m_CachedRequestSizes.resize(pageNumber + 1);
     }
 }
 
 void V3dModelManager::CacheRequestSize(size_t pageNumber, int width, int height, int priority) {
+    QMutexLocker locker(&m_ModelsMutex);
+    cacheRequestSizeUnlocked(pageNumber, width, height, priority);
+}
+
+void V3dModelManager::cacheRequestSizeUnlocked(size_t pageNumber, int width, int height, int priority) {
     if (m_CachedRequestSizes.size() < pageNumber + 1) {
         m_CachedRequestSizes.resize(pageNumber + 1);
     }
@@ -1030,6 +1045,11 @@ void V3dModelManager::CacheRequestSize(size_t pageNumber, int width, int height,
 }
 
 void V3dModelManager::CachePage(size_t pageNumber, Okular::Page* page) {
+    QMutexLocker locker(&m_ModelsMutex);
+    cachePageUnlocked(pageNumber, page);
+}
+
+void V3dModelManager::cachePageUnlocked(size_t pageNumber, Okular::Page* page) {
     if (page == nullptr) {
         return;
     }
@@ -1674,10 +1694,15 @@ void V3dModelManager::performIBLDownload(const std::string& imageName, const std
         // User declined -- render normally without IBL.
         m_IBLDeclined = true;
         std::set<size_t> pages;
-        for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
-            pages.insert(pn);
+        // RenderModel (worker thread) inserts into m_ModelsWithMissingIBL
+        // under m_ModelsMutex; guard our iteration/clear the same way.
+        {
+            QMutexLocker locker(&m_ModelsMutex);
+            for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
+                pages.insert(pn);
+            }
+            m_ModelsWithMissingIBL.clear();
         }
-        m_ModelsWithMissingIBL.clear();
         for (size_t pn : pages) {
             QTimer* timer = new QTimer();
             timer->setSingleShot(true);
@@ -1787,13 +1812,19 @@ void V3dModelManager::onIBLDownloadComplete() {
 
     m_ReQueueModels = true;
     std::set<size_t> affectedPages;
-    for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
-        if (m_Models.size() > pn && m_Models[pn].size() > mi) {
-            m_Models[pn][mi].m_HasChanged = true;
+    // RenderModel (worker thread) inserts into m_ModelsWithMissingIBL and
+    // resizes m_Models under m_ModelsMutex; guard our iteration/clear and
+    // the m_Models[pn][mi] write the same way.
+    {
+        QMutexLocker locker(&m_ModelsMutex);
+        for (const auto& [pn, mi] : m_ModelsWithMissingIBL) {
+            if (m_Models.size() > pn && m_Models[pn].size() > mi) {
+                m_Models[pn][mi].m_HasChanged = true;
+            }
+            affectedPages.insert(pn);
         }
-        affectedPages.insert(pn);
+        m_ModelsWithMissingIBL.clear();
     }
-    m_ModelsWithMissingIBL.clear();
 
     // Force Okular to re-request pixmaps for each affected page.
     // Stagger the calls to avoid the 1/60s refresh throttle.
