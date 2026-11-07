@@ -453,7 +453,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     // Match Asymptote prepareScene(): when display is triggered (m_HasChanged=true),
     // always clearData() + pic->render(). The per-object fast path (!remesh && onscreen)
-    // avoids re-tessellation — algorithm §\ref{cull}.
+    // avoids re-tessellation -- algorithm \ref{cull}.
     // When switching models (PDFs with multiple v3d images), force remesh so all
     // objects rebuild their persistent state for the new scene.
     static size_t lastPage = 0, lastModel = 0;
@@ -486,7 +486,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
         m_Models[pageNumber][modelIndex].remesh = true;
     }
 
-    // clearData() — matches Asymptote prepareScene()
+    // clearData() -- matches Asymptote prepareScene()
     materialData.clear();
     colorData.clear();
     lineData.clear();
@@ -495,7 +495,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
 
     bool orthographic = m_Models[pageNumber][modelIndex].file->headerInfo.orthographic;
 
-    // pic->render(remesh) — matches Asymptote prepareScene() exactly. Do NOT centrally
+    // pic->render(remesh) -- matches Asymptote prepareScene() exactly. Do NOT centrally
     // reset renderCount here: the reference resets it via notRendered() inside each
     // object's queue()/clear() during QueueMesh, and the per-object fast path
     // (!remesh && Onscreen) intentionally leaves renderCount untouched so stable
@@ -548,9 +548,9 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     }
 
     unsigned char* imageData = m_HeadlessRenderer->render(
-        glm::ivec2{ imageWidth, imageHeight }, 
-        &imageSubresourceLayout, 
-        m_Models[pageNumber][modelIndex].viewMat, 
+        glm::ivec2{ imageWidth, imageHeight },
+        &imageSubresourceLayout,
+        m_Models[pageNumber][modelIndex].viewMat,
         m_Models[pageNumber][modelIndex].projMat,
         m_Models[pageNumber][modelIndex].normMat,
         m_Models[pageNumber][modelIndex].file->materials,
@@ -574,18 +574,20 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     unsigned char* imgDataTmp = imageData;
 
     // renderheadless.cpp clamps targetSize to maxFramebufferWidth/Height.
-    // Use the actual clamped dimensions from the subresource layout to avoid
-    // reading past the end of the returned buffer.
-    int32_t actualHeight = imageSubresourceLayout.size / imageSubresourceLayout.rowPitch;
-    int32_t actualRowPixels = imageSubresourceLayout.rowPitch / 4;
+    // Derive the actual (clamped) dimensions from the subresource layout,
+    // capped at the requested size. Both the row copy below and the QImage
+    // built from it use these, so the deep copy never reads past the end of
+    // vectorData when a request exceeds the device framebuffer clamp.
+    int32_t actualWidth = std::min((int32_t)(imageSubresourceLayout.rowPitch / 4), imageWidth);
+    int32_t actualHeight = std::min((int32_t)(imageSubresourceLayout.size / imageSubresourceLayout.rowPitch), imageHeight);
 
     std::vector<unsigned char> vectorData;
-    vectorData.reserve(imageWidth * imageHeight * 4);
+    vectorData.reserve((size_t)actualWidth * actualHeight * 4);
 
-    for (int32_t y = 0; y < actualHeight && y < imageHeight; y++) {
+    for (int32_t y = 0; y < actualHeight; y++) {
         unsigned int *row = (unsigned int*)imgDataTmp;
-        size_t rowBytes = std::min(actualRowPixels, imageWidth) * 4;
-    
+        size_t rowBytes = (size_t)actualWidth * 4;
+
         vectorData.resize(vectorData.size() + rowBytes);
         std::memcpy(vectorData.data() + vectorData.size() - rowBytes, (unsigned char*)row, rowBytes);
 
@@ -597,7 +599,7 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     // Vulkan outputs BGRA bytes (VK_FORMAT_B8G8R8A8_UNORM).
     // On little-endian x86, QImage::Format_ARGB32 stores bytes as B,G,R,A --
     // so the byte order matches directly. No swap needed.
-    QImage image{ vectorData.data(), imageWidth, imageHeight, QImage::Format_ARGB32 };
+    QImage image{ vectorData.data(), actualWidth, actualHeight, QImage::Format_ARGB32 };
     image = image.copy();  // Deep copy so we don't alias vectorData's buffer
 
     // Convert to RGB32 (no alpha channel) so Qt/Okular draws the pixels
@@ -954,8 +956,8 @@ bool V3dModelManager::wheelEvent(QWheelEvent* event) {
         return false;
     }
 
-    // Asymptote ignores shift on scroll — just use whichever axis has the delta.
-    // Qt converts vertical→horizontal when shift is held, zeroing .y().
+    // Asymptote ignores shift on scroll -- just use whichever axis has the delta.
+    // Qt converts vertical->horizontal when shift is held, zeroing .y().
     int deltaY = event->angleDelta().y();
     if (deltaY == 0)
         deltaY = event->angleDelta().x();
@@ -1070,7 +1072,7 @@ void V3dModelManager::DrawMouseBoundaries(QImage* img, size_t pageNumber) {
     }
 
     if (m_MouseBoundaryPoints.size() > pageNumber) {
-        
+
         constexpr int pointRadius = 5;
 
         for (auto point : m_MouseBoundaryPoints[pageNumber]) {
@@ -1180,8 +1182,8 @@ void V3dModelManager::cacheRequestSizeUnlocked(size_t pageNumber, int width, int
     std::chrono::duration<double> requestTime = std::chrono::system_clock::now() - m_StartTime;
 
     if (requestTime > m_CachedRequestSizes[pageNumber].requestTime) {
-        m_CachedRequestSizes[pageNumber] = RequestCache{ 
-            glm::ivec2{ width, height }, 
+        m_CachedRequestSizes[pageNumber] = RequestCache{
+            glm::ivec2{ width, height },
             priority,
             requestTime
         };
