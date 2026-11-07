@@ -2567,13 +2567,12 @@ bool HeadlessRenderer::readFeedback() {
 	switchBlendPipeline(feedbackMappedPtr[0]);
 
 	if (fragments > maxFragments) {
-		VkDeviceSize newFragmentBufferSize = (VkDeviceSize)(fragments * 11 / 10) * sizeof(glm::vec4);
+		maxFragments=(uint32_t) std::min(11*(uint64_t) fragments/10,(uint64_t) UINT32_MAX);
+		VkDeviceSize newFragmentBufferSize = (VkDeviceSize)(maxFragments * sizeof(glm::vec4));
 		vkDestroyBuffer(device, fragmentBuffer, nullptr);
 		vkFreeMemory(device, fragmentBufferMemory, nullptr);
 		vkDestroyBuffer(device, depthFragBuffer, nullptr);
 		vkFreeMemory(device, depthFragBufferMemory, nullptr);
-
-		maxFragments = fragments * 11 / 10;
 		VkResult fragRes = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &fragmentBuffer, &fragmentBufferMemory, newFragmentBufferSize);
 		if (fragRes != VK_SUCCESS) {
