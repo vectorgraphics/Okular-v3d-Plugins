@@ -2827,7 +2827,10 @@ void HeadlessRenderer::copyIBLDataToImage(const float* data, VkDeviceSize dataSi
 	VkFence fence;
 	VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &fence));
 	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submit, fence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+	// Finite timeout: a driver hang during IBL load must not freeze Okular forever.
+	// On timeout safeWaitForFences recovers via vkDeviceWaitIdle, after which the
+	// transfer is guaranteed complete.
+	safeWaitForFences(fence, "copyIBLDataToImage");
 	vkDestroyFence(device, fence, nullptr);
 	vkFreeCommandBuffers(device, commandPool, 1, &cmd);
 
@@ -2886,7 +2889,10 @@ void HeadlessRenderer::transitionImageLayout(VkImage image,
 	VkFence fence;
 	VK_CHECK_RESULT(vkCreateFence(device, &fenceCI, nullptr, &fence));
 	VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submit, fence));
-	VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+	// Finite timeout: a driver hang during an IBL layout transition must not freeze
+	// Okular forever. On timeout safeWaitForFences recovers via vkDeviceWaitIdle,
+	// after which the transition is guaranteed complete.
+	safeWaitForFences(fence, "transitionImageLayout");
 	vkDestroyFence(device, fence, nullptr);
 	vkFreeCommandBuffers(device, commandPool, 1, &cmd);
 }
