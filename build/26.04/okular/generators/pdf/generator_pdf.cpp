@@ -1335,13 +1335,18 @@ void PDFGenerator::renderV3dModels(QImage &img, Okular::PixmapRequest *request)
 
         size_t pageNumber = (size_t)request->page()->number();
 
+        // Lock-scoped snapshot: the per-model calls below (CacheRequest,
+        // RenderModel/CachedModelImage) each re-take the model mutex, so the
+        // loop must not hold a reference into the manager's model vector
+        // across them.
+        const auto modelBounds = modelManager.ModelBoundsSnapshot(pageNumber);
         int i = 0;
-        for (auto& model : modelManager.Models(pageNumber)) {
+        for (const auto& bounds : modelBounds) {
             if (!isThumbnail) {
-                int xMin = (int)(request->width() * model.minBound.x);
-                int xMax = (int)(request->width() * model.maxBound.x);
-                int yMin = (int)(request->height() * model.minBound.y);
-                int yMax = (int)(request->height() * model.maxBound.y);
+                int xMin = (int)(request->width() * bounds.minBound.x);
+                int xMax = (int)(request->width() * bounds.maxBound.x);
+                int yMin = (int)(request->height() * bounds.minBound.y);
+                int yMax = (int)(request->height() * bounds.maxBound.y);
                 int imageWidth = xMax - xMin;
                 int imageHeight = yMax - yMin;
 

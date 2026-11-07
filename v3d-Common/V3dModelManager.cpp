@@ -637,19 +637,18 @@ V3dModel& V3dModelManager::Model(size_t pageNumber, size_t modelIndex) {
     return m_Models[pageNumber][modelIndex];
 }
 
-std::vector<V3dModel>& V3dModelManager::Models(size_t pageNumber) {
+std::vector<V3dModelManager::ModelBounds> V3dModelManager::ModelBoundsSnapshot(size_t pageNumber) const {
+    std::vector<ModelBounds> snapshot;
+
     QMutexLocker locker(&m_ModelsMutex);
-
-    // Sanity guard: refuse to resize to an absurdly large index
-    if (pageNumber > 100000) {
-        qWarning() << "V3dModelManager::Models: pageNumber" << pageNumber << "exceeds maximum allowed (100000)";
-        return m_EmptyModels;
-    }
-
     if (pageNumber >= m_Models.size()) {
-        m_Models.resize(pageNumber + 1);
+        return snapshot;
     }
-    return m_Models[pageNumber];
+
+    for (const V3dModel& model : m_Models[pageNumber]) {
+        snapshot.push_back(ModelBounds{ model.minBound, model.maxBound });
+    }
+    return snapshot;
 }
 
 bool V3dModelManager::Empty() {
