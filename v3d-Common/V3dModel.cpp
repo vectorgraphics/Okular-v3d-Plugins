@@ -15,10 +15,10 @@ V3dModel::V3dModel(const std::string& filePath, const glm::vec2& minBound, const
     }
 }
 
-V3dModel::V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound, const glm::vec2& maxBound) 
+V3dModel::V3dModel(xdr::memixstream& xdrFile, const glm::vec2& minBound, const glm::vec2& maxBound, std::size_t totalBytes) 
     : minBound(minBound), maxBound(maxBound) {
 
-    file = std::make_unique<V3dFile>(xdrFile);
+    file = std::make_unique<V3dFile>(xdrFile, totalBytes);
 
     initProjection();
 }

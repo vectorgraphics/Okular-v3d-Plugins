@@ -2043,7 +2043,7 @@ void PDFGenerator::addAnnotations(Poppler::Page *popplerPage, Okular::Page *page
                 glm::vec2 minBound{ bound.left(), bound.top() };
                 glm::vec2 maxBound{ bound.right(), bound.bottom() };
 
-                modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
+                modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound, decompressedData.size() }, page->number());
 
             }
         }

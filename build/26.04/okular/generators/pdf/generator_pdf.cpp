@@ -2151,7 +2151,7 @@ void PDFGenerator::addV3dModelsFromAnnotation(Poppler::Annotation *annotation, O
         glm::vec2 minBound{ bound.left(), bound.top() };
         glm::vec2 maxBound{ bound.right(), bound.bottom() };
 
-        modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound }, page->number());
+        modelManager.AddModel(V3dModel{ xdrFile, minBound, maxBound, decompressedData.size() }, page->number());
     }
 }
 
