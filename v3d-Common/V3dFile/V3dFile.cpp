@@ -59,16 +59,6 @@ void appendOffset(std::vector<UINT>& a, const std::vector<UINT>& b, size_t offse
         a[n+i]=b[i]+(UINT)offset;
 }
 
-namespace {
-// Bytes left in the stream from the current position (0 if the position is
-// unknown). totalBytes is the stream's full size, known up front: the file
-// size for file streams, the buffer size for in-memory streams.
-int64_t bytesRemaining(xdr::ixstream& xdrFile, int64_t totalBytes) {
-    int64_t pos = xdrFile.tell();
-    return (pos >= 0 && totalBytes >= pos) ? (totalBytes - pos) : 0;
-}
-}
-
 V3dFile::V3dFile(const std::string& fileName) { 
     xdr::ixstream xdrFile{ fileName.c_str() };
 
@@ -487,7 +477,7 @@ void V3dFile::load(xdr::ixstream& xdrFile, int64_t totalBytes) {
 
         case ObjectTypes::TRIANGLES:
             PRINT_OBJECT_TYPE(TRIANGLES);
-            objects.push_back(std::move(std::make_unique<V3dTriangleGroup>(xdrFile, doublePrecisionFlag)));
+            objects.push_back(std::move(std::make_unique<V3dTriangleGroup>(xdrFile, doublePrecisionFlag, totalBytes, stopParsing)));
             break;
 
         case ObjectTypes::DISK:

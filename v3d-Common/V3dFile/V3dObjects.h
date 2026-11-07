@@ -89,8 +89,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 16> controlPoints;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     // Persistent transparency flag (matches BezierPatch::transparent in bezierpatch.h).
     // Set during tessellation; used by the fullyOnscreen fast path to route to
     // transparentData vs materialData, exactly like BezierPatch::append().
@@ -114,8 +114,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 10> controlPoints;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     // Persistent transparency flag (matches BezierTriangle::transparent in bezierpatch.h).
     bool isTransparent{ false };
 
@@ -134,8 +134,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 16> controlPoints;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     std::array<RGBA, 4> cornerColors;
 
 private:
@@ -153,8 +153,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 10> controlPoints;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     std::array<RGBA, 3> cornerColors;
 
 private:
@@ -172,8 +172,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 4> vertices;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
 
 private:
     BezierCurve C;
@@ -192,8 +192,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 3> vertices;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
 
 private:
     BezierCurve C;
@@ -212,8 +212,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 4> vertices;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     std::array<RGBA, 4> cornerColors;
 
 private:
@@ -233,8 +233,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 3> vertices;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     std::array<RGBA, 3> cornerColors;
 
 private:
@@ -246,9 +246,15 @@ private:
 
 class V3dTriangleGroup : public V3dObject {
 public:
+    // totalBytes is the stream's full size; the group's count claims are
+    // validated against it before any allocation (the natural cap: EOF).
+    // stopParsing is set if a claim the file cannot physically satisfy is
+    // found, so load() stops instead of leaving the stream misaligned.
     V3dTriangleGroup(
-        xdr::ixstream& xdrFile, 
-        V3D_BOOL doublePrecision);
+        xdr::ixstream& xdrFile,
+        V3D_BOOL doublePrecision,
+        int64_t totalBytes,
+        bool& stopParsing);
     ~V3dTriangleGroup() override = default;
 
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
@@ -267,8 +273,8 @@ public:
     std::vector<std::array<UINT, 3>> normalIndices;     // Vector has size nI
     std::vector<std::array<UINT, 3>> colorIndices;      // Vector has size nI
 
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
 };
 
 class V3dSphere : public V3dObject {
@@ -282,8 +288,8 @@ public:
 
     TRIPLE center;
     REAL radius;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
 };
 
 class V3dHemiSphere : public V3dObject {
@@ -297,8 +303,8 @@ public:
 
     TRIPLE center;
     REAL radius;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     REAL polarAngle;
     REAL azimuthalAngle;
 };
@@ -314,8 +320,8 @@ public:
 
     TRIPLE center;
     REAL radius;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     REAL polarAngle;
     REAL azimuthalAngle;
 };
@@ -332,8 +338,8 @@ public:
     TRIPLE center;
     REAL radius;
     REAL height;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     REAL polarAngle;
     REAL azimuthalAngle;
     V3D_BOOL core;
@@ -350,8 +356,8 @@ public:
 
     std::array<TRIPLE, 4> controlPoints;
     REAL width;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
     V3D_BOOL core;
 };
 
@@ -366,8 +372,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 4> controlPoints;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
 };
 
 class V3dLineSegment : public V3dObject {
@@ -381,8 +387,8 @@ public:
     void QueueMesh(int imageWidth, int imageHeight, triple sceneMinBound, triple sceneMaxBound, bool remesh, bool orthographic, DrawMode drawMode) override;
 
     std::array<TRIPLE, 2> endpoints;
-    UINT centerIndex;
-    UINT materialIndex;
+    UINT centerIndex{ 0 };
+    UINT materialIndex{ 0 };
 };
 
 class V3dPixel : public V3dObject {
@@ -396,5 +402,5 @@ public:
 
     TRIPLE position;
     REAL width;
-    UINT materialIndex;
+    UINT materialIndex{ 0 };
 };

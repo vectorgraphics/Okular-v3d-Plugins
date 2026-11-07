@@ -1076,8 +1076,10 @@ void V3dStraightTriangleWithCornerColors::QueueMesh(int imageWidth, int imageHei
 
 
 V3dTriangleGroup::V3dTriangleGroup(
-    xdr::ixstream& xdrFile, 
-    V3D_BOOL doublePrecision)
+    xdr::ixstream& xdrFile,
+    V3D_BOOL doublePrecision,
+    int64_t totalBytes,
+    bool& stopParsing)
     : V3dObject{ ObjectTypes::TRIANGLES } { 
         nI = 0;
         xdrFile >> nI;
@@ -1085,12 +1087,26 @@ V3dTriangleGroup::V3dTriangleGroup(
         nP = 0;
         xdrFile >> nP;
 
-        // Sanity caps to prevent bad_alloc or infinite loops from crafted files.
-        constexpr UINT maxCount = 10000000;
-        if (nI > maxCount || nP > maxCount) {
-            std::cout << "WARNING: V3dTriangleGroup count exceeds limit (nI=" << nI << ", nP=" << nP << "), skipping." << std::endl;
-            nI = 0;
-            nP = 0;
+        // Every count below is untrusted and is allocated before any read
+        // can fail, so each claim is validated against the data the file
+        // physically still contains (the natural cap: EOF). An unsatisfiable
+        // claim stops the whole parse instead of skipping this object and
+        // leaving the stream misaligned. The counts are zeroed so the
+        // object is inert once pushed: QueueMesh treats nI == 0 ||
+        // nP == 0 as nothing to draw.
+        auto claimExceedsFile = [&](const char* what, uint32_t count) {
+            std::cout << "WARNING: v3d TRIANGLES " << what << " count (" << count
+                      << ") claims more data than the file contains, stopping parse." << std::endl;
+            nI = nP = nN = nC = 0;
+            explicitNI = explicitCI = 0;
+            stopParsing = true;
+        };
+        // The bytes the file physically still contains at the current
+        // position, re-measured before each claim as sections are consumed.
+        auto remainingBytes = [&]() { return static_cast<uint64_t>(bytesRemaining(xdrFile, totalBytes)); };
+        int64_t realBytes = doublePrecision ? 8 : 4;
+        if (static_cast<uint64_t>(nP) * 3u * static_cast<uint64_t>(realBytes) > remainingBytes()) {
+            claimExceedsFile("position", nP);
             return;
         }
 
@@ -1103,9 +1119,9 @@ V3dTriangleGroup::V3dTriangleGroup(
 
         nN = 0;
         xdrFile >> nN;
-        if (nN > maxCount) {
-            std::cout << "WARNING: V3dTriangleGroup normal count exceeds limit, capping." << std::endl;
-            nN = 0;
+        if (static_cast<uint64_t>(nN) * 3u * static_cast<uint64_t>(realBytes) > remainingBytes()) {
+            claimExceedsFile("normal", nN);
+            return;
         }
         vertexNormalArray.resize(nN);
         for (UINT i = 0; i < nN; ++i) {
@@ -1116,12 +1132,13 @@ V3dTriangleGroup::V3dTriangleGroup(
 
         xdrFile >> explicitNI;
 
+        nC = 0;
         xdrFile >> nC;
-        if (nC > maxCount) {
-            std::cout << "WARNING: V3dTriangleGroup color count exceeds limit, capping." << std::endl;
-            nC = 0;
-        }
         if (nC > 0) {
+            if (static_cast<uint64_t>(nC) * 16u > remainingBytes()) {
+                claimExceedsFile("color", nC);
+                return;
+            }
             vertexColorArray.resize(nC);
             for (UINT i = 0; i < nC; ++i) {
                 xdrFile >> vertexColorArray[i].r;
@@ -1131,6 +1148,17 @@ V3dTriangleGroup::V3dTriangleGroup(
             }
 
             xdrFile >> explicitCI;
+        }
+
+        {
+            // Index triples per triangle: position always, normal and color
+            // only when explicitly indexed.
+            uint64_t wordsPerTriangle = 3u + (explicitNI ? 3u : 0u)
+                                          + (nC > 0 && explicitCI ? 3u : 0u);
+            if (static_cast<uint64_t>(nI) * wordsPerTriangle * 4u > remainingBytes()) {
+                claimExceedsFile("index", nI);
+                return;
+            }
         }
 
         positionIndices.resize(nI);
