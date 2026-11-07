@@ -1219,7 +1219,7 @@ float V3dModelManager::GetDevicePixelRatio() {
 }
 
 std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisiblePages() {
-    if (!m_PageView) return {};
+    if (!m_PageView || !m_Document) return {};
 
     auto visiblePages = m_Document->visiblePageRects();
 
@@ -1278,15 +1278,16 @@ std::vector<V3dModelManager::PageBorders> V3dModelManager::GetPageBordersForVisi
             pageBorders[i].pageNumber = page->pageNumber;
 
             if (rect.left == 0.0f && rect.right == 1.0f) {
-                // Either horizontally centerd or edge case #1
+                // Page is fully visible horizontally: centered in the viewport
                 pageBorders[i].le = pageBorders[i].ri = (viewPortSize.x - pageSize.x) / 2.0f;
             }
-            else if (rect.left != 0.0f && rect.right != 1.0f) {
-                pageBorders[i].le = -rect.left * pageSize.x;
-                pageBorders[i].ri = -rect.right * pageSize.x;
-            }
             else {
-                // EDGE CASE // TODO
+                // Page is wider than the viewport: its edges are clipped by the
+                // viewport. Offsets from the rect (zero when the page touches
+                // that viewport edge), mirroring the single-page computation
+                // above.
+                pageBorders[i].le = -rect.left * pageSize.x;
+                pageBorders[i].ri = -(1.0f - rect.right) * pageSize.x;
             }
 
             ++i;
