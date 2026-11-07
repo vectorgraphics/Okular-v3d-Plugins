@@ -37,29 +37,6 @@
 // Default fence timeout in nanoseconds
 #define DEFAULT_FENCE_TIMEOUT 100000000000
 
-// Macro to check and display Vulkan return results
-#if defined(__ANDROID__)
-#define VK_CHECK_RESULT(f)																				\
-{																										\
-	VkResult res = (f);																					\
-	if (res != VK_SUCCESS)																				\
-	{																									\
-		LOGE("Fatal : VkResult is \" %s \" in %s at line %d", vks::tools::errorString(res).c_str(), __FILE__, __LINE__); \
-		assert(res == VK_SUCCESS);																		\
-	}																									\
-}
-#else
-#define VK_CHECK_RESULT(f)																				\
-{																										\
-	VkResult res = (f);																					\
-	if (res != VK_SUCCESS)																				\
-	{																									\
-		std::cout << "Fatal : VkResult is \"" << vks::tools::errorString(res) << "\" in " << __FILE__ << " at line " << __LINE__ << "\n"; \
-		assert(res == VK_SUCCESS);																		\
-	}																									\
-}
-#endif
-
 const std::string getAssetPath();
 const std::string getShaderBasePath();
 
@@ -121,13 +98,6 @@ namespace vks
 		// Display error message and exit on fatal error
 		void exitFatal(const std::string& message, int32_t exitCode);
 		void exitFatal(const std::string& message, VkResult resultCode);
-
-		// Load a SPIR-V shader (binary)
-#if defined(__ANDROID__)
-		VkShaderModule loadShader(AAssetManager* assetManager, const char *fileName, VkDevice device);
-#else
-		VkShaderModule loadShader(const char *fileName, VkDevice device);
-#endif
 
 		/** @brief Checks if a file exists */
 		bool fileExists(const std::string &filename);

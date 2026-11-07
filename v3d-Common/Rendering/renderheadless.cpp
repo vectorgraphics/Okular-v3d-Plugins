@@ -29,15 +29,13 @@
 // generator/Qt boundary is not safe in okular, so we print and throw
 // V3dVulkanError instead; it is caught at the renderer's entry points
 // (HeadlessRenderer's constructor and render()), which reset the renderer
-// so the next frame starts from a clean full recreation. Unlike the
-// assert-only VK_CHECK_RESULT in VulkanTools.h (compiled out by NDEBUG),
-// this check is unconditional: a failed Vulkan call must never be silently
-// ignored and continued on with invalid handles.
+// so the next frame starts from a clean full recreation. The check is
+// unconditional: a failed Vulkan call must never be silently ignored and
+// continued on with invalid handles.
 struct V3dVulkanError : std::runtime_error {
 	explicit V3dVulkanError(const std::string& msg) : std::runtime_error(msg) {}
 };
 
-#undef VK_CHECK_RESULT
 #define VK_CHECK_RESULT(f)                                \
 {                                                         \
   VkResult res = (f);                                     \

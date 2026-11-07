@@ -44,8 +44,6 @@ public:
 
     QImage RenderModel(size_t pageNumber, size_t modelIndex, int imageWidth, int imageHeight);
 
-    V3dModel& Model(size_t pageNumber, size_t modelIndex);
-
     // Lock-scoped snapshot of the per-page model rectangles (normalized
     // [0,1] min/max bounds). Callers iterate the snapshot and call back
     // into the manager between entries (RenderModel, CacheRequest, ...);
@@ -242,9 +240,6 @@ private:
 
     std::vector<std::vector<V3dModel>> m_Models;
     std::vector<std::vector<QImage>> m_ModelImages;
-
-    // Sentinel object returned when bounds checks fail (avoids UB / exceptions)
-    V3dModel m_EmptyModel{ "" };
 
     std::unique_ptr<HeadlessRenderer> m_HeadlessRenderer;
     // ensureHeadlessRenderer() probed the shader paths and found no complete

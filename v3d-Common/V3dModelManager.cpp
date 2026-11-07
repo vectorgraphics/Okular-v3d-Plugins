@@ -624,21 +624,6 @@ QImage V3dModelManager::RenderModel(size_t pageNumber, size_t modelIndex, int im
     return image;
 }
 
-V3dModel& V3dModelManager::Model(size_t pageNumber, size_t modelIndex) {
-    QMutexLocker locker(&m_ModelsMutex);
-
-    if (pageNumber >= m_Models.size()) {
-        qWarning() << "V3dModelManager::Model: pageNumber" << pageNumber << "out of range (size =" << m_Models.size() << ")";
-        return m_EmptyModel;
-    }
-    if (modelIndex >= m_Models[pageNumber].size()) {
-        qWarning() << "V3dModelManager::Model: modelIndex" << modelIndex << "out of range for page" << pageNumber << "(size =" << m_Models[pageNumber].size() << ")";
-        return m_EmptyModel;
-    }
-
-    return m_Models[pageNumber][modelIndex];
-}
-
 std::vector<V3dModelManager::ModelBounds> V3dModelManager::ModelBoundsSnapshot(size_t pageNumber) const {
     std::vector<ModelBounds> snapshot;
 
