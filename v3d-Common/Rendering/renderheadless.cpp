@@ -268,6 +268,10 @@ HeadlessRenderer::HeadlessRenderer(std::string shaderPath)
 
 		VkDeviceQueueCreateInfo queueCreateInfo = requestGraphicsQueue();
 
+		if (initFailed) {
+			return;
+		}
+
 		createLogicalDevice(&queueCreateInfo);
 
 		vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);          // render queue
@@ -684,6 +688,16 @@ VkDeviceQueueCreateInfo HeadlessRenderer::requestGraphicsQueue() {
 		}
 	}
 
+	if (queueFamilyIndex == UINT32_MAX) {
+		// No graphics queue family: leave queueFamilyIndex at its sentinel
+		// (never feed garbage to vkGetDeviceQueue) and disable rendering;
+		// the constructor bails via initFailed. Real hardware always has a
+		// graphics family.
+		std::cerr << "v3d: no graphics queue family found, disabling rendering." << std::endl;
+		initialized = false;
+		initFailed = true;
+	}
+
 	return queueCreateInfo;
 }
 
@@ -748,9 +762,14 @@ void HeadlessRenderer::createLogicalDevice(VkDeviceQueueCreateInfo* queueCreateI
 	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
 	VK_CHECK_RESULT(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
 
-	// Load vkQueueSubmit2 dynamically (Synchronization2 entry point).
+	// Load vkQueueSubmit2 dynamically (Synchronization2 entry point). The old
+	// assert was compiled out in release, where a NULL pointer would only
+	// surface later as a segfault on the first vkQueueSubmit2 call.
 	vkQueueSubmit2Fn = (PFN_vkQueueSubmit2)vkGetDeviceProcAddr(device, "vkQueueSubmit2");
-	assert(vkQueueSubmit2Fn != nullptr);
+	if (vkQueueSubmit2Fn == nullptr) {
+		std::cerr << "v3d: vkGetDeviceProcAddr(vkQueueSubmit2) returned NULL at " << __FILE__ << ":" << __LINE__ << std::endl;
+		throw V3dVulkanError("vkGetDeviceProcAddr(vkQueueSubmit2) returned NULL");
+	}
 }
 
 void HeadlessRenderer::createUniformBuffer() {

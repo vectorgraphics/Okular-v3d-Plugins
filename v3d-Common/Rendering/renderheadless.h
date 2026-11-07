@@ -158,7 +158,7 @@ public:
 	uint32_t maxComputeWorkGroupCountX{ 65535 };
 	uint32_t maxFramebufferWidth{ 16384 };
 	uint32_t maxFramebufferHeight{ 16384 };
-	uint32_t queueFamilyIndex;
+	uint32_t queueFamilyIndex{ UINT32_MAX };  // Sentinel: no graphics queue family found yet
 	VkQueue queue;                 // Render queue: count+compute and main render (vkrender.cc renderQueue)
 	VkQueue transferQueue;         // Transfer queue: vertex/index uploads (vkrender.cc transferQueue)
 	VkCommandPool commandPool{ VK_NULL_HANDLE };            // Render-queue command pool
