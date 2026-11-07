@@ -59,6 +59,38 @@ void appendOffset(std::vector<UINT>& a, const std::vector<UINT>& b, size_t offse
         a[n+i]=b[i]+(UINT)offset;
 }
 
+namespace {
+// A real v3d HEADER object holds a couple dozen entries (canvas size,
+// bounds, lights, ...). An absurd headerEntryCount on a truncated stream
+// would make the entry loop spin on fast-failing reads for up to 2^32
+// iterations -- tens of seconds of CPU on the main thread. Cap it.
+constexpr unsigned kMaxHeaderEntries = 10000;
+
+// Hard cap on an unknown header entry's payload (in XDR words). Forward
+// compatibility entries are small (the largest known one, IMAGE, is a name
+// of at most 4096 bytes); when the stream's remaining size is measurable,
+// the tighter of this cap and the remaining bytes is enforced.
+constexpr uint64_t kMaxUnknownHeaderWords = 1000000;
+
+// Bytes left in the stream from the current position, or -1 when the size
+// cannot be measured (some in-memory streams ignore the seek direction).
+// Only call on a good stream: the temporary seeks clear the stream's
+// failure flags, so calling this on a failed stream would hide the error.
+int64_t remainingBytes(xdr::ixstream& xdrFile) {
+    if (!xdrFile) {
+        return -1;
+    }
+    int64_t cur = xdrFile.tell();
+    if (cur < 0) {
+        return -1;
+    }
+    xdrFile.seek(0, xdr::xstream::end);
+    int64_t size = xdrFile.tell();
+    xdrFile.seek(cur);
+    return (size >= cur) ? (size - cur) : -1;
+}
+}
+
 V3dFile::V3dFile(const std::string& fileName) { 
     xdr::ixstream xdrFile{ fileName.c_str() };
     load(xdrFile);
@@ -69,16 +101,32 @@ V3dFile::V3dFile(xdr::memixstream& xdrFile) {
 }
 
 void V3dFile::load(xdr::ixstream& xdrFile) {
+    // A failed read leaves the target UNINITIALIZED (xstream only sets the
+    // stream's fail flag), so the stream state must be checked before any
+    // value read this way is used.
     xdrFile >> versionNumber;
+    if (!xdrFile) {
+        std::cout << "ERROR: failed to read v3d version number (empty or corrupt file)" << std::endl;
+        return;
+    }
     if (versionNumber < 1) {
         std::cout << "ERROR: v3d file version " << versionNumber
                   << " is not supported (need >= 1)" << std::endl;
         return;
     }
     xdrFile >> doublePrecisionFlag;
+    if (!xdrFile) {
+        std::cout << "ERROR: failed to read v3d precision flag (corrupt file)" << std::endl;
+        return;
+    }
+
+    // Set on any cap overrun or failed read: parsing stops entirely instead
+    // of continuing on a misaligned stream, which would interpret the
+    // remaining bytes as garbage objects.
+    bool stopParsing = false;
 
     UINT objectType;
-    while (xdrFile >> objectType) {
+    while (!stopParsing && xdrFile >> objectType) {
         switch (objectType) {
         default:
             std::cout << "UNKNOWN TYPE: " << objectType << std::endl;
@@ -126,21 +174,32 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
         case ObjectTypes::CENTERS:
             PRINT_OBJECT_TYPE(CENTERS);
             UINT centersLength;
-            xdrFile >> centersLength;
+            if (!(xdrFile >> centersLength)) {
+                std::cout << "WARNING: truncated v3d CENTERS (count unreadable), stopping parse." << std::endl;
+                stopParsing = true;
+                break;
+            }
 
-            // Sanity cap to prevent bad_alloc from a crafted file.
+            // Sanity cap to prevent bad_alloc from a crafted file. Stopping
+            // the whole parse (rather than just this object) keeps the
+            // stream from being read misaligned afterwards.
             if (centersLength > 1000000) {
-                std::cout << "WARNING: centers count (" << centersLength << ") exceeds limit, skipping." << std::endl;
+                std::cout << "WARNING: centers count (" << centersLength << ") exceeds limit, stopping parse." << std::endl;
+                stopParsing = true;
                 break;
             }
 
             if (centersLength > 0) {
                 centers.resize(centersLength);
 
-                for (UINT i = 0; i < centersLength; ++i) {
+                for (UINT i = 0; !stopParsing && i < centersLength; ++i) {
                     centers[i].x = readReal(xdrFile, doublePrecisionFlag);
                     centers[i].y = readReal(xdrFile, doublePrecisionFlag);
                     centers[i].z = readReal(xdrFile, doublePrecisionFlag);
+                    if (!xdrFile) {
+                        std::cout << "WARNING: truncated v3d CENTERS, stopping parse." << std::endl;
+                        stopParsing = true;
+                    }
                 }
             }
 
@@ -149,14 +208,36 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
         case ObjectTypes::HEADER:
             PRINT_OBJECT_TYPE(HEADER);
             UINT headerEntryCount;
-            xdrFile >> headerEntryCount;
+            if (!(xdrFile >> headerEntryCount)) {
+                std::cout << "WARNING: truncated v3d HEADER (entry count unreadable), stopping parse." << std::endl;
+                stopParsing = true;
+                break;
+            }
 
-            for (UINT i = 0; i < headerEntryCount; ++i) {
+            // A crafted (or corrupt) file may claim billions of entries; on a
+            // truncated stream each of those reads fails instantly but the
+            // loop would still spin 2^32 times, freezing the main thread.
+            if (headerEntryCount > kMaxHeaderEntries) {
+                std::cout << "WARNING: v3d HEADER entry count (" << headerEntryCount
+                          << ") exceeds limit of " << kMaxHeaderEntries << ", stopping parse." << std::endl;
+                stopParsing = true;
+                break;
+            }
+
+            for (UINT i = 0; !stopParsing && i < headerEntryCount; ++i) {
                 UINT headerKey;
-                xdrFile >> headerKey;
+                if (!(xdrFile >> headerKey)) {
+                    std::cout << "WARNING: truncated v3d HEADER (entry key unreadable), stopping parse." << std::endl;
+                    stopParsing = true;
+                    break;
+                }
 
                 UINT length;
-                xdrFile >> length;
+                if (!(xdrFile >> length)) {
+                    std::cout << "WARNING: truncated v3d HEADER (entry length unreadable), stopping parse." << std::endl;
+                    stopParsing = true;
+                    break;
+                }
 
                 switch (headerKey) {
                     case CANVAS_WIDTH:
@@ -255,46 +336,91 @@ void V3dFile::load(xdr::ixstream& xdrFile) {
 
                     case IMAGE: {
                         uint64_t strLen;
-                        xdrFile >> strLen;
+                        if (!(xdrFile >> strLen)) {
+                            std::cout << "WARNING: truncated v3d HEADER IMAGE entry, stopping parse." << std::endl;
+                            stopParsing = true;
+                            break;
+                        }
 
                         // Sanity cap to prevent bad_alloc / a huge allocation from a
                         // crafted file. An IBL name is a short relative path (PATH_MAX
                         // is 4096); longer than that it can't be a valid path anyway.
-                        // On overflow we stop parsing this entry -- like the CENTERS
-                        // case above, the stream is left misaligned, so the rest of the
-                        // file is ignored rather than triggering a crash.
+                        // Stopping the whole parse (not just this entry) keeps the
+                        // stream from being read misaligned afterwards.
                         if (strLen > 4096) {
                             std::cout << "WARNING: IMAGE name length (" << strLen
-                                      << ") exceeds limit, skipping." << std::endl;
+                                      << ") exceeds limit, stopping parse." << std::endl;
+                            stopParsing = true;
                             break;
                         }
 
                         std::string s;
                         s.resize(strLen);
+                        bool truncated = false;
                         for (uint64_t k = 0; k < strLen; ++k) {
                             xdr::xbyte c;
                             xdrFile >> c;
+                            if (!xdrFile) {
+                                truncated = true;
+                                break;
+                            }
                             s[k] = static_cast<char>(c);
                         }
-                        // Advance remaining words to match getWordSize: (strLen+3)/4 data words
-                        uint64_t totalDataWords = (strLen + 3) / 4;
-                        for (uint64_t k = strLen; k < totalDataWords * 4; ++k) {
-                            xdr::xbyte dummy;
-                            xdrFile >> dummy;
+                        if (!truncated) {
+                            // Advance remaining words to match getWordSize: (strLen+3)/4 data words
+                            uint64_t totalDataWords = (strLen + 3) / 4;
+                            for (uint64_t k = strLen; k < totalDataWords * 4; ++k) {
+                                xdr::xbyte dummy;
+                                xdrFile >> dummy;
+                                if (!xdrFile) {
+                                    truncated = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (truncated) {
+                            std::cout << "WARNING: truncated v3d HEADER IMAGE name, stopping parse." << std::endl;
+                            stopParsing = true;
+                            break;
                         }
                         headerInfo.imageName = std::move(s);
                         break;
                     }    
 
-                    default:
+                    default: {
                         // Skip unknown header entries by consuming 'length' XDR words.
                         // This prevents stream corruption when newer v3d files contain
                         // header keys that this version doesn't recognize.
+                        //
+                        // 'length' comes straight from the file and is untrusted: a
+                        // corrupt value such as 0x7FFFFFFF would spin the loop below
+                        // for billions of iterations. Cap it against the data actually
+                        // remaining in the stream (when its size is measurable) and a
+                        // hard limit; anything larger is corrupt, so stop parsing.
+                        uint64_t maxWords = kMaxUnknownHeaderWords;
+                        int64_t remaining = remainingBytes(xdrFile);
+                        if (remaining >= 0 && static_cast<uint64_t>(remaining / 4) < maxWords) {
+                            maxWords = static_cast<uint64_t>(remaining / 4);
+                        }
+                        if (static_cast<uint64_t>(length) > maxWords) {
+                            std::cout << "WARNING: unknown v3d HEADER key (" << headerKey
+                                      << ") claims " << length << " words but at most "
+                                      << maxWords << " are available, stopping parse." << std::endl;
+                            stopParsing = true;
+                            break;
+                        }
+
                         for (UINT j = 0; j < length; ++j) {
                             uint32_t skipWord;
                             xdrFile >> skipWord;
+                            if (!xdrFile) {
+                                std::cout << "WARNING: truncated v3d HEADER (unknown-key payload unreadable), stopping parse." << std::endl;
+                                stopParsing = true;
+                                break;
+                            }
                         }
                         break;
+                    }
                 }
             }
             break;
